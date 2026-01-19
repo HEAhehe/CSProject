@@ -38,7 +38,9 @@
         {
           "photosPermission": "The app accesses your photos to let you select a profile picture."
         }
-      ]
+      ],
+      "expo-asset",
+      "expo-font"
     ]
   }
 }

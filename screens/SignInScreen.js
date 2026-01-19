@@ -10,6 +10,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  StatusBar,
 } from 'react-native';
 import { signInWithEmailAndPassword } from 'firebase/auth';
 import { auth } from '../firebase.config';
@@ -29,13 +30,11 @@ export default function SignInScreen({ navigation }) {
 
     setLoading(true);
     try {
-      // สำหรับ Firebase Auth ต้องใช้ email แทน username
       const email = username.includes('@') ? username : `${username}@foodwaste.app`;
-      
       await signInWithEmailAndPassword(auth, email, password);
-      Alert.alert('สำเร็จ', 'เข้าสู่ระบบสำเร็จ');
-      // Navigate to Home or Main App Screen
-      // navigation.navigate('Home');
+      
+      // Navigate to Home after successful login
+      //navigation.replace('Home');
     } catch (error) {
       console.error(error);
       let errorMessage = 'เกิดข้อผิดพลาดในการเข้าสู่ระบบ';
@@ -46,6 +45,8 @@ export default function SignInScreen({ navigation }) {
         errorMessage = 'ไม่พบผู้ใช้งานนี้';
       } else if (error.code === 'auth/wrong-password') {
         errorMessage = 'รหัสผ่านไม่ถูกต้อง';
+      } else if (error.code === 'auth/invalid-credential') {
+        errorMessage = 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง';
       }
       
       Alert.alert('ข้อผิดพลาด', errorMessage);
@@ -59,22 +60,37 @@ export default function SignInScreen({ navigation }) {
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       style={styles.container}
     >
+      <StatusBar barStyle="dark-content" backgroundColor="#fff" />
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
       >
+        <View style={styles.header}>
+          <TouchableOpacity
+            style={styles.backButton}
+            onPress={() => navigation.goBack()}
+          >
+            <Ionicons name="arrow-back" size={24} color="#1f2937" />
+          </TouchableOpacity>
+        </View>
+
         <View style={styles.logoContainer}>
           <View style={styles.logoCircle}>
-            <Text style={styles.logoText}>LOGO</Text>
+            <Ionicons name="leaf" size={60} color="#10b981" />
           </View>
+          <Text style={styles.welcomeText}>ยินดีต้อนรับกลับ!</Text>
+          <Text style={styles.subtitle}>เข้าสู่ระบบเพื่อจัดการอาหารของคุณ</Text>
         </View>
 
         <View style={styles.formContainer}>
           <View style={styles.inputContainer}>
-            <Ionicons name="person-outline" size={20} color="#6b7280" style={styles.inputIcon} />
+            <View style={styles.iconContainer}>
+              <Ionicons name="person" size={20} color="#10b981" />
+            </View>
             <TextInput
               style={styles.input}
-              placeholder="USERNAME"
+              placeholder="ชื่อผู้ใช้"
               value={username}
               onChangeText={setUsername}
               autoCapitalize="none"
@@ -83,10 +99,12 @@ export default function SignInScreen({ navigation }) {
           </View>
 
           <View style={styles.inputContainer}>
-            <Ionicons name="lock-closed-outline" size={20} color="#6b7280" style={styles.inputIcon} />
+            <View style={styles.iconContainer}>
+              <Ionicons name="lock-closed" size={20} color="#10b981" />
+            </View>
             <TextInput
               style={styles.input}
-              placeholder="PASSWORD"
+              placeholder="รหัสผ่าน"
               value={password}
               onChangeText={setPassword}
               secureTextEntry={!showPassword}
@@ -98,36 +116,45 @@ export default function SignInScreen({ navigation }) {
               style={styles.eyeIcon}
             >
               <Ionicons
-                name={showPassword ? "eye-outline" : "eye-off-outline"}
+                name={showPassword ? "eye" : "eye-off"}
                 size={20}
                 color="#6b7280"
               />
             </TouchableOpacity>
           </View>
 
-          <TouchableOpacity onPress={() => Alert.alert('ลืมรหัสผ่าน', 'ฟีเจอร์นี้กำลังพัฒนา')}>
-            <Text style={styles.forgotPassword}>Forgot password?</Text>
+          <TouchableOpacity 
+            onPress={() => navigation.navigate('ForgotPassword')}
+            style={styles.forgotPasswordContainer}
+          >
+            <Text style={styles.forgotPassword}>ลืมรหัสผ่าน?</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
             style={styles.signInButton}
             onPress={handleSignIn}
             disabled={loading}
+            activeOpacity={0.8}
           >
             {loading ? (
-              <ActivityIndicator color="#374151" />
+              <ActivityIndicator color="#fff" />
             ) : (
-              <Text style={styles.signInButtonText}>SIGN IN</Text>
+              <Text style={styles.signInButtonText}>เข้าสู่ระบบ</Text>
             )}
           </TouchableOpacity>
 
-          <Text style={styles.orText}>or</Text>
+          <View style={styles.divider}>
+            <View style={styles.dividerLine} />
+            <Text style={styles.dividerText}>หรือ</Text>
+            <View style={styles.dividerLine} />
+          </View>
 
           <TouchableOpacity
             style={styles.signUpButton}
             onPress={() => navigation.navigate('SignUp')}
+            activeOpacity={0.8}
           >
-            <Text style={styles.signUpButtonText}>SIGN UP</Text>
+            <Text style={styles.signUpButtonText}>สร้างบัญชีใหม่</Text>
           </TouchableOpacity>
         </View>
       </ScrollView>
@@ -142,91 +169,133 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     flexGrow: 1,
-    justifyContent: 'center',
+    paddingVertical: 20,
+  },
+  header: {
+    paddingHorizontal: 20,
+    paddingTop: 40,
+  },
+  backButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#f3f4f6',
     alignItems: 'center',
-    paddingVertical: 40,
+    justifyContent: 'center',
   },
   logoContainer: {
     alignItems: 'center',
-    marginBottom: 60,
+    marginTop: 20,
+    marginBottom: 40,
   },
   logoCircle: {
-    width: 160,
-    height: 160,
-    borderRadius: 80,
-    backgroundColor: '#d1d5db',
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    backgroundColor: '#f0fdf4',
     alignItems: 'center',
     justifyContent: 'center',
+    marginBottom: 20,
+    shadowColor: '#10b981',
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 5,
   },
-  logoText: {
-    fontSize: 32,
-    fontWeight: '600',
-    color: '#374151',
+  welcomeText: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    color: '#1f2937',
+    marginBottom: 8,
+  },
+  subtitle: {
+    fontSize: 14,
+    color: '#6b7280',
   },
   formContainer: {
-    width: '100%',
-    paddingHorizontal: 40,
-    alignItems: 'center',
+    paddingHorizontal: 30,
   },
   inputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#d1d5db',
-    borderRadius: 25,
-    paddingHorizontal: 20,
-    paddingVertical: 12,
+    backgroundColor: '#f9fafb',
+    borderRadius: 15,
     marginBottom: 15,
-    width: '100%',
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
   },
-  inputIcon: {
-    marginRight: 10,
+  iconContainer: {
+    width: 50,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   input: {
     flex: 1,
-    fontSize: 14,
-    color: '#374151',
-    fontWeight: '500',
+    paddingVertical: 16,
+    fontSize: 15,
+    color: '#1f2937',
   },
   eyeIcon: {
-    padding: 5,
+    padding: 15,
+  },
+  forgotPasswordContainer: {
+    alignSelf: 'flex-end',
+    marginBottom: 25,
   },
   forgotPassword: {
-    fontSize: 12,
-    color: '#6b7280',
-    alignSelf: 'flex-end',
-    marginBottom: 30,
-    marginTop: -5,
+    fontSize: 13,
+    color: '#10b981',
+    fontWeight: '500',
   },
   signInButton: {
-    backgroundColor: '#d1d5db',
-    paddingVertical: 15,
-    paddingHorizontal: 80,
-    borderRadius: 25,
-    width: '100%',
+    backgroundColor: '#10b981',
+    paddingVertical: 16,
+    borderRadius: 15,
     alignItems: 'center',
     marginBottom: 20,
+    shadowColor: '#10b981',
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
   },
   signInButtonText: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#374151',
+    color: '#fff',
   },
-  orText: {
-    fontSize: 14,
-    color: '#6b7280',
-    marginBottom: 20,
+  divider: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 20,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: '#e5e7eb',
+  },
+  dividerText: {
+    marginHorizontal: 15,
+    fontSize: 13,
+    color: '#9ca3af',
   },
   signUpButton: {
-    backgroundColor: '#d1d5db',
-    paddingVertical: 15,
-    paddingHorizontal: 80,
-    borderRadius: 25,
-    width: '100%',
+    backgroundColor: '#fff',
+    paddingVertical: 16,
+    borderRadius: 15,
     alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#10b981',
   },
   signUpButtonText: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#374151',
+    color: '#10b981',
   },
 });

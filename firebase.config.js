@@ -1,21 +1,31 @@
 // Import the functions you need from the SDKs you need
 import { initializeApp } from "firebase/app";
-import { getAnalytics } from "firebase/analytics";
-// TODO: Add SDKs for Firebase products that you want to use
-// https://firebase.google.com/docs/web/setup#available-libraries
+// แก้ไข 1: เปลี่ยนการ import auth เป็นแบบใหม่
+import { initializeAuth, getReactNativePersistence } from "firebase/auth";
+import { getFirestore } from "firebase/firestore";
+// แก้ไข 2: import ตัวช่วยจำ (AsyncStorage)
+import ReactNativeAsyncStorage from '@react-native-async-storage/async-storage';
 
 // Your web app's Firebase configuration
-// For Firebase JS SDK v7.20.0 and later, measurementId is optional
 const firebaseConfig = {
-  apiKey: "AIzaSyC_kBtswH2SsGMT6QBK0l_ZO9-Y0fcYp5E",
-  authDomain: "foodwaste-50060.firebaseapp.com",
-  projectId: "foodwaste-50060",
-  storageBucket: "foodwaste-50060.firebasestorage.app",
-  messagingSenderId: "1012268413610",
-  appId: "1:1012268413610:web:a03621e4f9a7d71c8f96d3",
-  measurementId: "G-CCM5SYVBQV"
+  apiKey: "AIzaSyDYTj2UPGXEZLEy4_hDcMEJjOSQZQYo19s",
+  authDomain: "foodwaste-v2.firebaseapp.com",
+  projectId: "foodwaste-v2",
+  storageBucket: "foodwaste-v2.firebasestorage.app",
+  messagingSenderId: "591059790207",
+  appId: "1:591059790207:web:c19e0fc4ead246ebe3124a",
+  measurementId: "G-13D2Y3MDGK"
 };
 
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
-const analytics = getAnalytics(app);
+
+// Initialize Firebase services
+// แก้ไข 3: ใช้ initializeAuth แทน getAuth เพื่อใส่ setting การจำค่า
+export const auth = initializeAuth(app, {
+  persistence: getReactNativePersistence(ReactNativeAsyncStorage)
+});
+
+export const db = getFirestore(app);
+
+export default app;
