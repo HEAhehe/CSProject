@@ -34,7 +34,6 @@ export default function SignInScreen({ navigation }) {
       await signInWithEmailAndPassword(auth, email, password);
       
       // Navigate to Home after successful login
-      //navigation.replace('Home');
     } catch (error) {
       console.error(error);
       let errorMessage = 'เกิดข้อผิดพลาดในการเข้าสู่ระบบ';

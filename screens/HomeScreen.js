@@ -129,12 +129,6 @@ export default function HomeScreen({ navigation }) {
               <Text style={styles.actionText}>สแกน</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.actionCard}>
-              <View style={[styles.actionIcon, { backgroundColor: '#fce7f3' }]}>
-                <Ionicons name="gift" size={28} color="#ec4899" />
-              </View>
-              <Text style={styles.actionText}>บริจาค</Text>
-            </TouchableOpacity>
 
             <TouchableOpacity style={styles.actionCard}>
               <View style={[styles.actionIcon, { backgroundColor: '#fef3c7' }]}>
