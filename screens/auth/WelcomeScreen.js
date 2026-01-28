@@ -81,21 +81,6 @@ export default function WelcomeScreen({ navigation }) {
           <Text style={styles.getStartedText}>เริ่มต้นใช้งาน</Text>
           <Ionicons name="arrow-forward" size={20} color="#fff" style={styles.arrowIcon} />
         </TouchableOpacity>
-
-        <View style={styles.featuresContainer}>
-          <View style={styles.featureItem}>
-            <Ionicons name="restaurant-outline" size={24} color="#10b981" />
-            <Text style={styles.featureText}>จัดการอาหาร</Text>
-          </View>
-          <View style={styles.featureItem}>
-            <Ionicons name="heart-outline" size={24} color="#f43f5e" />
-            <Text style={styles.featureText}>แบ่งปัน</Text>
-          </View>
-          <View style={styles.featureItem}>
-            <Ionicons name="earth-outline" size={24} color="#3b82f6" />
-            <Text style={styles.featureText}>ช่วยโลก</Text>
-          </View>
-        </View>
       </Animated.View>
     </View>
   );

@@ -14,7 +14,7 @@ import {
   StatusBar,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { auth, db } from '../firebase.config';
+import { auth, db } from '../../firebase.config';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import * as ImagePicker from 'expo-image-picker';
 
@@ -46,26 +46,28 @@ export default function EditProfileScreen({ navigation }) {
       console.error('Error loading user data:', error);
     }
   };
-
+  const [pickedImageBase64, setPickedImageBase64] = useState(null);
   const pickImage = async () => {
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    
-    if (status !== 'granted') {
-      Alert.alert('ขออนุญาต', 'แอปต้องการสิทธิ์เข้าถึงคลังรูปภาพ');
-      return;
-    }
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
 
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 0.5,
-    });
+      if (status !== 'granted') {
+        Alert.alert('ขออนุญาต', 'แอปต้องการสิทธิ์เข้าถึงคลังรูปภาพ');
+        return;
+      }
 
-    if (!result.canceled) {
-      setProfileImage(result.assets[0].uri);
-    }
-  };
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.3,
+        base64: true,
+      });
+
+      if (!result.canceled) {
+        setProfileImage(result.assets[0].uri);
+        setPickedImageBase64(result.assets[0].base64);
+      }
+    };
 
   const convertImageToBase64 = async (uri) => {
     try {
@@ -86,7 +88,7 @@ export default function EditProfileScreen({ navigation }) {
     }
   };
 
-  const handleSave = async () => {
+const handleSave = async () => {
     if (!username || !phoneNumber) {
       Alert.alert('ข้อผิดพลาด', 'กรุณากรอกข้อมูลให้ครบถ้วน');
       return;
@@ -95,31 +97,27 @@ export default function EditProfileScreen({ navigation }) {
     setLoading(true);
     try {
       const user = auth.currentUser;
-      
-      let profileImageBase64 = userData?.profileImage;
-      
-      // ถ้ามีการเปลี่ยนรูปภาพ
-      if (profileImage && profileImage !== userData?.profileImage) {
-        profileImageBase64 = await convertImageToBase64(profileImage);
+
+      // เริ่มต้นด้วยรูปเดิมที่มีอยู่แล้ว
+      let finalProfileImage = userData?.profileImage;
+
+      // ถ้ามีการเลือกรูปใหม่ (มี Base64 ใหม่) ให้ใช้ตัวใหม่
+      if (pickedImageBase64) {
+        // ⭐ แก้ชื่อตัวแปรตรงนี้ให้ตรงกัน (ของเดิมคุณเขียน finalProfileImage ลอยๆ)
+        finalProfileImage = `data:image/jpeg;base64,${pickedImageBase64}`;
       }
 
       await updateDoc(doc(db, 'users', user.uid), {
         username: username,
         phoneNumber: phoneNumber,
-        profileImage: profileImageBase64,
+        profileImage: finalProfileImage, // ใช้ตัวแปรที่ถูกต้อง
         updatedAt: new Date().toISOString(),
       });
 
-      Alert.alert(
-        'สำเร็จ',
-        'อัปเดตโปรไฟล์สำเร็จ',
-        [
-          {
-            text: 'ตกลง',
-            onPress: () => navigation.goBack(),
-          },
-        ]
-      );
+      Alert.alert('สำเร็จ', 'อัปเดตโปรไฟล์สำเร็จ', [
+        { text: 'ตกลง', onPress: () => navigation.goBack() }
+      ]);
+
     } catch (error) {
       console.error('Error updating profile:', error);
       Alert.alert('ข้อผิดพลาด', 'เกิดข้อผิดพลาดในการอัปเดตโปรไฟล์');

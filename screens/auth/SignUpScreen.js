@@ -15,7 +15,7 @@ import {
 } from 'react-native';
 import { createUserWithEmailAndPassword } from 'firebase/auth';
 import { doc, setDoc } from 'firebase/firestore';
-import { auth, db } from '../firebase.config';
+import { auth, db } from '../../firebase.config';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 
@@ -28,53 +28,34 @@ export default function SignUpScreen({ navigation }) {
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [pickedImageBase64, setPickedImageBase64] = useState(null);
 
   const pickImage = async () => {
-    try {
-      // ขอ permission
-      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      
-      if (status !== 'granted') {
-        Alert.alert(
-          'ต้องการสิทธิ์เข้าถึง',
-          'แอปต้องการสิทธิ์เข้าถึงคลังรูปภาพเพื่อให้คุณเลือกรูปโปรไฟล์',
-          [
-            { text: 'ยกเลิก', style: 'cancel' },
-            { 
-              text: 'ตั้งค่า', 
-              onPress: () => {
-                // ผู้ใช้จะต้องไปตั้งค่าเอง
-                Alert.alert('คำแนะนำ', 'กรุณาเปิดการตั้งค่า → แอป → FoodWaste → อนุญาตการเข้าถึงรูปภาพ');
-              }
-            }
-          ]
-        );
-        return;
+      try {
+        const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+
+        if (status !== 'granted') {
+          Alert.alert('ขออภัย', 'ต้องการสิทธิ์เข้าถึงคลังรูปภาพ');
+          return;
+        }
+
+        const result = await ImagePicker.launchImageLibraryAsync({
+          mediaTypes: ImagePicker.MediaTypeOptions.Images,
+          allowsEditing: true,
+          aspect: [1, 1],
+          quality: 0.3,
+          base64: true,
+        });
+
+        if (!result.canceled && result.assets && result.assets.length > 0) {
+          setProfileImage(result.assets[0].uri);
+          setPickedImageBase64(result.assets[0].base64);
+        }
+      } catch (error) {
+        console.log(error); // เพิ่ม log เพื่อดู error ถ้ามี
+        Alert.alert('ข้อผิดพลาด', 'เลือกรูปไม่ได้');
       }
-
-      // เปิดตัวเลือกรูป
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: true,
-        aspect: [1, 1],
-        quality: 0.5, // ลดคุณภาพเพื่อลดขนาดไฟล์
-      });
-
-      console.log('Image picker result:', result);
-
-      if (!result.canceled && result.assets && result.assets.length > 0) {
-        const imageUri = result.assets[0].uri;
-        console.log('Selected image URI:', imageUri);
-        setProfileImage(imageUri);
-        Alert.alert('สำเร็จ', 'เลือกรูปภาพสำเร็จ!');
-      } else {
-        console.log('Image selection cancelled');
-      }
-    } catch (error) {
-      console.error('Error picking image:', error);
-      Alert.alert('ข้อผิดพลาด', 'ไม่สามารถเลือกรูปภาพได้: ' + error.message);
-    }
-  };
+    };
 
   const convertImageToBase64 = async (uri) => {
     try {
@@ -101,8 +82,8 @@ export default function SignUpScreen({ navigation }) {
     }
   };
 
-  const handleSignUp = async () => {
-    // Validation
+const handleSignUp = async () => {
+    // 1. ตรวจสอบความถูกต้องของข้อมูล
     if (!username || !password || !confirmPassword || !phoneNumber) {
       Alert.alert('ข้อผิดพลาด', 'กรุณากรอกข้อมูลให้ครบถ้วน');
       return;
@@ -119,61 +100,55 @@ export default function SignUpScreen({ navigation }) {
     }
 
     setLoading(true);
-    
+
     try {
-      console.log('Starting sign up process...');
-      
-      // สร้าง email จาก username
+      // 2. สร้าง User ใน Firebase Auth
       const email = username.includes('@') ? username : `${username}@foodwaste.app`;
-      console.log('Email:', email);
-      
-      // สร้างบัญชีใน Firebase Authentication
-      console.log('Creating user in Firebase Auth...');
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       const user = userCredential.user;
-      console.log('User created:', user.uid);
 
-      // แปลงรูปเป็น base64 (ถ้ามี)
-      let profileImageBase64 = null;
-      if (profileImage) {
-        console.log('Converting profile image...');
-        profileImageBase64 = await convertImageToBase64(profileImage);
-        if (profileImageBase64) {
-          console.log('Profile image converted, size:', profileImageBase64.length);
-        } else {
-          console.log('Failed to convert image, will save without image');
-        }
-      } else {
-        console.log('No profile image selected');
+      // 3. ตรวจสอบว่าเป็น Admin หรือไม่? (ถ้าชื่อมีคำว่า admin ให้เป็นทันที)
+      const isAdminAccount = username.toLowerCase().includes('admin');
+
+      // 4. เตรียมรูปภาพ
+      let finalProfileImage = null;
+      if (pickedImageBase64) {
+        finalProfileImage = `data:image/jpeg;base64,${pickedImageBase64}`;
       }
 
-      // บันทึกข้อมูลลง Firestore
-      console.log('Saving user data to Firestore...');
+      // 5. บันทึกข้อมูลลง Firestore (รวมทุกอย่างในคำสั่งเดียว)
       await setDoc(doc(db, 'users', user.uid), {
         userId: user.uid,
         username: username,
         email: email,
         phoneNumber: phoneNumber,
-        profileImage: profileImageBase64,
+        profileImage: finalProfileImage,
+
+        // ส่วนของ Role/Admin
+        isAdmin: isAdminAccount,
+        currentRole: isAdminAccount ? 'admin' : 'customer',
+
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       });
-      console.log('User data saved successfully');
 
-      /*Alert.alert(
+      console.log('User created:', user.uid, 'Role:', isAdminAccount ? 'Admin' : 'Customer');
+
+      // 6. แจ้งเตือนความสำเร็จ
+      Alert.alert(
         'สำเร็จ! 🎉',
-        'สมัครสมาชิกสำเร็จ กรุณาเข้าสู่ระบบ',
+        'สมัครสมาชิกสำเร็จ ' + (isAdminAccount ? '(สิทธิ์ Admin)' : ''),
         [
           {
             text: 'ตกลง',
-            onPress: () => navigation.navigate('SignIn'),
-          },
+            onPress: () => console.log('Sign up success'),          },
         ]
-      ); */
+      );
+
     } catch (error) {
       console.error('Sign up error:', error);
       let errorMessage = 'เกิดข้อผิดพลาดในการสมัครสมาชิก';
-      
+
       if (error.code === 'auth/email-already-in-use') {
         errorMessage = 'ชื่อผู้ใช้นี้ถูกใช้งานแล้ว';
       } else if (error.code === 'auth/invalid-email') {
@@ -182,10 +157,8 @@ export default function SignUpScreen({ navigation }) {
         errorMessage = 'รหัสผ่านไม่ปลอดภัยเพียงพอ';
       } else if (error.code === 'auth/network-request-failed') {
         errorMessage = 'ไม่สามารถเชื่อมต่ออินเทอร์เน็ตได้';
-      } else {
-        errorMessage = `เกิดข้อผิดพลาด: ${error.message}`;
       }
-      
+
       Alert.alert('ข้อผิดพลาด', errorMessage);
     } finally {
       setLoading(false);

@@ -13,7 +13,7 @@ import {
   StatusBar,
 } from 'react-native';
 import { signInWithEmailAndPassword } from 'firebase/auth';
-import { auth } from '../firebase.config';
+import { auth, db } from '../../firebase.config';
 import { Ionicons } from '@expo/vector-icons';
 
 export default function SignInScreen({ navigation }) {
@@ -78,8 +78,7 @@ export default function SignInScreen({ navigation }) {
           <View style={styles.logoCircle}>
             <Ionicons name="leaf" size={60} color="#10b981" />
           </View>
-          <Text style={styles.welcomeText}>ยินดีต้อนรับกลับ!</Text>
-          <Text style={styles.subtitle}>เข้าสู่ระบบเพื่อจัดการอาหารของคุณ</Text>
+          <Text style={styles.welcomeText}>ยินดีต้อนรับ!</Text>
         </View>
 
         <View style={styles.formContainer}>
