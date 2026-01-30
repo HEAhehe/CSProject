@@ -17,12 +17,14 @@ import EditProfileScreen from './screens/customer/EditProfileScreen';
 import MenuScreen from './screens/customer/MenuScreen';
 import FoodListScreen from './screens/customer/FoodListScreen';
 import FoodDetailScreen from './screens/customer/FoodDetailScreen';
-import DonationListScreen from './screens/customer/DonationListScreen';
-import DonationDetailScreen from './screens/customer/DonationDetailScreen';
 import NotificationsScreen from './screens/customer/NotificationsScreen';
+import OrdersScreen from './screens/customer/OrdersScreen';
+import OrderDetailScreen from './screens/customer/OrderDetailScreen';
+import FavoriteStoresScreen from './screens/customer/FavoriteStoresScreen';
 
 // --- 📂 STORE Screens (เพิ่มใหม่) ---
 import AddFoodScreen from './screens/store/AddFoodScreen';
+import StoreHomeScreen from './screens/store/HomeScreen';
 import RegisterStoreStep1Screen from './screens/store/RegisterStoreStep1Screen';
 import RegisterStoreStep2Screen from './screens/store/RegisterStoreStep2Screen';
 import RegisterStoreStep3Screen from './screens/store/RegisterStoreStep3Screen';
@@ -71,12 +73,15 @@ export default function App() {
             <Stack.Screen name="FoodList" component={FoodListScreen} />
             <Stack.Screen name="FoodDetail" component={FoodDetailScreen} />
 
-            <Stack.Screen name="DonationList" component={DonationListScreen} />
-            <Stack.Screen name="DonationDetail" component={DonationDetailScreen} />
+            <Stack.Screen name="Orders" component={OrdersScreen} />
+            <Stack.Screen name="OrderDetail" component={OrderDetailScreen} />
 
             <Stack.Screen name="Notifications" component={NotificationsScreen} />
+            <Stack.Screen name="FavoriteStores" component={FavoriteStoresScreen} />
+
 
             {/* --- Store Flow (Registration & Management) --- */}
+            <Stack.Screen name="StoreHome" component={StoreHomeScreen} />
             <Stack.Screen name="AddFood" component={AddFoodScreen} />
             <Stack.Screen name="RegisterStoreStep1" component={RegisterStoreStep1Screen} />
             <Stack.Screen name="RegisterStoreStep2" component={RegisterStoreStep2Screen} />

@@ -1,9 +1,7 @@
 // Import the functions you need from the SDKs you need
-import { initializeApp } from "firebase/app";
-// แก้ไข 1: เปลี่ยนการ import auth เป็นแบบใหม่
-import { initializeAuth, getReactNativePersistence } from "firebase/auth";
+import { initializeApp, getApps, getApp } from "firebase/app";
+import { initializeAuth, getAuth, getReactNativePersistence } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
-// แก้ไข 2: import ตัวช่วยจำ (AsyncStorage)
 import ReactNativeAsyncStorage from '@react-native-async-storage/async-storage';
 
 // Your web app's Firebase configuration
@@ -17,15 +15,23 @@ const firebaseConfig = {
   measurementId: "G-13D2Y3MDGK"
 };
 
-// Initialize Firebase
-const app = initializeApp(firebaseConfig);
+let app;
+let auth;
 
-// Initialize Firebase services
-// แก้ไข 3: ใช้ initializeAuth แทน getAuth เพื่อใส่ setting การจำค่า
-export const auth = initializeAuth(app, {
-  persistence: getReactNativePersistence(ReactNativeAsyncStorage)
-});
+// ⭐ เช็คก่อนว่ามี App อยู่แล้วหรือยัง (ป้องกัน Error เวลา Reload)
+if (getApps().length === 0) {
+  // ถ้ายังไม่มี ให้สร้างใหม่
+  app = initializeApp(firebaseConfig);
+  // ตั้งค่า Auth พร้อม Persistence
+  auth = initializeAuth(app, {
+    persistence: getReactNativePersistence(ReactNativeAsyncStorage)
+  });
+} else {
+  // ถ้ามีแล้ว ให้ดึงตัวเดิมมาใช้
+  app = getApp();
+  auth = getAuth(app);
+}
 
 export const db = getFirestore(app);
-
+export { auth };
 export default app;

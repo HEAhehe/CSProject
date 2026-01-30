@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -6,8 +6,9 @@ import {
   FlatList,
   TouchableOpacity,
   StatusBar,
-  RefreshControl,
   Image,
+  RefreshControl,
+  ActivityIndicator,
   Animated,
   Dimensions,
   Modal,
@@ -15,23 +16,24 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { auth, db } from '../../firebase.config';
-import { collection, query, where, getDocs, orderBy, updateDoc, doc, onSnapshot } from 'firebase/firestore';
+import { collection, query, where, getDocs, orderBy, doc, onSnapshot } from 'firebase/firestore'; // เพิ่ม doc, onSnapshot
+import { useFocusEffect } from '@react-navigation/native';
 
 const { width } = Dimensions.get('window');
 
-export default function NotificationsScreen({ navigation }) {
-  const [notifications, setNotifications] = useState([]);
+export default function OrdersScreen({ navigation }) {
+  const [orders, setOrders] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [filter, setFilter] = useState('all'); // all, unread, read
 
-  // State สำหรับ User และ Drawer
+  // เพิ่ม State สำหรับ User และ Drawer
   const [userData, setUserData] = useState(null);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const slideAnim = useRef(new Animated.Value(-width * 0.85)).current;
 
   const defaultAvatar = Image.resolveAssetSource(require('../../assets/icon.png')).uri;
 
-  // 1. โหลดข้อมูล User เรียลไทม์
+  // 1. ดึงข้อมูล User (เพื่อให้โชว์ใน Drawer และ Header)
   useEffect(() => {
     const user = auth.currentUser;
     if (user) {
@@ -44,50 +46,45 @@ export default function NotificationsScreen({ navigation }) {
     }
   }, []);
 
-  // 2. โหลดแจ้งเตือน
-  useEffect(() => {
-    loadNotifications();
-  }, []);
+  // 2. ดึงออเดอร์
+  useFocusEffect(
+    useCallback(() => {
+      fetchOrders();
+    }, [])
+  );
 
-  const loadNotifications = async () => {
+  const fetchOrders = async () => {
     try {
       const user = auth.currentUser;
-      if (user) {
-        const q = query(
-          collection(db, 'notifications'),
-          where('userId', '==', user.uid),
-          orderBy('createdAt', 'desc')
-        );
+      if (!user) return;
 
-        const querySnapshot = await getDocs(q);
-        const items = [];
-        querySnapshot.forEach((doc) => {
-          items.push({ id: doc.id, ...doc.data() });
-        });
+      const q = query(
+        collection(db, 'orders'),
+        where('userId', '==', user.uid),
+        orderBy('createdAt', 'desc')
+      );
 
-        setNotifications(items);
-      }
+      const snapshot = await getDocs(q);
+      const ordersData = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+
+      setOrders(ordersData);
     } catch (error) {
-      console.error('Error loading notifications:', error);
+      console.error('Error fetching orders:', error);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
     }
   };
 
-  const onRefresh = async () => {
+  const onRefresh = () => {
     setRefreshing(true);
-    await loadNotifications();
-    setRefreshing(false);
+    fetchOrders();
   };
 
-  const markAsRead = async (notificationId) => {
-    try {
-      await updateDoc(doc(db, 'notifications', notificationId), { isRead: true });
-      loadNotifications();
-    } catch (error) {
-      console.error('Error marking notification as read:', error);
-    }
-  };
-
-  // --- Drawer Logic ---
+  // --- Drawer Animation ---
   const toggleDrawer = () => {
     if (isDrawerOpen) {
       Animated.timing(slideAnim, { toValue: -width * 0.85, duration: 300, useNativeDriver: true }).start(() => setIsDrawerOpen(false));
@@ -101,7 +98,57 @@ export default function NotificationsScreen({ navigation }) {
     await auth.signOut();
   };
 
-  // --- Drawer Content ---
+  // --- Helper Functions ---
+  const getStatusColor = (status) => {
+    switch (status) {
+      case 'completed': return '#10b981';
+      case 'cancelled': return '#ef4444';
+      case 'pending': return '#f59e0b';
+      default: return '#6b7280';
+    }
+  };
+
+  const getStatusText = (status) => {
+    switch (status) {
+      case 'completed': return 'สำเร็จ';
+      case 'cancelled': return 'ยกเลิก';
+      case 'pending': return 'รอรับสินค้า';
+      default: return status;
+    }
+  };
+
+  const renderOrder = ({ item }) => (
+    <TouchableOpacity
+      style={styles.orderCard}
+      onPress={() => navigation.navigate('OrderDetail', { order: item })}
+    >
+      <View style={styles.cardHeader}>
+        <View style={styles.storeInfo}>
+          <Ionicons name="storefront" size={16} color="#6b7280" />
+          <Text style={styles.storeName}>{item.storeName || 'ไม่ระบุร้าน'}</Text>
+        </View>
+        <Text style={[styles.statusText, { color: getStatusColor(item.status) }]}>
+          {getStatusText(item.status || 'pending')}
+        </Text>
+      </View>
+
+      <View style={styles.cardBody}>
+        <View style={styles.imagePlaceholder}>
+           <Ionicons name="fast-food" size={24} color="#d1d5db" />
+        </View>
+        <View style={styles.orderInfo}>
+          <Text style={styles.foodName}>{item.foodName || 'รายการอาหาร'}</Text>
+          <Text style={styles.quantity}>จำนวน: {item.quantity} ชิ้น</Text>
+          <Text style={styles.date}>
+            {item.createdAt ? new Date(item.createdAt).toLocaleDateString('th-TH') : '-'}
+          </Text>
+        </View>
+        <Text style={styles.price}>฿{item.totalPrice}</Text>
+      </View>
+    </TouchableOpacity>
+  );
+
+  // --- Drawer Content (เหมือนหน้า Home) ---
   const DrawerContent = () => (
     <View style={styles.drawerContent}>
       <View style={styles.drawerTopHeader}>
@@ -127,13 +174,13 @@ export default function NotificationsScreen({ navigation }) {
       <TouchableOpacity style={styles.drawerMenuItem} onPress={() => { toggleDrawer(); navigation.navigate('Home'); }}>
         <View style={styles.menuIconBox}><Ionicons name="home-outline" size={20} color="#10b981" /></View><Text style={styles.drawerMenuText}>หน้าหลัก</Text><Ionicons name="chevron-forward" size={18} color="#d1d5db" style={{marginLeft: 'auto'}} />
       </TouchableOpacity>
-      <TouchableOpacity style={styles.drawerMenuItem} onPress={() => { toggleDrawer(); navigation.navigate('Orders'); }}>
+      <TouchableOpacity style={styles.drawerMenuItem} onPress={() => toggleDrawer()}>
         <View style={styles.menuIconBox}><Ionicons name="receipt-outline" size={20} color="#f59e0b" /></View><Text style={styles.drawerMenuText}>คำสั่งซื้อของฉัน</Text><Ionicons name="chevron-forward" size={18} color="#d1d5db" style={{marginLeft: 'auto'}} />
       </TouchableOpacity>
       <TouchableOpacity style={styles.drawerMenuItem} onPress={() => { toggleDrawer(); navigation.navigate('FavoriteStores'); }}>
         <View style={styles.menuIconBox}><Ionicons name="heart-outline" size={20} color="#ef4444" /></View><Text style={styles.drawerMenuText}>ร้านโปรด</Text><Ionicons name="chevron-forward" size={18} color="#d1d5db" style={{marginLeft: 'auto'}} />
       </TouchableOpacity>
-      <TouchableOpacity style={styles.drawerMenuItem} onPress={() => toggleDrawer()}>
+      <TouchableOpacity style={styles.drawerMenuItem} onPress={() => { toggleDrawer(); navigation.navigate('Notifications'); }}>
         <View style={styles.menuIconBox}><Ionicons name="notifications-outline" size={20} color="#3b82f6" /></View><Text style={styles.drawerMenuText}>แจ้งเตือน</Text><Ionicons name="chevron-forward" size={18} color="#d1d5db" style={{marginLeft: 'auto'}} />
       </TouchableOpacity>
 
@@ -147,71 +194,21 @@ export default function NotificationsScreen({ navigation }) {
     </View>
   );
 
-  // --- Helpers for Notifications ---
-  const getNotificationIcon = (type) => {
-    switch (type) {
-      case 'expiry_warning': return { name: 'warning', color: '#f59e0b', bg: '#fef3c7' };
-      case 'donation_request': return { name: 'heart', color: '#ef4444', bg: '#fee2e2' };
-      case 'donation_accepted': return { name: 'checkmark-circle', color: '#10b981', bg: '#dcfce7' };
-      case 'message': return { name: 'chatbubble', color: '#3b82f6', bg: '#dbeafe' };
-      default: return { name: 'notifications', color: '#6b7280', bg: '#f3f4f6' };
-    }
-  };
-
-  const getTimeAgo = (dateString) => {
-    const date = new Date(dateString);
-    const now = new Date();
-    const diffTime = Math.abs(now - date);
-    const diffMinutes = Math.ceil(diffTime / (1000 * 60));
-    if (diffMinutes < 60) return `${diffMinutes} นาทีที่แล้ว`;
-    const diffHours = Math.ceil(diffTime / (1000 * 60 * 60));
-    if (diffHours < 24) return `${diffHours} ชั่วโมงที่แล้ว`;
-    return date.toLocaleDateString('th-TH');
-  };
-
-  const filteredNotifications = notifications.filter(notif => {
-    if (filter === 'all') return true;
-    if (filter === 'unread') return !notif.isRead;
-    if (filter === 'read') return notif.isRead;
-    return true;
-  });
-
-  const renderNotification = ({ item }) => {
-    const icon = getNotificationIcon(item.type);
-    return (
-      <TouchableOpacity
-        style={[styles.notificationCard, !item.isRead && styles.notificationCardUnread]}
-        onPress={() => markAsRead(item.id)}
-        activeOpacity={0.7}
-      >
-        <View style={[styles.iconContainer, { backgroundColor: icon.bg }]}>
-          <Ionicons name={icon.name} size={24} color={icon.color} />
-        </View>
-        <View style={styles.notificationContent}>
-          <View style={styles.notificationHeader}>
-            <Text style={styles.notificationTitle} numberOfLines={1}>{item.title}</Text>
-            {!item.isRead && <View style={styles.unreadDot} />}
-          </View>
-          <Text style={styles.notificationMessage} numberOfLines={2}>{item.message}</Text>
-          <Text style={styles.notificationTime}>{getTimeAgo(item.createdAt)}</Text>
-        </View>
-        <Ionicons name="chevron-forward" size={20} color="#d1d5db" />
-      </TouchableOpacity>
-    );
-  };
-
   return (
     <View style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#fff" />
 
-      {/* Header Updated */}
+      {/* --- Header (เพิ่มปุ่มเมนูและอวาตาร์) --- */}
       <View style={styles.header}>
         <View style={styles.headerLeft}>
+            {/* ปุ่มเปิด Drawer */}
             <TouchableOpacity style={styles.menuButton} onPress={toggleDrawer}>
                 <Ionicons name="menu" size={30} color="#1f2937" />
             </TouchableOpacity>
-            <Text style={styles.headerTitle}>การแจ้งเตือน</Text>
+            <Text style={styles.headerTitle}>รายการคำสั่งซื้อ</Text>
         </View>
+
+        {/* รูปโปรไฟล์ */}
         <TouchableOpacity onPress={() => navigation.navigate('Profile')}>
            <Image
              source={userData?.profileImage ? { uri: userData.profileImage } : { uri: defaultAvatar }}
@@ -220,33 +217,23 @@ export default function NotificationsScreen({ navigation }) {
         </TouchableOpacity>
       </View>
 
-      {/* Filter Tabs */}
-      <View style={styles.filterContainer}>
-        <TouchableOpacity style={[styles.filterTab, filter === 'all' && styles.filterTabActive]} onPress={() => setFilter('all')}>
-          <Text style={[styles.filterText, filter === 'all' && styles.filterTextActive]}>ทั้งหมด</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={[styles.filterTab, filter === 'unread' && styles.filterTabActive]} onPress={() => setFilter('unread')}>
-          <Text style={[styles.filterText, filter === 'unread' && styles.filterTextActive]}>ยังไม่อ่าน</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={[styles.filterTab, filter === 'read' && styles.filterTabActive]} onPress={() => setFilter('read')}>
-          <Text style={[styles.filterText, filter === 'read' && styles.filterTextActive]}>อ่านแล้ว</Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* List */}
-      {filteredNotifications.length > 0 ? (
+      {/* Content */}
+      {loading ? (
+        <ActivityIndicator size="large" color="#10b981" style={{marginTop: 50}} />
+      ) : orders.length > 0 ? (
         <FlatList
-          data={filteredNotifications}
-          renderItem={renderNotification}
-          keyExtractor={(item) => item.id}
+          data={orders}
+          renderItem={renderOrder}
+          keyExtractor={item => item.id}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
         />
       ) : (
         <View style={styles.emptyState}>
-          <Ionicons name="notifications-off-outline" size={80} color="#d1d5db" />
-          <Text style={styles.emptyText}>ไม่มีการแจ้งเตือน</Text>
+          <Ionicons name="receipt-outline" size={64} color="#d1d5db" />
+          <Text style={styles.emptyText}>ยังไม่มีคำสั่งซื้อ</Text>
+          <Text style={styles.emptySubText}>สั่งอาหารอร่อยๆ ช่วยโลกกันเถอะ!</Text>
         </View>
       )}
 
@@ -256,21 +243,24 @@ export default function NotificationsScreen({ navigation }) {
           <Ionicons name="home-outline" size={24} color="#9ca3af" />
           <Text style={styles.navLabel}>หน้าหลัก</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.navItem} onPress={() => navigation.navigate('Orders')}>
-          <Ionicons name="receipt-outline" size={24} color="#9ca3af" />
-          <Text style={styles.navLabel}>ออเดอร์</Text>
-        </TouchableOpacity>
+
         <TouchableOpacity style={styles.navItem}>
-          <Ionicons name="notifications" size={24} color="#10b981" />
-          <Text style={styles.navLabelActive}>แจ้งเตือน</Text>
+          <Ionicons name="receipt" size={24} color="#10b981" />
+          <Text style={styles.navLabelActive}>ออเดอร์</Text>
         </TouchableOpacity>
+
+        <TouchableOpacity style={styles.navItem} onPress={() => navigation.navigate('Notifications')}>
+          <Ionicons name="notifications-outline" size={24} color="#9ca3af" />
+          <Text style={styles.navLabel}>แจ้งเตือน</Text>
+        </TouchableOpacity>
+
         <TouchableOpacity style={styles.navItem} onPress={() => navigation.navigate('Profile')}>
           <Ionicons name="person-outline" size={24} color="#9ca3af" />
           <Text style={styles.navLabel}>โปรไฟล์</Text>
         </TouchableOpacity>
       </View>
 
-      {/* Drawer Overlay */}
+      {/* --- Drawer Overlay --- */}
       {isDrawerOpen && (
         <Modal transparent visible={isDrawerOpen} animationType="none">
           <View style={styles.drawerOverlay}>
@@ -289,7 +279,8 @@ export default function NotificationsScreen({ navigation }) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f9fafb' },
-  // Header Style
+
+  // Header Updated
   header: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
     paddingHorizontal: 20, paddingTop: 60, paddingBottom: 20,
@@ -300,31 +291,40 @@ const styles = StyleSheet.create({
   menuButton: { padding: 4 },
   avatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#f3f4f6', borderWidth: 1, borderColor: '#e5e7eb' },
 
-  filterContainer: { flexDirection: 'row', paddingHorizontal: 20, paddingVertical: 15, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#f3f4f6' },
-  filterTab: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20, marginRight: 8, backgroundColor: '#f9fafb' },
-  filterTabActive: { backgroundColor: '#10b981' },
-  filterText: { fontSize: 13, color: '#6b7280', fontWeight: '500' },
-  filterTextActive: { color: '#fff' },
+  listContent: { padding: 20 },
+  orderCard: {
+    backgroundColor: '#fff', borderRadius: 12, padding: 15, marginBottom: 12,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, elevation: 2
+  },
+  cardHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 },
+  storeInfo: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  storeName: { fontSize: 14, fontWeight: '600', color: '#4b5563' },
+  statusText: { fontSize: 12, fontWeight: 'bold' },
+  cardBody: { flexDirection: 'row', alignItems: 'center' },
+  imagePlaceholder: {
+    width: 50, height: 50, borderRadius: 8, backgroundColor: '#f3f4f6',
+    alignItems: 'center', justifyContent: 'center', marginRight: 12
+  },
+  orderInfo: { flex: 1 },
+  foodName: { fontSize: 16, fontWeight: 'bold', color: '#1f2937' },
+  quantity: { fontSize: 12, color: '#6b7280', marginTop: 2 },
+  date: { fontSize: 10, color: '#9ca3af', marginTop: 4 },
+  price: { fontSize: 16, fontWeight: 'bold', color: '#10b981' },
 
-  listContent: { padding: 20, paddingBottom: 100 },
-  notificationCard: { flexDirection: 'row', backgroundColor: '#fff', padding: 15, borderRadius: 15, marginBottom: 12, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 2 },
-  notificationCardUnread: { borderLeftWidth: 4, borderLeftColor: '#10b981' },
-  iconContainer: { width: 50, height: 50, borderRadius: 25, alignItems: 'center', justifyContent: 'center', marginRight: 12 },
-  notificationContent: { flex: 1 },
-  notificationHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 4 },
-  notificationTitle: { flex: 1, fontSize: 15, fontWeight: '600', color: '#1f2937' },
-  unreadDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#10b981', marginLeft: 8 },
-  notificationMessage: { fontSize: 13, color: '#6b7280', lineHeight: 18, marginBottom: 6 },
-  notificationTime: { fontSize: 11, color: '#9ca3af' },
   emptyState: { flex: 1, alignItems: 'center', justifyContent: 'center', marginTop: 50 },
-  emptyText: { fontSize: 18, fontWeight: '600', color: '#6b7280', marginTop: 20 },
+  emptyText: { fontSize: 16, fontWeight: 'bold', color: '#6b7280', marginTop: 10 },
+  emptySubText: { fontSize: 13, color: '#9ca3af', marginTop: 5 },
 
-  bottomNav: { flexDirection: 'row', backgroundColor: '#fff', paddingVertical: 10, paddingHorizontal: 20, borderTopWidth: 1, borderTopColor: '#f3f4f6', position: 'absolute', bottom: 0, left: 0, right: 0 },
+  bottomNav: {
+    flexDirection: 'row', backgroundColor: '#fff', paddingVertical: 10,
+    paddingHorizontal: 20, borderTopWidth: 1, borderTopColor: '#f3f4f6',
+    position: 'absolute', bottom: 0, left: 0, right: 0
+  },
   navItem: { flex: 1, alignItems: 'center' },
   navLabel: { fontSize: 10, color: '#9ca3af', marginTop: 4 },
   navLabelActive: { fontSize: 10, color: '#10b981', fontWeight: 'bold', marginTop: 4 },
 
-  // Drawer Styles (Consistent)
+  // --- Drawer Styles (Copy from Home) ---
   drawerOverlay: { flex: 1, flexDirection: 'row' },
   drawerBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)' },
   drawerContainer: { position: 'absolute', left: 0, top: 0, bottom: 0, width: width * 0.85, backgroundColor: '#fff', paddingTop: 50, shadowColor: "#000", shadowOffset: { width: 2, height: 0 }, shadowOpacity: 0.25, shadowRadius: 3.84, elevation: 5 },
