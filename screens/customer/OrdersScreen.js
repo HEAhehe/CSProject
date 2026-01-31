@@ -16,7 +16,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { auth, db } from '../../firebase.config';
-import { collection, query, where, getDocs, orderBy, doc, onSnapshot } from 'firebase/firestore'; // เพิ่ม doc, onSnapshot
+import { collection, query, where, getDocs, orderBy, doc, onSnapshot } from 'firebase/firestore';
 import { useFocusEffect } from '@react-navigation/native';
 
 const { width } = Dimensions.get('window');
@@ -25,15 +25,12 @@ export default function OrdersScreen({ navigation }) {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-
-  // เพิ่ม State สำหรับ User และ Drawer
   const [userData, setUserData] = useState(null);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const slideAnim = useRef(new Animated.Value(-width * 0.85)).current;
 
   const defaultAvatar = Image.resolveAssetSource(require('../../assets/icon.png')).uri;
 
-  // 1. ดึงข้อมูล User (เพื่อให้โชว์ใน Drawer และ Header)
   useEffect(() => {
     const user = auth.currentUser;
     if (user) {
@@ -46,7 +43,6 @@ export default function OrdersScreen({ navigation }) {
     }
   }, []);
 
-  // 2. ดึงออเดอร์
   useFocusEffect(
     useCallback(() => {
       fetchOrders();
@@ -84,7 +80,6 @@ export default function OrdersScreen({ navigation }) {
     fetchOrders();
   };
 
-  // --- Drawer Animation ---
   const toggleDrawer = () => {
     if (isDrawerOpen) {
       Animated.timing(slideAnim, { toValue: -width * 0.85, duration: 300, useNativeDriver: true }).start(() => setIsDrawerOpen(false));
@@ -98,7 +93,6 @@ export default function OrdersScreen({ navigation }) {
     await auth.signOut();
   };
 
-  // --- Helper Functions ---
   const getStatusColor = (status) => {
     switch (status) {
       case 'completed': return '#10b981';
@@ -117,6 +111,12 @@ export default function OrdersScreen({ navigation }) {
     }
   };
 
+  // ✅ ฟังก์ชันจัดรูปแบบ ID สำหรับรายการ
+  const getFormattedOrderId = (orderId, type) => {
+    const shortId = orderId.slice(0, 6).toUpperCase();
+    return type === 'delivery' ? `D-${shortId}` : `P-${shortId}`;
+  };
+
   const renderOrder = ({ item }) => (
     <TouchableOpacity
       style={styles.orderCard}
@@ -124,7 +124,12 @@ export default function OrdersScreen({ navigation }) {
     >
       <View style={styles.cardHeader}>
         <View style={styles.storeInfo}>
-          <Ionicons name="storefront" size={16} color="#6b7280" />
+          {/* ✅ แสดงรหัสย่อที่หัวมุม */}
+          <View style={{backgroundColor: '#f3f4f6', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, marginRight: 8}}>
+             <Text style={{fontWeight: 'bold', color: '#1f2937', fontSize: 12}}>
+               {getFormattedOrderId(item.id, item.orderType)}
+             </Text>
+          </View>
           <Text style={styles.storeName}>{item.storeName || 'ไม่ระบุร้าน'}</Text>
         </View>
         <Text style={[styles.statusText, { color: getStatusColor(item.status) }]}>
@@ -148,7 +153,6 @@ export default function OrdersScreen({ navigation }) {
     </TouchableOpacity>
   );
 
-  // --- Drawer Content (เหมือนหน้า Home) ---
   const DrawerContent = () => (
     <View style={styles.drawerContent}>
       <View style={styles.drawerTopHeader}>
@@ -198,17 +202,14 @@ export default function OrdersScreen({ navigation }) {
     <View style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#fff" />
 
-      {/* --- Header (เพิ่มปุ่มเมนูและอวาตาร์) --- */}
       <View style={styles.header}>
         <View style={styles.headerLeft}>
-            {/* ปุ่มเปิด Drawer */}
             <TouchableOpacity style={styles.menuButton} onPress={toggleDrawer}>
                 <Ionicons name="menu" size={30} color="#1f2937" />
             </TouchableOpacity>
             <Text style={styles.headerTitle}>รายการคำสั่งซื้อ</Text>
         </View>
 
-        {/* รูปโปรไฟล์ */}
         <TouchableOpacity onPress={() => navigation.navigate('Profile')}>
            <Image
              source={userData?.profileImage ? { uri: userData.profileImage } : { uri: defaultAvatar }}
@@ -217,7 +218,6 @@ export default function OrdersScreen({ navigation }) {
         </TouchableOpacity>
       </View>
 
-      {/* Content */}
       {loading ? (
         <ActivityIndicator size="large" color="#10b981" style={{marginTop: 50}} />
       ) : orders.length > 0 ? (
@@ -237,7 +237,6 @@ export default function OrdersScreen({ navigation }) {
         </View>
       )}
 
-      {/* Bottom Nav */}
       <View style={styles.bottomNav}>
         <TouchableOpacity style={styles.navItem} onPress={() => navigation.navigate('Home')}>
           <Ionicons name="home-outline" size={24} color="#9ca3af" />
@@ -260,7 +259,6 @@ export default function OrdersScreen({ navigation }) {
         </TouchableOpacity>
       </View>
 
-      {/* --- Drawer Overlay --- */}
       {isDrawerOpen && (
         <Modal transparent visible={isDrawerOpen} animationType="none">
           <View style={styles.drawerOverlay}>
@@ -279,52 +277,31 @@ export default function OrdersScreen({ navigation }) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f9fafb' },
-
-  // Header Updated
-  header: {
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    paddingHorizontal: 20, paddingTop: 60, paddingBottom: 20,
-    backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#f3f4f6', zIndex: 10
-  },
+  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingTop: 60, paddingBottom: 20, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#f3f4f6', zIndex: 10 },
   headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 15 },
   headerTitle: { fontSize: 20, fontWeight: 'bold', color: '#1f2937' },
   menuButton: { padding: 4 },
   avatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#f3f4f6', borderWidth: 1, borderColor: '#e5e7eb' },
-
   listContent: { padding: 20 },
-  orderCard: {
-    backgroundColor: '#fff', borderRadius: 12, padding: 15, marginBottom: 12,
-    shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, elevation: 2
-  },
+  orderCard: { backgroundColor: '#fff', borderRadius: 12, padding: 15, marginBottom: 12, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, elevation: 2 },
   cardHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 },
   storeInfo: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   storeName: { fontSize: 14, fontWeight: '600', color: '#4b5563' },
   statusText: { fontSize: 12, fontWeight: 'bold' },
   cardBody: { flexDirection: 'row', alignItems: 'center' },
-  imagePlaceholder: {
-    width: 50, height: 50, borderRadius: 8, backgroundColor: '#f3f4f6',
-    alignItems: 'center', justifyContent: 'center', marginRight: 12
-  },
+  imagePlaceholder: { width: 50, height: 50, borderRadius: 8, backgroundColor: '#f3f4f6', alignItems: 'center', justifyContent: 'center', marginRight: 12 },
   orderInfo: { flex: 1 },
   foodName: { fontSize: 16, fontWeight: 'bold', color: '#1f2937' },
   quantity: { fontSize: 12, color: '#6b7280', marginTop: 2 },
   date: { fontSize: 10, color: '#9ca3af', marginTop: 4 },
   price: { fontSize: 16, fontWeight: 'bold', color: '#10b981' },
-
   emptyState: { flex: 1, alignItems: 'center', justifyContent: 'center', marginTop: 50 },
   emptyText: { fontSize: 16, fontWeight: 'bold', color: '#6b7280', marginTop: 10 },
   emptySubText: { fontSize: 13, color: '#9ca3af', marginTop: 5 },
-
-  bottomNav: {
-    flexDirection: 'row', backgroundColor: '#fff', paddingVertical: 10,
-    paddingHorizontal: 20, borderTopWidth: 1, borderTopColor: '#f3f4f6',
-    position: 'absolute', bottom: 0, left: 0, right: 0
-  },
+  bottomNav: { flexDirection: 'row', backgroundColor: '#fff', paddingVertical: 10, paddingHorizontal: 20, borderTopWidth: 1, borderTopColor: '#f3f4f6', position: 'absolute', bottom: 0, left: 0, right: 0 },
   navItem: { flex: 1, alignItems: 'center' },
   navLabel: { fontSize: 10, color: '#9ca3af', marginTop: 4 },
   navLabelActive: { fontSize: 10, color: '#10b981', fontWeight: 'bold', marginTop: 4 },
-
-  // --- Drawer Styles (Copy from Home) ---
   drawerOverlay: { flex: 1, flexDirection: 'row' },
   drawerBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)' },
   drawerContainer: { position: 'absolute', left: 0, top: 0, bottom: 0, width: width * 0.85, backgroundColor: '#fff', paddingTop: 50, shadowColor: "#000", shadowOffset: { width: 2, height: 0 }, shadowOpacity: 0.25, shadowRadius: 3.84, elevation: 5 },

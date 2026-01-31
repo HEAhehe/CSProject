@@ -21,6 +21,7 @@ import NotificationsScreen from './screens/customer/NotificationsScreen';
 import OrdersScreen from './screens/customer/OrdersScreen';
 import OrderDetailScreen from './screens/customer/OrderDetailScreen';
 import FavoriteStoresScreen from './screens/customer/FavoriteStoresScreen';
+import CartScreen from './screens/customer/CartScreen';
 
 // --- 📂 STORE Screens (เพิ่มใหม่) ---
 import AddFoodScreen from './screens/store/AddFoodScreen';
@@ -72,6 +73,8 @@ export default function App() {
 
             <Stack.Screen name="FoodList" component={FoodListScreen} />
             <Stack.Screen name="FoodDetail" component={FoodDetailScreen} />
+
+            <Stack.Screen name="Cart" component={CartScreen} />
 
             <Stack.Screen name="Orders" component={OrdersScreen} />
             <Stack.Screen name="OrderDetail" component={OrderDetailScreen} />
