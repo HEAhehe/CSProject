@@ -20,9 +20,10 @@ export default function HomeScreen({ navigation }) {
 
   useFocusEffect(
     useCallback(() => {
+      navigation.replace('MyShop');
       loadUserData();
       fetchFoodItems();
-    }, [])
+    }, [navigation])
   );
 
   const loadUserData = async () => {
@@ -128,9 +129,53 @@ export default function HomeScreen({ navigation }) {
 
       {/* Bottom Nav */}
       <View style={styles.bottomNav}>
-        {/* ... ปุ่ม Bottom Nav เดิม ... */}
-        <TouchableOpacity style={styles.navItem} onPress={() => navigation.navigate('Profile')}>
-          <Ionicons name="person-outline" size={24} color="#9ca3af" />
+        <TouchableOpacity 
+          style={styles.navItem} 
+          onPress={() => setActiveTab('home')}
+        >
+          <Ionicons 
+            name={activeTab === 'home' ? "storefront" : "storefront-outline"} 
+            size={24} 
+            color={activeTab === 'home' ? "#10b981" : "#9ca3af"} 
+          />
+          <Text style={[styles.navLabel, activeTab === 'home' && styles.navLabelActive]}>
+            ร้านค้าของฉัน
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity 
+          style={styles.navItem} 
+          onPress={() => navigation.navigate('MyShop')}
+        >
+          <Ionicons 
+            name="list-outline" 
+            size={24} 
+            color="#9ca3af" 
+          />
+          <Text style={styles.navLabel}>ออเดอร์</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity 
+          style={styles.navItem} 
+          onPress={() => navigation.navigate('Notifications')}
+        >
+          <Ionicons 
+            name="notifications-outline" 
+            size={24} 
+            color="#9ca3af" 
+          />
+          <Text style={styles.navLabel}>แจ้งเตือน</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity 
+          style={styles.navItem} 
+          onPress={() => navigation.navigate('Profile')}
+        >
+          <Ionicons 
+            name="person-outline" 
+            size={24} 
+            color="#9ca3af" 
+          />
           <Text style={styles.navLabel}>โปรไฟล์</Text>
         </TouchableOpacity>
       </View>
@@ -168,4 +213,5 @@ const styles = StyleSheet.create({
   bottomNav: { flexDirection: 'row', padding: 10, backgroundColor: '#fff', position: 'absolute', bottom: 0, width: '100%' },
   navItem: { flex: 1, alignItems: 'center' },
   navLabel: { fontSize: 10, color: '#9ca3af' },
+  navLabelActive: { color: '#10b981', fontWeight: '600' },
 });

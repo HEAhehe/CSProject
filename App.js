@@ -29,6 +29,8 @@ import StoreHomeScreen from './screens/store/HomeScreen';
 import RegisterStoreStep1Screen from './screens/store/RegisterStoreStep1Screen';
 import RegisterStoreStep2Screen from './screens/store/RegisterStoreStep2Screen';
 import RegisterStoreStep3Screen from './screens/store/RegisterStoreStep3Screen';
+import MyShopScreen from './screens/store/MyShopScreen';
+import CreateListingScreen from './screens/store/CreateListingScreen';
 
 // --- 📂 ADMIN Screens ---
 import AdminHomeScreen from './screens/admin/AdminHomeScreen';
@@ -56,7 +58,7 @@ export default function App() {
   return (
     <NavigationContainer>
       <Stack.Navigator
-        initialRouteName={user ? "Home" : "Welcome"}
+        initialRouteName={user ? "MyShop" : "Welcome"}
         screenOptions={{
           headerShown: false,
           animation: 'slide_from_right',
@@ -84,7 +86,9 @@ export default function App() {
 
 
             {/* --- Store Flow (Registration & Management) --- */}
-            <Stack.Screen name="StoreHome" component={StoreHomeScreen} />
+
+            <Stack.Screen name="MyShop" component={MyShopScreen} />
+            <Stack.Screen name="CreateListing" component={CreateListingScreen} />
             <Stack.Screen name="AddFood" component={AddFoodScreen} />
             <Stack.Screen name="RegisterStoreStep1" component={RegisterStoreStep1Screen} />
             <Stack.Screen name="RegisterStoreStep2" component={RegisterStoreStep2Screen} />
