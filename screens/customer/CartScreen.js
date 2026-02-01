@@ -12,7 +12,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { db, auth } from '../../firebase.config';
-// ✅ Import เพิ่ม: runTransaction, getDoc เพื่อจัดการสต็อกและเวลา
+// ✅ Import เพิ่ม: runTransaction, getDoc
 import { collection, onSnapshot, deleteDoc, doc, runTransaction, getDoc } from 'firebase/firestore';
 
 export default function CartScreen({ navigation }) {
@@ -28,7 +28,6 @@ export default function CartScreen({ navigation }) {
         const items = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         setCartItems(items);
 
-        // คำนวณราคารวม
         const total = items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
         setTotalPrice(total);
       });
@@ -62,10 +61,9 @@ export default function CartScreen({ navigation }) {
           const user = auth.currentUser;
 
           try {
-            // วนลูปจัดการสินค้าทีละรายการ (Transaction)
             for (const item of cartItems) {
               await runTransaction(db, async (transaction) => {
-                // 1. เช็คสต็อกล่าสุดจาก food_items
+                // 1. เช็คสต็อกล่าสุด
                 const foodRef = doc(db, 'food_items', item.foodId);
                 const foodDoc = await transaction.get(foodRef);
 
@@ -76,17 +74,20 @@ export default function CartScreen({ navigation }) {
                   throw `สินค้า "${item.foodName}" เหลือไม่พอ (เหลือ ${currentQty})`;
                 }
 
-                // 2. ✅ ดึงเวลาปิดร้านจริง (เพื่อซิงค์ข้อมูล)
-                let closingTime = "20:00"; // Default
-                if (item.storeId) {
-                    // ลองหาใน stores ก่อน
-                    const storeRef = doc(db, 'stores', item.storeId);
+                // 2. ✅ ดึงเวลาปิดร้านจริง (ใช้ Logic เดียวกับ HomeScreen)
+                let closingTime = "20:00";
+                // ใช้ storeId หรือ userId (เผื่อใน cart เก็บมาไม่ครบ)
+                const targetStoreId = item.storeId || item.userId;
+
+                if (targetStoreId) {
+                    // หาใน stores ก่อน
+                    const storeRef = doc(db, 'stores', targetStoreId);
                     const storeDoc = await transaction.get(storeRef);
                     if (storeDoc.exists()) {
                         closingTime = storeDoc.data().closeTime || storeDoc.data().closingTime || "20:00";
                     } else {
                         // Fallback ไป users
-                        const userStoreRef = doc(db, 'users', item.storeId);
+                        const userStoreRef = doc(db, 'users', targetStoreId);
                         const userStoreDoc = await transaction.get(userStoreRef);
                         if (userStoreDoc.exists()) {
                             closingTime = userStoreDoc.data().closeTime || userStoreDoc.data().closingTime || "20:00";
@@ -97,25 +98,24 @@ export default function CartScreen({ navigation }) {
                 // 3. ตัดสต็อก
                 transaction.update(foodRef, { quantity: currentQty - item.quantity });
 
-                // 4. สร้าง Order (บันทึกเวลาปิดร้านไปด้วย)
+                // 4. สร้าง Order
                 const newOrderRef = doc(collection(db, 'orders'));
                 transaction.set(newOrderRef, {
                   userId: user.uid,
                   foodId: item.foodId,
                   foodName: item.foodName,
                   storeName: item.storeName,
-                  storeId: item.storeId,
+                  storeId: targetStoreId, // ใช้ ID ที่เช็คแล้ว
                   quantity: item.quantity,
                   totalPrice: item.price * item.quantity,
                   status: 'pending',
-                  orderType: 'pickup', // Default Pickup
+                  orderType: 'pickup',
                   closingTime: closingTime, // ✅ บันทึกเวลาปิดร้านจริง
                   createdAt: new Date().toISOString(),
                   imageUrl: item.imageUrl
                 });
               });
 
-              // 5. ลบออกจากตะกร้าเมื่อทำรายการสำเร็จ
               await deleteDoc(doc(db, 'users', user.uid, 'cart', item.id));
             }
 

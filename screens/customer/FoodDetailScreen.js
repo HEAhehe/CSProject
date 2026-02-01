@@ -13,8 +13,8 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { db, auth } from '../../firebase.config';
-// ✅ ใช้ getDoc เพื่อดึงข้อมูลร้าน
-import { collection, addDoc, doc, onSnapshot, setDoc, deleteDoc, runTransaction, getDoc } from 'firebase/firestore';
+// ✅ Import เพิ่ม: query, where, getDocs เพื่อใช้ระบบค้นหาอัจฉริยะ
+import { collection, addDoc, doc, onSnapshot, setDoc, deleteDoc, runTransaction, getDoc, query, where, getDocs } from 'firebase/firestore';
 
 const { width } = Dimensions.get('window');
 
@@ -24,117 +24,184 @@ export default function FoodDetailScreen({ navigation, route }) {
   const [isFavorite, setIsFavorite] = useState(false);
   const [quantity, setQuantity] = useState(1);
 
-  // State สำหรับเวลาปิดร้าน
+  // State
   const [storeClosingTime, setStoreClosingTime] = useState(null);
+  const [storeOpenTime, setStoreOpenTime] = useState(null);
   const [closingTimeDisplay, setClosingTimeDisplay] = useState("กำลังโหลด...");
-
-  // ✅ เพิ่ม currentTime ให้เดินทุกวินาที
   const [currentTime, setCurrentTime] = useState(new Date());
 
   const originalPrice = Number(food.originalPrice) || 0;
   const price = Number(food.discountPrice) || Number(food.price) || 0;
   const discountPercent = originalPrice > 0 ? Math.round(((originalPrice - price) / originalPrice) * 100) : 0;
 
-  // ✅ Timer Loop (สำคัญ! ต้องมีอันนี้เวลานับถอยหลังถึงจะเดิน)
+  // Timer
   useEffect(() => {
-    const timer = setInterval(() => {
-      setCurrentTime(new Date());
-    }, 1000);
+    const timer = setInterval(() => setCurrentTime(new Date()), 1000);
     return () => clearInterval(timer);
   }, []);
 
-  // 1. ดึงข้อมูลร้านค้า & เช็ค Favorite
+  // 1. ระบบค้นหาร้านค้าอัจฉริยะ (Smart Fetch Store Data)
   useEffect(() => {
     const user = auth.currentUser;
-    // ใช้ storeId จากอาหาร
-    const storeId = food.storeId;
+    // เราจะใช้ทั้ง storeId และ userId ในการตามหาข้อมูลร้าน
+    const targetStoreId = food.storeId;
+    const targetUserId = food.userId || food.userID;
 
     const fetchStoreData = async () => {
-        if (storeId) {
-            try {
-                // ✅ 1. ดึงจากกล่อง 'stores' (ตาม Database จริง)
-                let storeDoc = await getDoc(doc(db, 'stores', storeId));
+        try {
+            let storeData = null;
+            let realStoreId = targetStoreId; // เก็บ ID จริงที่เจอเพื่อใช้เช็ค Favorite
 
-                if (storeDoc.exists()) {
-                    const data = storeDoc.data();
-                    // ✅ 2. ใช้ 'closeTime' (ตาม Database จริง)
-                    setStoreClosingTime(data.closeTime || data.closingTime || "20:00");
-                } else {
-                    // Fallback: ลองหาใน users เผื่อเป็นระบบเก่า
-                    storeDoc = await getDoc(doc(db, 'users', storeId));
-                    if (storeDoc.exists()) {
-                        const data = storeDoc.data();
-                        setStoreClosingTime(data.closeTime || data.closingTime || "20:00");
-                    } else {
-                        setStoreClosingTime("20:00");
-                    }
+            // 🔍 Step 1: ลองหาจาก 'stores' ด้วย storeId ตรงๆ ก่อน (วิธีมาตรฐาน)
+            if (targetStoreId) {
+                const docRef = doc(db, 'stores', targetStoreId);
+                const docSnap = await getDoc(docRef);
+                if (docSnap.exists()) {
+                    storeData = docSnap.data();
+                    console.log("Found store by StoreID ✅");
                 }
-            } catch (error) {
-                console.error("Error fetching store data:", error);
-                setStoreClosingTime("20:00");
             }
+
+            // 🔍 Step 2: ถ้ายังไม่เจอ... ลอง Query หาจาก userId (เผื่อ storeId ผิด)
+            if (!storeData && targetUserId) {
+                console.log("Searching store by UserID... 🔍");
+                const q = query(collection(db, 'stores'), where('userId', '==', targetUserId));
+                const querySnap = await getDocs(q);
+
+                if (!querySnap.empty) {
+                    const foundDoc = querySnap.docs[0];
+                    storeData = foundDoc.data();
+                    realStoreId = foundDoc.id; // อัปเดต ID จริงที่เจอ
+                    console.log("Found store by UserID Query ✅");
+                }
+            }
+
+            // 🔍 Step 3: ถ้ายังไม่เจออีก... ลองไปหาใน 'users' (เผื่อเป็นระบบเก่า)
+            if (!storeData && targetUserId) {
+                const docRef = doc(db, 'users', targetUserId);
+                const docSnap = await getDoc(docRef);
+                if (docSnap.exists() && (docSnap.data().closeTime || docSnap.data().closingTime)) {
+                    storeData = docSnap.data();
+                    console.log("Found data in Users collection ⚠️");
+                }
+            }
+
+            // ✅ อัปเดตข้อมูลเวลา (ถ้าเจอข้อมูล)
+            if (storeData) {
+                setStoreClosingTime(storeData.closeTime || storeData.closingTime || "20:00");
+                setStoreOpenTime(storeData.openTime || "08:00");
+            } else {
+                console.log("❌ Store not found anywhere, using defaults");
+                setStoreClosingTime("20:00");
+                setStoreOpenTime("08:00");
+            }
+
+            // ✅ เช็ค Favorite ด้วย ID ที่ถูกต้องที่สุดที่หาเจอ
+            if (user && realStoreId) {
+                const favRef = doc(db, 'users', user.uid, 'favorites', realStoreId);
+                const unsubscribe = onSnapshot(favRef, (docSnapshot) => setIsFavorite(docSnapshot.exists()));
+                return () => unsubscribe();
+            }
+
+        } catch (error) {
+            console.error("Error fetching store data:", error);
+            setStoreClosingTime("20:00");
         }
     };
 
     fetchStoreData();
-
-    if (user && storeId) {
-      const favRef = doc(db, 'users', user.uid, 'favorites', storeId);
-      const unsubscribe = onSnapshot(favRef, (docSnapshot) => setIsFavorite(docSnapshot.exists()));
-      return () => unsubscribe();
-    }
   }, [food]);
 
-  // 2. ระบบคำนวณเวลานับถอยหลัง (ใช้ currentTime ที่เดินทุกวิ)
+  // 2. คำนวณเวลา
   useEffect(() => {
     if (!storeClosingTime) return;
 
     const calculateTimeLeft = () => {
       const now = currentTime;
-      let closingDate = new Date();
+      const openDate = new Date();
+      const closeDate = new Date();
 
-      // แปลง String "23:00" เป็น Date Object
-      if (typeof storeClosingTime === 'string' && storeClosingTime.includes(':')) {
-          const [hours, minutes] = storeClosingTime.split(':').map(Number);
-          closingDate.setHours(hours, minutes, 0, 0);
+      if (typeof storeClosingTime === 'string') {
+          const [h, m] = storeClosingTime.split(':').map(Number);
+          closeDate.setHours(h, m, 0, 0);
+      }
+      if (typeof storeOpenTime === 'string') {
+          const [h, m] = storeOpenTime.split(':').map(Number);
+          openDate.setHours(h, m, 0, 0);
       } else {
-          setClosingTimeDisplay(`${storeClosingTime} น.`);
+          openDate.setHours(0, 0, 0, 0);
+      }
+
+      if (now < openDate) {
+          setClosingTimeDisplay(`เปิด ${storeOpenTime} น.\n(ยังไม่เปิด ❌)`);
           return;
       }
 
-      // ถ้าเลยเวลาปิดแล้ว
-      if (now > closingDate) {
-        setClosingTimeDisplay(`${storeClosingTime} น. (ปิดแล้ว 😴)`);
+      if (now > closeDate) {
+        setClosingTimeDisplay(`${storeClosingTime} น.\n(ปิดแล้ว 😴)`);
         return;
       }
 
-      // คำนวณเวลาที่เหลือ
-      const diffMs = closingDate - now;
+      const diffMs = closeDate - now;
       const diffHrs = Math.floor(diffMs / (1000 * 60 * 60));
       const diffMins = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
-      const diffSecs = Math.floor((diffMs % (1000 * 60)) / 1000); // วินาที
+      const diffSecs = Math.floor((diffMs % (1000 * 60)) / 1000);
 
-      // ฟอร์แมตเลข 0 นำหน้า
       const fmt = (n) => n < 10 ? `0${n}` : n;
+      let countdownText = `${fmt(diffMins)}:${fmt(diffSecs)} นาที`;
+      if (diffHrs > 0) countdownText = `${diffHrs} ชม. ${diffMins} นาที`;
 
-      let countdownText = "";
-      if (diffHrs > 0) {
-          countdownText = `${diffHrs} ชม. ${diffMins} นาที`;
-      } else {
-          // แสดงนาที:วินาที
-          countdownText = `${fmt(diffMins)}:${fmt(diffSecs)} นาที`;
-      }
-
-      setClosingTimeDisplay(`${storeClosingTime} น. (อีก ${countdownText})`);
+      setClosingTimeDisplay(`${storeClosingTime} น.\n(อีก ${countdownText})`);
     };
 
     calculateTimeLeft();
-  }, [storeClosingTime, currentTime]);
+  }, [storeClosingTime, storeOpenTime, currentTime]);
 
-  const handleToggleFavorite = async () => { /* ... Code เดิม ... */ const user = auth.currentUser; if (!user) return Alert.alert('กรุณาเข้าสู่ระบบ'); const storeId = food.storeId || food.userId; if (!storeId) return; const favRef = doc(db, 'users', user.uid, 'favorites', storeId); try { if (isFavorite) await deleteDoc(favRef); else await setDoc(favRef, { storeId, storeName: food.storeName || 'ร้านค้า', savedAt: new Date().toISOString() }); } catch (error) { console.error(error); } };
+  const handleToggleFavorite = async () => {
+    const user = auth.currentUser;
+    if (!user) return Alert.alert('กรุณาเข้าสู่ระบบ');
+    const storeId = food.storeId || food.userId || food.userID;
+
+    // ใช้ storeId หรือ userId ก็ได้ (ระบบจะฉลาดพอ)
+    const targetId = storeId;
+    if (!targetId) return;
+
+    const favRef = doc(db, 'users', user.uid, 'favorites', targetId);
+    try {
+        if (isFavorite) await deleteDoc(favRef);
+        else await setDoc(favRef, { storeId: targetId, storeName: food.storeName || 'ร้านค้า', savedAt: new Date().toISOString() });
+    } catch (error) { console.error(error); }
+  };
+
   const increaseQty = () => { if (quantity < food.quantity) setQuantity(quantity + 1); };
   const decreaseQty = () => { if (quantity > 1) setQuantity(quantity - 1); };
-  const handleAddToCart = async () => { /* ... Code เดิม ... */ const user = auth.currentUser; if (!user) return Alert.alert('กรุณาเข้าสู่ระบบ'); setLoading(true); try { await addDoc(collection(db, 'users', user.uid, 'cart'), { foodId: food.id, foodName: food.name, price: price, originalPrice: originalPrice, quantity: quantity, storeName: food.storeName || 'ร้านค้า', storeId: food.storeId || food.userId, imageUrl: food.imageUrl, addedAt: new Date().toISOString() }); Alert.alert('สำเร็จ', 'เพิ่มลงตระกร้าแล้ว 🛒', [ { text: 'ซื้อต่อ' }, { text: 'ไปตระกร้า', onPress: () => navigation.navigate('Cart') } ]); } catch (error) { Alert.alert('Error', 'ไม่สามารถเพิ่มลงตระกร้าได้'); } finally { setLoading(false); } };
+
+  const handleAddToCart = async () => {
+    const user = auth.currentUser;
+    if (!user) return Alert.alert('กรุณาเข้าสู่ระบบ');
+    setLoading(true);
+    try {
+      await addDoc(collection(db, 'users', user.uid, 'cart'), {
+        foodId: food.id,
+        foodName: food.name,
+        price: price,
+        originalPrice: originalPrice,
+        quantity: quantity,
+        storeName: food.storeName || 'ร้านค้า',
+        storeId: food.storeId || food.userId || food.userID,
+        imageUrl: food.imageUrl,
+        addedAt: new Date().toISOString()
+      });
+      Alert.alert('สำเร็จ', 'เพิ่มลงตระกร้าแล้ว 🛒', [
+        { text: 'ซื้อต่อ' },
+        { text: 'ไปตระกร้า', onPress: () => navigation.navigate('Cart') }
+      ]);
+    } catch (error) {
+      Alert.alert('Error', 'ไม่สามารถเพิ่มลงตระกร้าได้');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleBookNow = async () => {
     const user = auth.currentUser;
@@ -161,17 +228,19 @@ export default function FoodDetailScreen({ navigation, route }) {
                 transaction.update(foodRef, { quantity: currentQty - quantity });
 
                 const newOrderRef = doc(collection(db, 'orders'));
+                const targetStoreId = food.storeId || food.userId || food.userID;
+
                 transaction.set(newOrderRef, {
                   userId: user.uid,
                   foodId: food.id,
                   foodName: food.name,
                   storeName: food.storeName || 'ร้านค้า',
-                  storeId: food.storeId || food.userId,
+                  storeId: targetStoreId,
                   totalPrice: price * quantity,
                   quantity: quantity,
                   status: 'pending',
                   orderType: 'pickup',
-                  closingTime: storeClosingTime, // ✅ บันทึกเวลาปิดร้านจริงลงไป
+                  closingTime: storeClosingTime,
                   createdAt: new Date().toISOString(),
                   imageUrl: food.imageUrl || null
                 });
@@ -248,7 +317,6 @@ export default function FoodDetailScreen({ navigation, route }) {
             <View style={styles.statItem}>
                 <Ionicons name="time-outline" size={20} color="#333" />
                 <Text style={styles.statLabel}>รับได้ถึง</Text>
-                {/* ✅ แสดงเวลาที่ซิงค์มาจริง */}
                 <Text style={styles.statValueTime}>{closingTimeDisplay}</Text>
             </View>
             <View style={styles.statItem}>

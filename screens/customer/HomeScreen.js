@@ -18,7 +18,6 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { auth, db } from '../../firebase.config';
-// ✅ ใช้ getDoc และ query เพื่อดึงข้อมูลให้เจอ
 import { doc, collection, getDocs, query, where, onSnapshot, setDoc, deleteDoc, getDoc } from 'firebase/firestore';
 import { useFocusEffect } from '@react-navigation/native';
 
@@ -36,19 +35,16 @@ export default function HomeScreen({ navigation }) {
   const [favoriteStoreIds, setFavoriteStoreIds] = useState([]);
   const [cartCount, setCartCount] = useState(0);
 
-  // ✅ เก็บข้อมูลร้านค้า & เวลาปัจจุบัน
   const [storesData, setStoresData] = useState({});
   const [currentTime, setCurrentTime] = useState(new Date());
 
-  // Animation States (Drawer แบบเดิม)
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const slideAnim = useRef(new Animated.Value(-width * 0.85)).current;
-  // ✅ เพิ่ม fadeAnim กลับมา
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
   const defaultAvatar = Image.resolveAssetSource(require('../../assets/icon.png')).uri;
 
-  // 1. ระบบ Auth & Listener
+  // 1. Auth & Listeners
   useEffect(() => {
     let unsubscribeUser;
     let unsubscribeFav;
@@ -89,7 +85,7 @@ export default function HomeScreen({ navigation }) {
     };
   }, []);
 
-  // ✅ 2. นาฬิกาเดินทุก 1 วินาที
+  // 2. Timer
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
     return () => clearInterval(timer);
@@ -110,25 +106,21 @@ export default function HomeScreen({ navigation }) {
         setFoodItems(items);
         setFilteredFood(items);
 
-        // ✅ ดึงข้อมูลร้านค้า (แก้ให้รองรับ Database จริง)
+        // ดึงข้อมูลร้านค้า (หาทั้ง stores และ users)
         const uniqueStoreIds = [...new Set(items.map(item => item.storeId || item.userId).filter(id => id))];
         const storesInfo = {};
 
         await Promise.all(uniqueStoreIds.map(async (targetId) => {
             try {
-                // 1. ลองหาใน 'stores' ด้วย ID ที่มี (เผื่อตรงกัน)
                 let storeDoc = await getDoc(doc(db, 'stores', targetId));
-
                 if (storeDoc.exists()) {
                     storesInfo[targetId] = storeDoc.data();
                 } else {
-                    // 2. ถ้าไม่เจอ ลองหาใน 'users' (เผื่อ storeId คือ userId)
                     storeDoc = await getDoc(doc(db, 'users', targetId));
                     if (storeDoc.exists()) {
                         storesInfo[targetId] = storeDoc.data();
                     }
                 }
-                // (ถ้ายังไม่เจออีก อาจต้อง Query แต่เอาแค่นี้ก็น่าจะครอบคลุมแล้ว)
             } catch (e) { console.error("Store fetch error:", e); }
         }));
 
@@ -171,26 +163,48 @@ export default function HomeScreen({ navigation }) {
     } catch (error) { console.error("Error:", error); }
   };
 
-  // ✅ คำนวณเวลา (รองรับ field 'closeTime' แบบ String "23:00")
+  // ✅ ฟังก์ชันคำนวณเวลา (เช็คทั้ง เปิด และ ปิด)
   const getStoreStatus = (storeId) => {
       const store = storesData[storeId];
-      // เช็คทั้ง closeTime (ตาม DB) และ closingTime (เผื่อไว้)
+      // ดึงทั้งเวลาเปิดและปิด
+      const openTimeStr = store?.openTime;
       const closeTimeStr = store?.closeTime || store?.closingTime;
 
+      // ถ้าไม่มีเวลาปิด ให้ถือว่าเปิดตลอด (หรือจะให้ปิดก็ได้ แล้วแต่ Logic)
       if (!closeTimeStr) return { text: "เปิดอยู่", color: "#10b981", isOpen: true };
 
       const now = currentTime;
-      let closeDate = new Date();
+      const openDate = new Date();
+      const closeDate = new Date();
 
+      // แปลงเวลาปิด
       if (typeof closeTimeStr === 'string' && closeTimeStr.includes(':')) {
           const [hours, minutes] = closeTimeStr.split(':').map(Number);
           closeDate.setHours(hours, minutes, 0, 0);
-      } else {
-          return { text: "เปิดอยู่", color: "#10b981", isOpen: true };
       }
 
-      if (now > closeDate) return { text: "ปิดแล้ว", color: "#ef4444", isOpen: false };
+      // แปลงเวลาเปิด (ถ้ามี)
+      if (openTimeStr && typeof openTimeStr === 'string' && openTimeStr.includes(':')) {
+          const [openH, openM] = openTimeStr.split(':').map(Number);
+          openDate.setHours(openH, openM, 0, 0);
+      } else {
+          // ถ้าไม่มีเวลาเปิด ให้ถือว่าเปิดตั้งแต่ 00:00 (หรือเช็คแค่เวลาปิด)
+          openDate.setHours(0, 0, 0, 0);
+      }
 
+      // --- Logic การเช็คสถานะ ---
+
+      // 1. ถ้ายังไม่ถึงเวลาเปิด -> ปิด
+      if (now < openDate) {
+          return { text: `เปิด ${openTimeStr} น.`, color: "#ef4444", isOpen: false };
+      }
+
+      // 2. ถ้าเลยเวลาปิดแล้ว -> ปิด
+      if (now > closeDate) {
+          return { text: "ปิดแล้ว", color: "#ef4444", isOpen: false };
+      }
+
+      // 3. ถ้าอยู่ในช่วงเวลาเปิด -> คำนวณเวลานับถอยหลังถึงตอนปิด
       const diffMs = closeDate - now;
       const diffHrs = Math.floor(diffMs / (1000 * 60 * 60));
       const diffMins = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
@@ -198,16 +212,13 @@ export default function HomeScreen({ navigation }) {
 
       const fmt = (n) => n < 10 ? `0${n}` : n;
 
-      // แสดงผลแบบ HH:mm:ss
       if (diffHrs > 0) {
           return { text: `${diffHrs}:${fmt(diffMins)}:${fmt(diffSecs)}`, color: "#10b981", isOpen: true };
       } else {
-          // สีส้มถ้าน้อยกว่า 1 ชม.
           return { text: `${fmt(diffMins)}:${fmt(diffSecs)}`, color: "#f59e0b", isOpen: true };
       }
   };
 
-  // --- Drawer Animation ---
   const toggleDrawer = () => {
     if (isDrawerOpen) {
       Animated.parallel([
@@ -224,9 +235,8 @@ export default function HomeScreen({ navigation }) {
   };
 
   const handleLogout = async () => { await auth.signOut(); };
-  const handleSwitchToStore = () => { toggleDrawer(); if (userData?.currentRole === 'store' || userData?.currentRole === 'admin') navigation.navigate('StoreHome'); else navigation.navigate('RegisterStoreStep1'); };
+  const handleSwitchToStore = () => { toggleDrawer(); if (userData?.currentRole === 'store' || userData?.currentRole === 'admin') navigation.navigate('MyShop'); else navigation.navigate('RegisterStoreStep1'); };
 
-  // ✅ Render Card (Layout ตามรูปที่ส่งมา)
   const renderFoodCard = (item) => {
       const originalPrice = Number(item.originalPrice) || 0;
       const discountPrice = Number(item.discountPrice) || Number(item.price) || 0;
@@ -273,24 +283,19 @@ export default function HomeScreen({ navigation }) {
                )}
             </View>
 
-            {/* ส่วนแสดงเวลาและข้อมูลอื่นๆ */}
             <View style={styles.cardMetaRow}>
                <View style={styles.metaItem}>
                    <Ionicons name="location-outline" size={12} color="#6b7280" />
                    <Text style={styles.cardMetaText}> 0.8 กม.</Text>
                </View>
                <Text style={styles.separator}>•</Text>
-
-               {/* เวลา */}
                <View style={styles.metaItem}>
                    <Ionicons name="time-outline" size={12} color={status.color} />
                    <Text style={[styles.cardMetaText, { color: status.color, fontWeight: 'bold' }]}> {status.text}</Text>
                </View>
-
                <Text style={styles.separator}>•</Text>
-
                <View style={styles.metaItem}>
-                   <Text style={styles.cardMetaText}>เหลือ {item.quantity}</Text>
+                   <Text style={styles.cardMetaText}>เหลือ {item.quantity} ชุด</Text>
                </View>
             </View>
           </View>
@@ -305,7 +310,6 @@ export default function HomeScreen({ navigation }) {
       );
   };
 
-  // ✅ Drawer (เมนูข้าง)
   const DrawerContent = () => (
     <ScrollView style={styles.drawerContent} showsVerticalScrollIndicator={false}>
       <View style={styles.drawerTopHeader}>
@@ -361,7 +365,6 @@ export default function HomeScreen({ navigation }) {
          <View style={{height: 100}} />
       </ScrollView>
 
-      {/* Cart FAB */}
       <TouchableOpacity style={styles.cartFab} onPress={() => navigation.navigate('Cart')} activeOpacity={0.8}><Ionicons name="cart" size={28} color="#fff" />{cartCount > 0 && (<View style={styles.cartBadge}><Text style={styles.cartBadgeText}>{cartCount}</Text></View>)}</TouchableOpacity>
 
       <View style={styles.bottomNav}>
@@ -392,8 +395,6 @@ const styles = StyleSheet.create({
   sectionHeader: { marginBottom: 15 },
   sectionTitleMain: { fontSize: 18, fontWeight: 'bold', color: '#1f2937' },
   listContainer: { paddingBottom: 20 },
-
-  // Card Styles (แนวนอน)
   cardContainer: { flexDirection: 'row', backgroundColor: '#fff', borderRadius: 16, padding: 12, marginBottom: 15, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 3, elevation: 2, borderWidth: 1, borderColor: '#f3f4f6', alignItems: 'center' },
   cardImageContainer: { width: 90, height: 90, borderRadius: 12, backgroundColor: '#f3f4f6', overflow: 'hidden', marginRight: 15 },
   cardImage: { width: '100%', height: '100%' },
@@ -413,21 +414,15 @@ const styles = StyleSheet.create({
   separator: { fontSize: 11, color: '#d1d5db', marginHorizontal: 6 },
   cardStockText: { fontSize: 12, color: '#10b981', fontWeight: '500' },
   heartIcon: { padding: 5, position: 'absolute', top: 10, right: 10 },
-
-  // Empty & Nav
   emptyState: { alignItems: 'center', marginTop: 50 },
   emptyText: { color: '#9ca3af', fontSize: 16, marginTop: 10 },
   bottomNav: { flexDirection: 'row', backgroundColor: '#fff', paddingVertical: 10, paddingHorizontal: 20, borderTopWidth: 1, borderTopColor: '#f3f4f6', position: 'absolute', bottom: 0, left: 0, right: 0 },
   navItem: { flex: 1, alignItems: 'center' },
   navLabel: { fontSize: 10, color: '#9ca3af', marginTop: 4 },
   navLabelActive: { fontSize: 10, color: '#10b981', fontWeight: 'bold', marginTop: 4 },
-
-  // FAB (ตะกร้า)
   cartFab: { position: 'absolute', bottom: 80, right: 20, width: 60, height: 60, borderRadius: 30, backgroundColor: '#10b981', alignItems: 'center', justifyContent: 'center', elevation: 8, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 4, zIndex: 100 },
   cartBadge: { position: 'absolute', top: -5, right: -5, backgroundColor: '#ef4444', minWidth: 24, height: 24, borderRadius: 12, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: '#fff' },
   cartBadgeText: { color: '#fff', fontSize: 12, fontWeight: 'bold', paddingHorizontal: 4 },
-
-  // Drawer Styles (เดิมเป๊ะ)
   drawerOverlay: { flex: 1, flexDirection: 'row' },
   drawerBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)' },
   drawerContainer: { position: 'absolute', left: 0, top: 0, bottom: 0, width: width * 0.80, backgroundColor: '#fff', paddingTop: 50, shadowColor: "#000", shadowOffset: { width: 2, height: 0 }, shadowOpacity: 0.25, shadowRadius: 3.84, elevation: 5 },
