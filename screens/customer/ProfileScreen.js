@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react'; // เพิ่ม useCallback
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -11,33 +11,22 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { auth, db } from '../../firebase.config';
-import { doc, getDoc } from 'firebase/firestore';
-import { useFocusEffect } from '@react-navigation/native'; // ⭐ เพิ่ม import
+import { doc, onSnapshot } from 'firebase/firestore';
 
 export default function ProfileScreen({ navigation }) {
   const [userData, setUserData] = useState(null);
 
-  // ⭐ เปลี่ยนจาก useEffect เป็น useFocusEffect
-  // เพื่อให้โหลดใหม่ทุกครั้งที่กลับมาหน้านี้
-  useFocusEffect(
-    useCallback(() => {
-      loadUserData();
-    }, [])
-  );
-
-  const loadUserData = async () => {
-    try {
-      const user = auth.currentUser;
-      if (user) {
-        const userDoc = await getDoc(doc(db, 'users', user.uid));
-        if (userDoc.exists()) {
-          setUserData(userDoc.data());
+  useEffect(() => {
+    const user = auth.currentUser;
+    if (user) {
+      const unsubscribe = onSnapshot(doc(db, 'users', user.uid), (doc) => {
+        if (doc.exists()) {
+          setUserData(doc.data());
         }
-      }
-    } catch (error) {
-      console.error('Error loading user data:', error);
+      });
+      return () => unsubscribe();
     }
-  };
+  }, []);
 
   const handleLogout = () => {
     Alert.alert(
@@ -57,134 +46,70 @@ export default function ProfileScreen({ navigation }) {
   };
 
   const menuItems = [
-    {
-      icon: 'person-outline',
-      title: 'แก้ไขโปรไฟล์',
-      subtitle: 'เปลี่ยนข้อมูลส่วนตัว',
-      color: '#10b981',
-      screen: 'EditProfile',
-    },
-    {
-      icon: 'lock-closed-outline',
-      title: 'เปลี่ยนรหัสผ่าน',
-      subtitle: 'อัปเดตรหัสผ่านของคุณ',
-      color: '#3b82f6',
-      screen: 'ChangePassword',
-    },
-    {
-      icon: 'heart-outline',
-      title: 'รายการโปรด',
-      subtitle: 'ร้านค้าและสินค้าที่ชื่นชอบ',
-      color: '#f43f5e',
-    },
-    {
-      icon: 'notifications-outline',
-      title: 'การแจ้งเตือน',
-      subtitle: 'ตั้งค่าการแจ้งเตือน',
-      color: '#f59e0b',
-    },
-    {
-      icon: 'help-circle-outline',
-      title: 'ช่วยเหลือและสนับสนุน',
-      subtitle: 'คำถามที่พบบ่อย',
-      color: '#8b5cf6',
-    },
-    {
-      icon: 'shield-checkmark-outline',
-      title: 'ความเป็นส่วนตัว',
-      subtitle: 'นโยบายและความปลอดภัย',
-      color: '#6366f1',
-    },
+    { icon: 'person-outline', title: 'แก้ไขโปรไฟล์', subtitle: 'เปลี่ยนข้อมูลส่วนตัว', color: '#10b981', screen: 'EditProfile' },
+    // ✅ เพิ่ม logic: requiresGuest ถ้าเป็น true จะซ่อนเมื่อเป็นร้านค้า
+    { icon: 'storefront-outline', title: 'สมัครเป็นร้านค้า', subtitle: 'เริ่มขายอาหารกับเรา', color: '#f59e0b', screen: 'RegisterStoreStep1', requiresGuest: true },
+    { icon: 'lock-closed-outline', title: 'เปลี่ยนรหัสผ่าน', subtitle: 'อัปเดตรหัสผ่านของคุณ', color: '#3b82f6', screen: 'ChangePassword' },
+    { icon: 'heart-outline', title: 'รายการโปรด', subtitle: 'ร้านค้าและสินค้าที่ชื่นชอบ', color: '#f43f5e', screen: 'FavoriteStores' },
+    { icon: 'notifications-outline', title: 'การแจ้งเตือน', subtitle: 'ตั้งค่าการแจ้งเตือน', color: '#f59e0b', screen: 'Notifications' },
   ];
 
   return (
     <View style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#fff" />
-
-      {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity
-          style={styles.backButton}
-          onPress={() => navigation.goBack()}
-        >
+        <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
           <Ionicons name="arrow-back" size={24} color="#1f2937" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>โปรไฟล์</Text>
         <View style={styles.placeholder} />
       </View>
 
-      <ScrollView
-        style={styles.content}
-        showsVerticalScrollIndicator={false}
-      >
-        {/* Profile Info */}
+      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.profileSection}>
           <View style={styles.profileImageContainer}>
             {userData?.profileImage ? (
-              <Image
-                source={{ uri: userData.profileImage }}
-                style={styles.profileImage}
-              />
+              <Image source={{ uri: userData.profileImage }} style={styles.profileImage} />
             ) : (
-              <View style={styles.profilePlaceholder}>
-                <Ionicons name="person" size={50} color="#10b981" />
-              </View>
+              <View style={styles.profilePlaceholder}><Ionicons name="person" size={50} color="#10b981" /></View>
             )}
-            {/* แสดงจุดสีตาม Role */}
+            {/* ✅ เช็ค currentRole (แทน role) */}
             <View style={[styles.statusDot, { backgroundColor: userData?.currentRole === 'store' ? '#f59e0b' : '#10b981' }]} />
           </View>
-
           <Text style={styles.profileName}>{userData?.username || 'User'}</Text>
           <Text style={styles.profileEmail}>{userData?.email || ''}</Text>
 
           <View style={styles.statsRow}>
-            {/* ตัวอย่าง Stats (ปรับเปลี่ยนตามต้องการ) */}
-            <View style={styles.statItem}>
-              <Text style={styles.statValue}>0</Text>
-              <Text style={styles.statLabel}>คำสั่งซื้อ</Text>
-            </View>
+            <View style={styles.statItem}><Text style={styles.statValue}>0</Text><Text style={styles.statLabel}>คำสั่งซื้อ</Text></View>
             <View style={styles.statDivider} />
-            <View style={styles.statItem}>
-              <Text style={styles.statValue}>0</Text>
-              <Text style={styles.statLabel}>แต้มสะสม</Text>
-            </View>
+            <View style={styles.statItem}><Text style={styles.statValue}>0</Text><Text style={styles.statLabel}>แต้มสะสม</Text></View>
           </View>
         </View>
 
-        {/* Menu Items */}
         <View style={styles.menuSection}>
-          {menuItems.map((item, index) => (
-            <TouchableOpacity
-              key={index}
-              style={styles.menuItem}
-              onPress={() => {
-                if (item.screen) {
-                  navigation.navigate(item.screen);
-                }
-              }}
-              activeOpacity={0.7}
-            >
-              <View style={[styles.menuIcon, { backgroundColor: `${item.color}15` }]}>
-                <Ionicons name={item.icon} size={24} color={item.color} />
-              </View>
-              <View style={styles.menuContent}>
-                <Text style={styles.menuTitle}>{item.title}</Text>
-                <Text style={styles.menuSubtitle}>{item.subtitle}</Text>
-              </View>
-              <Ionicons name="chevron-forward" size={20} color="#d1d5db" />
-            </TouchableOpacity>
-          ))}
+          {menuItems.map((item, index) => {
+            // ✅ ซ่อนเมนูสมัครร้านค้า ถ้า user เป็นร้านค้าแล้ว (เช็ค currentRole)
+            if (item.requiresGuest && userData?.currentRole === 'store') return null;
+
+            return (
+              <TouchableOpacity key={index} style={styles.menuItem} onPress={() => item.screen && navigation.navigate(item.screen)}>
+                <View style={[styles.menuIcon, { backgroundColor: `${item.color}15` }]}>
+                  <Ionicons name={item.icon} size={24} color={item.color} />
+                </View>
+                <View style={styles.menuContent}>
+                  <Text style={styles.menuTitle}>{item.title}</Text>
+                  <Text style={styles.menuSubtitle}>{item.subtitle}</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={20} color="#d1d5db" />
+              </TouchableOpacity>
+            );
+          })}
         </View>
 
-        <TouchableOpacity
-          style={styles.logoutButton}
-          onPress={handleLogout}
-          activeOpacity={0.8}
-        >
+        <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
           <Ionicons name="log-out-outline" size={22} color="#ef4444" />
           <Text style={styles.logoutText}>ออกจากระบบ</Text>
         </TouchableOpacity>
-
         <Text style={styles.versionText}>เวอร์ชัน 1.0.0</Text>
       </ScrollView>
     </View>
@@ -193,28 +118,16 @@ export default function ProfileScreen({ navigation }) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f9fafb' },
-  header: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 20, paddingTop: 50, paddingBottom: 15, backgroundColor: '#fff',
-  },
-  backButton: {
-    width: 40, height: 40, borderRadius: 20, backgroundColor: '#f3f4f6',
-    alignItems: 'center', justifyContent: 'center',
-  },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 50, paddingBottom: 15, backgroundColor: '#fff' },
+  backButton: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#f3f4f6', alignItems: 'center', justifyContent: 'center' },
   headerTitle: { fontSize: 18, fontWeight: '600', color: '#1f2937' },
   placeholder: { width: 40 },
   content: { flex: 1 },
   profileSection: { backgroundColor: '#fff', alignItems: 'center', paddingVertical: 30, marginBottom: 15 },
   profileImageContainer: { position: 'relative', marginBottom: 15 },
   profileImage: { width: 100, height: 100, borderRadius: 50, borderWidth: 3, borderColor: '#10b981' },
-  profilePlaceholder: {
-    width: 100, height: 100, borderRadius: 50, backgroundColor: '#f0fdf4',
-    alignItems: 'center', justifyContent: 'center', borderWidth: 3, borderColor: '#10b981',
-  },
-  statusDot: {
-    position: 'absolute', bottom: 5, right: 5, width: 20, height: 20,
-    borderRadius: 10, borderWidth: 3, borderColor: '#fff',
-  },
+  profilePlaceholder: { width: 100, height: 100, borderRadius: 50, backgroundColor: '#f0fdf4', alignItems: 'center', justifyContent: 'center', borderWidth: 3, borderColor: '#10b981' },
+  statusDot: { position: 'absolute', bottom: 5, right: 5, width: 20, height: 20, borderRadius: 10, borderWidth: 3, borderColor: '#fff' },
   profileName: { fontSize: 24, fontWeight: 'bold', color: '#1f2937', marginBottom: 5 },
   profileEmail: { fontSize: 14, color: '#6b7280', marginBottom: 20 },
   statsRow: { flexDirection: 'row', alignItems: 'center', marginTop: 10 },

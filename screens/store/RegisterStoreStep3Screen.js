@@ -13,7 +13,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
-import { db, auth } from '../firebase.config';
+import { db, auth } from '../../firebase.config';
 import { doc, setDoc } from 'firebase/firestore';
 
 export default function RegisterStoreStep3Screen({ navigation, route }) {

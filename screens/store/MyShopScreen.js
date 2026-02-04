@@ -118,6 +118,26 @@ export default function MyShopScreen({ navigation }) {
     }
   };
 
+  const formatExpiryDate = (dateString) => {
+    if (!dateString) return 'ไม่ระบุ';
+    
+    try {
+      const date = new Date(dateString);
+      if (isNaN(date.getTime())) return dateString; // Return original if invalid
+      
+      // Format: วันที่ DD/MM/YYYY เวลา HH:MM น.
+      const day = date.getDate().toString().padStart(2, '0');
+      const month = (date.getMonth() + 1).toString().padStart(2, '0');
+      const year = date.getFullYear();
+      const hours = date.getHours().toString().padStart(2, '0');
+      const minutes = date.getMinutes().toString().padStart(2, '0');
+      
+      return `${day}/${month}/${year} ${hours}:${minutes} น.`;
+    } catch (error) {
+      return dateString;
+    }
+  };
+
   const renderListingCard = (item) => {
     const originalPrice = Number(item.originalPrice) || 0;
     const discountPrice = Number(item.discountPrice) || Number(item.price) || 0;
@@ -148,7 +168,7 @@ export default function MyShopScreen({ navigation }) {
               <Text style={styles.discountedPrice}> {discountPrice} ฿</Text>
             </View>
             <Text style={styles.quantityInfo}>คงเหลือ : {item.quantity}/{item.quantity + (item.soldCount || 0)} {item.unit}</Text>
-            <Text style={styles.closedTime}>ปิดขาย : {item.expiryDate || '20:00'}</Text>
+            <Text style={styles.closedTime}>ปิดขาย : {formatExpiryDate(item.expiryDate)}</Text>
           </View>
         </View>
 

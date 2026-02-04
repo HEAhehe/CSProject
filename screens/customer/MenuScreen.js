@@ -7,35 +7,32 @@ import {
   StatusBar,
   Image,
   Alert,
+  ScrollView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { auth, db } from '../../firebase.config';
-import { doc, getDoc } from 'firebase/firestore';
+import { doc, onSnapshot } from 'firebase/firestore';
 
 export default function MenuScreen({ navigation }) {
   const [userData, setUserData] = useState(null);
 
-  useEffect(() => {
-    loadUserData();
-  }, []);
+  const defaultAvatar = Image.resolveAssetSource(require('../../assets/icon.png')).uri;
 
-  const loadUserData = async () => {
-    try {
-      const user = auth.currentUser;
-      if (user) {
-        const userDoc = await getDoc(doc(db, 'users', user.uid));
-        if (userDoc.exists()) {
-          setUserData(userDoc.data());
+  useEffect(() => {
+    const user = auth.currentUser;
+    if (user) {
+      const unsubscribe = onSnapshot(doc(db, 'users', user.uid), (doc) => {
+        if (doc.exists()) {
+          setUserData(doc.data());
         }
-      }
-    } catch (error) {
-      console.error('Error loading user data:', error);
+      });
+      return () => unsubscribe();
     }
-  };
+  }, []);
 
   const handleLogout = () => {
     Alert.alert(
-      'Log out',
+      'ออกจากระบบ',
       'คุณต้องการออกจากระบบหรือไม่?',
       [
         { text: 'ยกเลิก', style: 'cancel' },
@@ -50,300 +47,210 @@ export default function MenuScreen({ navigation }) {
     );
   };
 
-  const menuItems = [
-    {
-      icon: 'person-outline',
-      label: 'Username',
-      subtitle: 'ลูกค้า (Role)',
-      navigate: 'EditProfile',
-      showBadges: true,
-    },
-    {
-      icon: 'grid-outline',
-      label: 'หมวดหมู่',
-      navigate: 'Categories',
-    },
-    {
-      icon: 'document-text-outline',
-      label: 'คำสั่งซื้อมาแล้ว',
-      navigate: 'Orders',
-    },
-    {
-      icon: 'heart-outline',
-      label: 'ร้านโปรด',
-      navigate: 'FavoriteStores',
-    },
-    {
-      icon: 'notifications-outline',
-      label: 'แจ้งเตือน',
-      navigate: 'Notifications',
-    },
-    {
-      icon: 'person-outline',
-      label: 'โปรไฟล์',
-      navigate: 'Profile',
-    },
-  ];
-
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="dark-content" backgroundColor="#fff" />
+      <StatusBar barStyle="dark-content" backgroundColor="#e5e5e5" />
 
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Food waste</Text>
+        <View style={styles.logoContainer}>
+           <View style={styles.logoCircle}>
+             <Ionicons name="image-outline" size={20} color="#9ca3af" />
+           </View>
+           <View>
+             <Text style={styles.appName}>ชื่อแอป</Text>
+             <Text style={styles.appSlogan}>สโลแกน...</Text>
+           </View>
+        </View>
+
+        {/* ปุ่มปิด (X) */}
         <TouchableOpacity
           style={styles.closeButton}
           onPress={() => navigation.goBack()}
         >
-          <Ionicons name="close" size={28} color="#1f2937" />
+          <Ionicons name="close" size={22} color="#1f2937" />
         </TouchableOpacity>
       </View>
 
-      {/* Profile Image */}
-      <View style={styles.profileSection}>
-        <View style={styles.profileImageContainer}>
-          <Ionicons name="camera-outline" size={24} color="#9ca3af" />
+      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+
+        {/* Profile Card (กรอบขาว ขอบดำ) */}
+        <View style={styles.profileCard}>
+          <View style={styles.profileHeader}>
+            <Image
+              source={userData?.profileImage ? { uri: userData.profileImage } : { uri: defaultAvatar }}
+              style={styles.avatar}
+            />
+            <View>
+              <Text style={styles.username}>{userData?.username || 'Username'}</Text>
+              <Text style={styles.userRole}>ลูกค้า (Role)</Text>
+            </View>
+          </View>
+
+          <View style={styles.modeContainer}>
+            <TouchableOpacity style={styles.modeButtonActive}>
+              <Ionicons name="cart-outline" size={16} color="#1f2937" />
+              <Text style={styles.modeTextActive}>โหมดลูกค้า</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.modeButtonInactive}
+              onPress={() => navigation.navigate('RegisterStoreStep1')}
+            >
+              <Ionicons name="storefront-outline" size={16} color="#1f2937" />
+              <Text style={styles.modeTextInactive}>โหมดเจ้าของร้าน</Text>
+            </TouchableOpacity>
+          </View>
         </View>
-        <Text style={styles.profileLabel}>สไตเมนน...</Text>
-      </View>
 
-      {/* Menu Items */}
-      <View style={styles.menuList}>
-        {menuItems.map((item, index) => (
-          <TouchableOpacity
-            key={index}
-            style={styles.menuItem}
-            onPress={() => item.navigate && navigation.navigate(item.navigate)}
-          >
-            <View style={styles.menuIconContainer}>
-              <Ionicons name={item.icon} size={24} color="#1f2937" />
-            </View>
-            
-            <View style={styles.menuContent}>
-              <Text style={styles.menuLabel}>{item.label}</Text>
-              {item.subtitle && (
-                <Text style={styles.menuSubtitle}>{item.subtitle}</Text>
-              )}
-            </View>
+        {/* Menu Section */}
+        <Text style={styles.sectionTitle}>เมนูหลัก</Text>
 
-            {item.showBadges && (
-              <View style={styles.badgeContainer}>
-                <View style={styles.badge}>
-                  <Ionicons name="briefcase-outline" size={16} color="#1f2937" />
-                  <Text style={styles.badgeText}>โหมดลูกค้า</Text>
-                </View>
-                <View style={[styles.badge, styles.badgeInactive]}>
-                  <Ionicons name="storefront-outline" size={16} color="#6b7280" />
-                  <Text style={styles.badgeTextInactive}>โหมดเจ้าของร้าน</Text>
-                </View>
-              </View>
-            )}
-
-            <Ionicons name="chevron-forward" size={20} color="#9ca3af" />
-          </TouchableOpacity>
-        ))}
-      </View>
-
-      {/* Additional Sections */}
-      <View style={styles.additionalSections}>
-        <View style={styles.sectionDivider} />
-        
-        <TouchableOpacity style={styles.menuItem}>
-          <View style={styles.menuIconContainer}>
-            <Ionicons name="location-outline" size={24} color="#1f2937" />
-          </View>
-          <View style={styles.menuContent}>
-            <Text style={styles.menuLabel}>บัญชี</Text>
-          </View>
-          <Ionicons name="chevron-forward" size={20} color="#9ca3af" />
+        <TouchableOpacity style={styles.menuItem} onPress={() => navigation.navigate('Home')}>
+          <Text style={styles.menuText}>หน้าหลัก</Text>
+          <Ionicons name="chevron-forward" size={18} color="#6b7280" />
         </TouchableOpacity>
 
-        <View style={styles.sectionDivider} />
-
-        <TouchableOpacity style={styles.menuItem}>
-          <View style={styles.menuIconContainer}>
-            <Ionicons name="card-outline" size={24} color="#1f2937" />
-          </View>
-          <View style={styles.menuContent}>
-            <Text style={styles.menuLabel}>โปรไฟล์</Text>
-          </View>
-          <Ionicons name="chevron-forward" size={20} color="#9ca3af" />
-        </TouchableOpacity>
-      </View>
-
-      {/* Logout */}
-      <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
-        <Ionicons name="log-out-outline" size={20} color="#ef4444" />
-        <Text style={styles.logoutText}>Log out</Text>
-      </TouchableOpacity>
-
-      {/* Bottom Nav */}
-      <View style={styles.bottomNav}>
-        <TouchableOpacity style={styles.navItem}>
-          <Ionicons name="home-outline" size={24} color="#9ca3af" />
-          <Text style={styles.navLabel}>หน้าหลัก</Text>
+        <TouchableOpacity style={styles.menuItem} onPress={() => navigation.navigate('Orders')}>
+          <Text style={styles.menuText}>คำสั่งซื้อของฉัน</Text>
+          <Ionicons name="chevron-forward" size={18} color="#6b7280" />
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.navItem}>
-          <Ionicons name="receipt-outline" size={24} color="#9ca3af" />
-          <Text style={styles.navLabel}>รายการซื้อ</Text>
+        <TouchableOpacity style={styles.menuItem} onPress={() => navigation.navigate('FavoriteStores')}>
+          <Text style={styles.menuText}>ร้านโปรด</Text>
+          <Ionicons name="chevron-forward" size={18} color="#6b7280" />
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.navItem}>
-          <Ionicons name="notifications-outline" size={24} color="#9ca3af" />
-          <Text style={styles.navLabel}>แจ้งเตือน</Text>
+        <TouchableOpacity style={styles.menuItem} onPress={() => navigation.navigate('Notifications')}>
+          <Text style={styles.menuText}>แจ้งเตือน</Text>
+          <Ionicons name="chevron-forward" size={18} color="#6b7280" />
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.navItem}>
-          <Ionicons name="person" size={24} color="#1f2937" />
-          <Text style={styles.navLabelActive}>โปรไฟล์</Text>
+        <Text style={styles.sectionTitle}>บัญชี</Text>
+
+        <TouchableOpacity style={styles.menuItem} onPress={() => navigation.navigate('Profile')}>
+          <Text style={styles.menuText}>โปรไฟล์</Text>
+          <Ionicons name="chevron-forward" size={18} color="#6b7280" />
         </TouchableOpacity>
-      </View>
+
+        {/* Logout */}
+        <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
+          <Ionicons name="log-out-outline" size={24} color="#ef4444" />
+          <Text style={styles.logoutText}>Log out</Text>
+        </TouchableOpacity>
+
+        <View style={{ height: 50 }} />
+      </ScrollView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#fff',
-  },
+  container: { flex: 1, backgroundColor: '#e5e5e5' }, // พื้นหลังสีเทาอ่อนเหมือน UI
+
   header: {
     flexDirection: 'row',
-    alignItems: 'center',
     justifyContent: 'space-between',
+    alignItems: 'center',
     paddingHorizontal: 20,
-    paddingTop: 50,
-    paddingBottom: 16,
+    paddingTop: 60,
+    paddingBottom: 20
   },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#1f2937',
+  logoContainer: { flexDirection: 'row', alignItems: 'center', gap: 15 },
+  logoCircle: { width: 50, height: 50, borderRadius: 25, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#ccc' },
+  appName: { fontSize: 16, fontWeight: 'bold', color: '#1f2937' },
+  appSlogan: { fontSize: 12, color: '#6b7280' },
+  closeButton: { width: 40, height: 40, borderRadius: 20, backgroundColor: 'transparent', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#999' },
+
+  content: { flex: 1, paddingHorizontal: 20 },
+
+  // Profile Card
+  profileCard: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 15,
+    borderWidth: 1,
+    borderColor: '#000', // ขอบสีดำชัดเจน
+    marginBottom: 25,
   },
-  closeButton: {
-    width: 40,
-    height: 40,
+  profileHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 15,
+    marginBottom: 15,
+  },
+  avatar: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    backgroundColor: '#f3f4f6'
+  },
+  username: { fontSize: 16, fontWeight: 'bold', color: '#1f2937' },
+  userRole: { fontSize: 13, color: '#6b7280' },
+
+  modeContainer: { flexDirection: 'row', gap: 10 },
+  modeButtonActive: {
+    flex: 1,
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 5,
+    paddingVertical: 8,
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#000', // Active มีขอบดำ
   },
-  profileSection: {
-    alignItems: 'center',
-    paddingVertical: 20,
-  },
-  profileImageContainer: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: '#f3f4f6',
+  modeButtonInactive: {
+    flex: 1,
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 12,
+    gap: 5,
+    paddingVertical: 8,
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#000', // Inactive ก็มีขอบ (ตามรูป)
   },
-  profileLabel: {
-    fontSize: 13,
-    color: '#6b7280',
-  },
-  menuList: {
-    paddingHorizontal: 20,
+  modeTextActive: { fontSize: 11, fontWeight: 'bold', color: '#1f2937' },
+  modeTextInactive: { fontSize: 11, color: '#1f2937' },
+
+  // Menu Items
+  sectionTitle: {
+    fontSize: 14,
+    color: '#666',
+    marginBottom: 8,
+    marginLeft: 5,
   },
   menuItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 16,
+    justifyContent: 'space-between',
+    backgroundColor: '#fff', // ปุ่มสีขาว
+    paddingVertical: 14,
+    paddingHorizontal: 15,
+    borderRadius: 10,
+    marginBottom: 10,
   },
-  menuIconContainer: {
-    width: 40,
-    alignItems: 'center',
-  },
-  menuContent: {
-    flex: 1,
-    marginLeft: 12,
-  },
-  menuLabel: {
+  menuText: {
     fontSize: 15,
     color: '#1f2937',
     fontWeight: '500',
   },
-  menuSubtitle: {
-    fontSize: 13,
-    color: '#6b7280',
-    marginTop: 2,
-  },
-  badgeContainer: {
-    flexDirection: 'row',
-    gap: 8,
-    marginRight: 8,
-  },
-  badge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#1f2937',
-  },
-  badgeInactive: {
-    borderColor: '#d1d5db',
-  },
-  badgeText: {
-    fontSize: 11,
-    color: '#1f2937',
-    fontWeight: '500',
-  },
-  badgeTextInactive: {
-    fontSize: 11,
-    color: '#6b7280',
-  },
-  additionalSections: {
-    marginTop: 20,
-    paddingHorizontal: 20,
-  },
-  sectionDivider: {
-    height: 1,
-    backgroundColor: '#f3f4f6',
-    marginVertical: 12,
-  },
+
   logoutButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    paddingVertical: 16,
-    marginHorizontal: 20,
+    gap: 10,
     marginTop: 20,
+    marginLeft: 5,
   },
   logoutText: {
-    fontSize: 15,
+    fontSize: 16,
     color: '#ef4444',
-    fontWeight: '500',
-  },
-  bottomNav: {
-    flexDirection: 'row',
-    backgroundColor: '#fff',
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    borderTopWidth: 1,
-    borderTopColor: '#f3f4f6',
-    marginTop: 'auto',
-  },
-  navItem: {
-    flex: 1,
-    alignItems: 'center',
-    paddingVertical: 8,
-  },
-  navLabel: {
-    fontSize: 11,
-    color: '#9ca3af',
-    marginTop: 4,
-  },
-  navLabelActive: {
-    fontSize: 11,
-    color: '#1f2937',
-    fontWeight: '600',
-    marginTop: 4,
+    fontWeight: 'bold',
   },
 });

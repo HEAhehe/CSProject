@@ -15,6 +15,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { auth, db } from '../../firebase.config';
 import { collection, addDoc, updateDoc, doc, getDoc, serverTimestamp } from 'firebase/firestore';
 
@@ -27,12 +28,16 @@ export default function CreateListingScreen({ navigation, route }) {
     fullPrice: '',
     price: '',
     amount: '',
-    closedForSale: '',
   });
 
-  const [imageUri, setImageUri] = useState(null); // ตัวแปรนี้จะเก็บ String Base64
+  const [imageUri, setImageUri] = useState(null);
   const [loading, setLoading] = useState(false);
   const [storeName, setStoreName] = useState('');
+  
+  // Date/Time Picker states
+  const [closedForSaleDate, setClosedForSaleDate] = useState(new Date());
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [showTimePicker, setShowTimePicker] = useState(false);
 
   useEffect(() => {
     loadStoreName();
@@ -42,9 +47,20 @@ export default function CreateListingScreen({ navigation, route }) {
         fullPrice: String(editItem.originalPrice || ''),
         price: String(editItem.discountPrice || ''),
         amount: String(editItem.quantity || ''),
-        closedForSale: editItem.expiryDate || '',
       });
       setImageUri(editItem.imageUrl);
+      
+      // Parse existing date if available
+      if (editItem.expiryDate) {
+        try {
+          const parsedDate = new Date(editItem.expiryDate);
+          if (!isNaN(parsedDate.getTime())) {
+            setClosedForSaleDate(parsedDate);
+          }
+        } catch (error) {
+          console.log('Could not parse existing date');
+        }
+      }
     }
   }, [editItem]);
 
@@ -67,15 +83,14 @@ export default function CreateListingScreen({ navigation, route }) {
     }
 
     let result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'], // แก้ไข warning deprecated
+      mediaTypes: ['images'],
       allowsEditing: true,
       aspect: [4, 3],
-      quality: 0.15, // บีบอัดให้เล็กลงมากเพื่อให้ String ไม่เกิน 1MB
-      base64: true, // สั่งให้คืนค่าเป็น Base64
+      quality: 0.15,
+      base64: true,
     });
 
     if (!result.canceled) {
-      // เก็บข้อมูลในรูปแบบ Base64 URI
       setImageUri(`data:image/jpeg;base64,${result.assets[0].base64}`);
     }
   };
@@ -86,6 +101,30 @@ export default function CreateListingScreen({ navigation, route }) {
       return false;
     }
     return true;
+  };
+
+  const formatDateTime = (date) => {
+    const day = date.getDate().toString().padStart(2, '0');
+    const month = (date.getMonth() + 1).toString().padStart(2, '0');
+    const year = date.getFullYear();
+    const hours = date.getHours().toString().padStart(2, '0');
+    const minutes = date.getMinutes().toString().padStart(2, '0');
+    
+    return `${day}/${month}/${year} ${hours}:${minutes}`;
+  };
+
+  const onDateChange = (event, selectedDate) => {
+    setShowDatePicker(false);
+    if (selectedDate) {
+      setClosedForSaleDate(selectedDate);
+    }
+  };
+
+  const onTimeChange = (event, selectedTime) => {
+    setShowTimePicker(false);
+    if (selectedTime) {
+      setClosedForSaleDate(selectedTime);
+    }
   };
 
   const handleSubmit = async () => {
@@ -104,8 +143,8 @@ export default function CreateListingScreen({ navigation, route }) {
         price: Number(formData.price),
         quantity: Number(formData.amount),
         unit: 'ชุด',
-        expiryDate: formData.closedForSale,
-        imageUrl: imageUri, // บันทึก String Base64 ลง Firestore โดยตรง
+        expiryDate: closedForSaleDate.toISOString(), // Save as ISO string
+        imageUrl: imageUri,
         updatedAt: serverTimestamp(),
       };
 
@@ -128,7 +167,6 @@ export default function CreateListingScreen({ navigation, route }) {
       }
     } catch (error) {
       console.error('Error saving item:', error);
-      // ส่วนใหญ่ถ้า Error ตรงนี้ในวิธี Base64 มักเกิดจากขนาดรูปใหญ่เกิน 1MB
       Alert.alert('ผิดพลาด', 'ไม่สามารถบันทึกข้อมูลได้ เนื่องจากขนาดรูปภาพอาจใหญ่เกินไป');
     } finally {
       setLoading(false);
@@ -213,12 +251,56 @@ export default function CreateListingScreen({ navigation, route }) {
 
           <View style={styles.inputGroup}>
             <Text style={styles.label}>ปิดรับออเดอร์เวลา</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="เช่น 19:30"
-              value={formData.closedForSale}
-              onChangeText={(text) => setFormData({...formData, closedForSale: text})}
-            />
+            
+            <View style={styles.dateTimeContainer}>
+              <TouchableOpacity 
+                style={styles.dateTimeButton}
+                onPress={() => setShowDatePicker(true)}
+              >
+                <Ionicons name="calendar-outline" size={20} color="#10b981" />
+                <Text style={styles.dateTimeText}>
+                  {closedForSaleDate.toLocaleDateString('th-TH', {
+                    day: '2-digit',
+                    month: '2-digit',
+                    year: 'numeric'
+                  })}
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={styles.dateTimeButton}
+                onPress={() => setShowTimePicker(true)}
+              >
+                <Ionicons name="time-outline" size={20} color="#10b981" />
+                <Text style={styles.dateTimeText}>
+                  {closedForSaleDate.toLocaleTimeString('th-TH', {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    hour12: false
+                  })}
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            {showDatePicker && (
+              <DateTimePicker
+                value={closedForSaleDate}
+                mode="date"
+                display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                onChange={onDateChange}
+                minimumDate={new Date()}
+              />
+            )}
+
+            {showTimePicker && (
+              <DateTimePicker
+                value={closedForSaleDate}
+                mode="time"
+                display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                onChange={onTimeChange}
+                is24Hour={true}
+              />
+            )}
           </View>
         </View>
         <View style={{ height: 40 }} />
@@ -296,6 +378,24 @@ const styles = StyleSheet.create({
   },
   row: { flexDirection: 'row' },
   inputGroup: { marginBottom: 5 },
+  dateTimeContainer: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  dateTimeButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f3f4f6',
+    borderRadius: 12,
+    padding: 15,
+    gap: 10,
+  },
+  dateTimeText: {
+    fontSize: 16,
+    color: '#1f2937',
+    fontWeight: '500',
+  },
   footer: {
     padding: 20,
     paddingBottom: Platform.OS === 'ios' ? 40 : 20,
