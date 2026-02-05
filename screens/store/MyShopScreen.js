@@ -13,7 +13,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { auth, db } from '../../firebase.config';
-import { collection, getDocs, query, where, deleteDoc, doc, updateDoc } from 'firebase/firestore';
+import { collection, getDocs, query, where, deleteDoc, doc, updateDoc, getDoc } from 'firebase/firestore';
 import { useFocusEffect } from '@react-navigation/native';
 
 export default function MyShopScreen({ navigation }) {
@@ -37,14 +37,60 @@ export default function MyShopScreen({ navigation }) {
       const user = auth.currentUser;
       if (!user) return;
 
-      // ดึงข้อมูลร้านค้าจาก users collection
-      const userDoc = await getDocs(query(collection(db, 'users'), where('userId', '==', user.uid)));
-      if (!userDoc.empty) {
-        const userData = userDoc.docs[0].data();
-        setStoreData(userData);
+      // ดึงข้อมูลร้านค้าจาก stores collection
+      const storeDocRef = doc(db, 'stores', user.uid);
+      const storeDoc = await getDoc(storeDocRef);
+      
+      if (storeDoc.exists()) {
+        const storeInfo = storeDoc.data();
+        
+        // ตรวจสอบสถานะการอนุมัติ
+        if (storeInfo.status === 'approved') {
+          setStoreData(storeInfo);
+        } else if (storeInfo.status === 'pending') {
+          Alert.alert(
+            'รอการอนุมัติ',
+            'ร้านค้าของคุณอยู่ระหว่างการตรวจสอบ กรุณารอการอนุมัติจากผู้ดูแลระบบ',
+            [
+              {
+                text: 'ตกลง',
+                onPress: () => navigation.goBack()
+              }
+            ]
+          );
+        } else if (storeInfo.status === 'rejected') {
+          Alert.alert(
+            'คำขออนุมัติถูกปฏิเสธ',
+            'ร้านค้าของคุณไม่ได้รับการอนุมัติ กรุณาติดต่อผู้ดูแลระบบ',
+            [
+              {
+                text: 'ตกลง',
+                onPress: () => navigation.goBack()
+              }
+            ]
+          );
+        }
+      } else {
+        // ถ้าไม่มีข้อมูลร้านค้า ให้นำไปหน้าสมัคร
+        Alert.alert(
+          'ยังไม่มีร้านค้า',
+          'คุณยังไม่ได้สมัครเป็นร้านค้า ต้องการสมัครหรือไม่?',
+          [
+            {
+              text: 'ยกเลิก',
+              onPress: () => navigation.goBack(),
+              style: 'cancel'
+            },
+            {
+              text: 'สมัคร',
+              onPress: () => navigation.navigate('RegisterStoreStep1')
+            }
+          ]
+        );
       }
     } catch (error) {
       console.error('Error loading store data:', error);
+      Alert.alert('ข้อผิดพลาด', 'ไม่สามารถโหลดข้อมูลร้านค้าได้');
     }
   };
 
@@ -206,7 +252,9 @@ export default function MyShopScreen({ navigation }) {
 
       {/* Greeting */}
       <View style={styles.greetingContainer}>
-        <Text style={styles.greetingText}>Hello, {storeData?.username || 'ผู้ใช้'}</Text>
+        <Text style={styles.greetingText}>
+          Hello, {storeData?.storeName || storeData?.storeOwner || 'ผู้ใช้'}
+        </Text>
       </View>
 
       {/* Today's Stats */}
@@ -242,6 +290,7 @@ export default function MyShopScreen({ navigation }) {
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={() => {
             setRefreshing(true);
+            loadStoreData();
             loadListings();
           }} />
         }

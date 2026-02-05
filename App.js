@@ -58,7 +58,7 @@ export default function App() {
   return (
     <NavigationContainer>
       <Stack.Navigator
-        initialRouteName={user ? "MyShop" : "Welcome"}
+        initialRouteName={user ? "Home" : "Welcome"}
         screenOptions={{
           headerShown: false,
           animation: 'slide_from_right',
