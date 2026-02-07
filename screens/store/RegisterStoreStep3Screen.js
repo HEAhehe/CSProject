@@ -14,7 +14,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { db, auth } from '../../firebase.config';
-import { doc, setDoc } from 'firebase/firestore';
+import { doc, setDoc, addDoc, collection } from 'firebase/firestore';
 
 export default function RegisterStoreStep3Screen({ navigation, route }) {
   const { step1Data, step2Data } = route.params || {};
@@ -79,20 +79,22 @@ export default function RegisterStoreStep3Screen({ navigation, route }) {
         return;
       }
 
-      // Create store document in Firestore
+      // ======== 1. สร้างข้อมูลร้านค้าใน stores collection ========
       const storeData = {
         userId: user.uid,
         // Step 1 data
         storeName: step1Data?.storeName || '',
         storeOwner: step1Data?.storeOwner || '',
         phoneNumber: step1Data?.phoneNumber || '',
-        openTime: step1Data?.openTime || '',
-        closeTime: step1Data?.closeTime || '',
+        openDateTime: step1Data?.openDateTime || '',
+        closeDateTime: step1Data?.closeDateTime || '',
         storeDetails: step1Data?.storeDetails || '',
         deliveryMethod: step1Data?.deliveryMethod || 'pickup',
         // Step 2 data
         location: step2Data?.location || '',
         address: step2Data?.address || '',
+        latitude: step2Data?.latitude || null,
+        longitude: step2Data?.longitude || null,
         // Step 3 data
         storeImage: selectedImage,
         // Additional data
@@ -100,15 +102,40 @@ export default function RegisterStoreStep3Screen({ navigation, route }) {
         createdAt: new Date().toISOString(),
         rating: 0,
         totalOrders: 0,
-        isActive: true,
+        isActive: false, // จะเปิดเป็น true หลัง Admin อนุมัติ
       };
 
-      // Save to Firestore
       await setDoc(doc(db, 'stores', user.uid), storeData);
 
-      // Update user profile to indicate they're a store owner
+      // ======== 2. สร้างคำขออนุมัติใน approval_requests collection ========
+      // 🔥 นี่คือส่วนที่เพิ่มเข้ามาใหม่!
+      const approvalRequest = {
+        type: 'store_registration',
+        userId: user.uid,
+        userName: step1Data?.storeOwner || user.displayName || 'ไม่ระบุชื่อ',
+        userEmail: user.email || 'ไม่ระบุอีเมล',
+        storeName: step1Data?.storeName || '',
+        requestDate: new Date().toISOString(),
+        status: 'pending',
+        details: {
+          'ชื่อร้าน': step1Data?.storeName || '',
+          'เจ้าของร้าน': step1Data?.storeOwner || '',
+          'เบอร์โทร': step1Data?.phoneNumber || '',
+          'เวลาเปิด': step1Data?.openDateTime ? new Date(step1Data.openDateTime).toLocaleString('th-TH') : '',
+          'เวลาปิด': step1Data?.closeDateTime ? new Date(step1Data.closeDateTime).toLocaleString('th-TH') : '',
+          'การจัดส่ง': step1Data?.deliveryMethod === 'pickup' ? 'รับที่ร้าน' : 
+                       step1Data?.deliveryMethod === 'delivery' ? 'เดลิเวอรี่' : 'ทั้งสองแบบ',
+          'ที่อยู่': step2Data?.address || '',
+          'พิกัด': step2Data?.latitude && step2Data?.longitude ? 
+                  `${step2Data.latitude}, ${step2Data.longitude}` : 'ไม่ระบุ',
+        }
+      };
+
+      await addDoc(collection(db, 'approval_requests'), approvalRequest);
+
+      // ======== 3. อัปเดต user profile (ยังไม่เปลี่ยน role เป็น store ก่อนอนุมัติ) ========
       await setDoc(doc(db, 'users', user.uid), {
-        isStoreOwner: true,
+        hasStorePending: true, // flag บอกว่ามีคำขอรออนุมัติ
         storeId: user.uid,
       }, { merge: true });
 

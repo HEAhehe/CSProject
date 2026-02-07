@@ -108,7 +108,7 @@ export default function AdminHomeScreen({ navigation }) {
       filtered = filtered.filter(req =>
         (req.userName || '').toLowerCase().includes(lowerQuery) ||
         (req.storeName || '').toLowerCase().includes(lowerQuery) ||
-        (req.details?.storeName || '').toLowerCase().includes(lowerQuery)
+        (req.details?.['ชื่อร้าน'] || '').toLowerCase().includes(lowerQuery)
       );
     }
 
@@ -203,7 +203,9 @@ export default function AdminHomeScreen({ navigation }) {
             <Ionicons name="storefront" size={24} color="#6b7280" />
           </View>
           <View style={styles.requestInfo}>
-            <Text style={styles.storeName}>{item.userName || details.storeName || 'ไม่ระบุชื่อร้าน'}</Text>
+            <Text style={styles.storeName}>
+              {details['ชื่อร้าน'] || item.storeName || item.userName || 'ไม่ระบุชื่อร้าน'}
+            </Text>
             <Text style={styles.ownerName}>ผู้ขอ: {item.userEmail}</Text>
             <Text style={styles.requestDate}>
                 {item.requestDate ? new Date(item.requestDate).toLocaleDateString('th-TH') : '-'}
@@ -223,14 +225,49 @@ export default function AdminHomeScreen({ navigation }) {
           </View>
         </View>
 
-        {/* รายละเอียดเพิ่มเติม (Expandable style) */}
-        <View style={styles.detailsContainer}>
-            <Text style={styles.detailText}>📍 ที่อยู่: {details.address || '-'}</Text>
-            <Text style={styles.detailText}>📞 โทร: {details.phoneNumber || '-'}</Text>
-            <Text style={styles.detailText}>📝 รายละเอียด: {details.description || '-'}</Text>
-        </View>
+        {/* 🔥 แสดงรายละเอียดเพิ่มเติม */}
+        {Object.keys(details).length > 0 && (
+          <View style={styles.detailsContainer}>
+            {details['เจ้าของร้าน'] && (
+              <View style={styles.detailRow}>
+                <Ionicons name="person-outline" size={16} color="#6b7280" />
+                <Text style={styles.detailText}>เจ้าของร้าน: {details['เจ้าของร้าน']}</Text>
+              </View>
+            )}
+            {details['เบอร์โทร'] && (
+              <View style={styles.detailRow}>
+                <Ionicons name="call-outline" size={16} color="#6b7280" />
+                <Text style={styles.detailText}>โทร: {details['เบอร์โทร']}</Text>
+              </View>
+            )}
+            {details['ที่อยู่'] && (
+              <View style={styles.detailRow}>
+                <Ionicons name="location-outline" size={16} color="#6b7280" />
+                <Text style={styles.detailText}>ที่อยู่: {details['ที่อยู่']}</Text>
+              </View>
+            )}
+            {details['การจัดส่ง'] && (
+              <View style={styles.detailRow}>
+                <Ionicons name="bicycle-outline" size={16} color="#6b7280" />
+                <Text style={styles.detailText}>การจัดส่ง: {details['การจัดส่ง']}</Text>
+              </View>
+            )}
+            {details['เวลาเปิด'] && (
+              <View style={styles.detailRow}>
+                <Ionicons name="time-outline" size={16} color="#6b7280" />
+                <Text style={styles.detailText}>เปิด: {details['เวลาเปิด']}</Text>
+              </View>
+            )}
+            {details['เวลาปิด'] && (
+              <View style={styles.detailRow}>
+                <Ionicons name="time-outline" size={16} color="#6b7280" />
+                <Text style={styles.detailText}>ปิด: {details['เวลาปิด']}</Text>
+              </View>
+            )}
+          </View>
+        )}
 
-        {/* ปุ่มจัดการ (แสดงเฉพาะ Pending) */}
+        {/* Action Buttons (แสดงเฉพาะเมื่อสถานะเป็น pending) */}
         {isPending && (
           <View style={styles.actionButtons}>
             <TouchableOpacity
@@ -247,39 +284,73 @@ export default function AdminHomeScreen({ navigation }) {
             </TouchableOpacity>
           </View>
         )}
+
+        {/* แสดงเหตุผลการปฏิเสธ (ถ้ามี) */}
+        {item.status === 'rejected' && item.rejectReason && (
+          <View style={styles.rejectReasonContainer}>
+            <Text style={styles.rejectReasonLabel}>เหตุผลการปฏิเสธ:</Text>
+            <Text style={styles.rejectReasonText}>{item.rejectReason}</Text>
+          </View>
+        )}
       </View>
     );
   };
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="dark-content" backgroundColor="#f9fafb" />
+      <StatusBar barStyle="dark-content" backgroundColor="#fff" />
 
-      {/* Header & Go to Stats */}
+      {/* Header */}
       <View style={styles.header}>
         <View>
-            <Text style={styles.headerTitle}>Admin Panel</Text>
-            <Text style={styles.headerSubtitle}>จัดการคำขอสมัครเป็นร้านค้า</Text>
+          <Text style={styles.headerTitle}>Admin Panel</Text>
+          <Text style={styles.headerSubtitle}>จัดการคำขออนุมัติร้านค้า</Text>
         </View>
         <TouchableOpacity
             style={styles.statsButton}
-            onPress={() => navigation.navigate('AdminReports')}
+            onPress={() => navigation.navigate('AdminApprovals')}
         >
-            <Ionicons name="stats-chart" size={16} color="#1f2937" />
+            <Ionicons name="bar-chart-outline" size={16} color="#1f2937" />
             <Text style={styles.statsButtonText}>ไปยังสถิติ</Text>
         </TouchableOpacity>
       </View>
 
       <ScrollView
         style={styles.content}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+        refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }
       >
         {/* Status Cards Grid */}
         <View style={styles.cardsGrid}>
-            <StatusCard icon="time-outline" label="รอดำเนินการ" count={counts.pending} color="#f59e0b" filterKey="pending" />
-            <StatusCard icon="checkmark-circle-outline" label="อนุมัติแล้ว" count={counts.approved} color="#10b981" filterKey="approved" />
-            <StatusCard icon="close-circle-outline" label="ปฏิเสธ" count={counts.rejected} color="#ef4444" filterKey="rejected" />
-            <StatusCard icon="list-outline" label="ทั้งหมด" count={counts.all} color="#6366f1" filterKey="all" />
+          <StatusCard
+            icon="time-outline"
+            label="รอดำเนินการ"
+            count={counts.pending}
+            color="#d97706"
+            filterKey="pending"
+          />
+          <StatusCard
+            icon="checkmark-circle-outline"
+            label="อนุมัติแล้ว"
+            count={counts.approved}
+            color="#10b981"
+            filterKey="approved"
+          />
+          <StatusCard
+            icon="close-circle-outline"
+            label="ปฏิเสธ"
+            count={counts.rejected}
+            color="#ef4444"
+            filterKey="rejected"
+          />
+          <StatusCard
+            icon="list-outline"
+            label="ทั้งหมด"
+            count={counts.all}
+            color="#3b82f6"
+            filterKey="all"
+          />
         </View>
 
         {/* Search Bar */}
@@ -463,10 +534,14 @@ const styles = StyleSheet.create({
   statusBadge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, height: 24 },
   statusText: { fontSize: 11, fontWeight: 'bold' },
 
+  // 🔥 สไตล์ใหม่สำหรับแสดงรายละเอียด
   detailsContainer: {
-    marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#f3f4f6', gap: 4
+    marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#f3f4f6', gap: 6
   },
-  detailText: { fontSize: 13, color: '#4b5563' },
+  detailRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 8
+  },
+  detailText: { fontSize: 13, color: '#4b5563', flex: 1 },
 
   actionButtons: { flexDirection: 'row', gap: 10, marginTop: 15 },
   btn: { flex: 1, paddingVertical: 10, borderRadius: 8, alignItems: 'center' },
@@ -474,6 +549,13 @@ const styles = StyleSheet.create({
   btnApprove: { backgroundColor: '#10b981' },
   btnTextReject: { color: '#374151', fontWeight: '600' },
   btnTextApprove: { color: '#fff', fontWeight: '600' },
+
+  rejectReasonContainer: {
+    marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#fee2e2',
+    backgroundColor: '#fef2f2', padding: 10, borderRadius: 8
+  },
+  rejectReasonLabel: { fontSize: 12, fontWeight: '600', color: '#991b1b', marginBottom: 4 },
+  rejectReasonText: { fontSize: 13, color: '#dc2626' },
 
   emptyState: { alignItems: 'center', marginTop: 30 },
   emptyText: { color: '#9ca3af' },

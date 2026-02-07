@@ -15,9 +15,9 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { auth, db } from '../../firebase.config';
 import { collection, addDoc, updateDoc, doc, getDoc, serverTimestamp } from 'firebase/firestore';
-import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 
 export default function CreateListingScreen({ navigation, route }) {
   const editItem = route?.params?.editItem;
@@ -28,112 +28,103 @@ export default function CreateListingScreen({ navigation, route }) {
     fullPrice: '',
     price: '',
     amount: '',
-    closedForSale: '',
   });
 
   const [imageUri, setImageUri] = useState(null);
   const [loading, setLoading] = useState(false);
   const [storeName, setStoreName] = useState('');
+  
+  // Date/Time Picker states
+  const [closedForSaleDate, setClosedForSaleDate] = useState(new Date());
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [showTimePicker, setShowTimePicker] = useState(false);
 
   useEffect(() => {
     loadStoreName();
     if (editItem) {
-      const discount = editItem.originalPrice && editItem.discountPrice 
-        ? Math.round(((editItem.originalPrice - editItem.discountPrice) / editItem.originalPrice) * 100)
-        : 0;
-
       setFormData({
         name: editItem.name || '',
         fullPrice: String(editItem.originalPrice || ''),
-        price: String(editItem.discountPrice || editItem.price || ''),
+        price: String(editItem.discountPrice || ''),
         amount: String(editItem.quantity || ''),
-        closedForSale: editItem.expiryDate || '',
       });
       setImageUri(editItem.imageUrl);
+      
+      // Parse existing date if available
+      if (editItem.expiryDate) {
+        try {
+          const parsedDate = new Date(editItem.expiryDate);
+          if (!isNaN(parsedDate.getTime())) {
+            setClosedForSaleDate(parsedDate);
+          }
+        } catch (error) {
+          console.log('Could not parse existing date');
+        }
+      }
     }
-  }, []);
+  }, [editItem]);
 
   const loadStoreName = async () => {
     try {
-      const user = auth.currentUser;
-      if (user) {
-        const userDoc = await getDoc(doc(db, 'users', user.uid));
-        if (userDoc.exists()) {
-          const userData = userDoc.data();
-          setStoreName(userData.storeName || userData.username || 'ร้านค้า');
-        }
+      const userDoc = await getDoc(doc(db, 'users', auth.currentUser.uid));
+      if (userDoc.exists()) {
+        setStoreName(userDoc.data().username || 'ร้านค้าไม่มีชื่อ');
       }
     } catch (error) {
-      console.error('Error loading store name:', error);
+      console.error("Error loading store name:", error);
     }
   };
 
   const pickImage = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') {
-      Alert.alert('ขออนุญาต', 'กรุณาอนุญาตให้เข้าถึงรูปภาพ');
+      Alert.alert('สิทธิ์ถูกปฏิเสธ', 'กรุณาอนุญาตให้เข้าถึงรูปภาพเพื่ออัปโหลดรูปอาหาร');
       return;
     }
 
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+    let result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
       allowsEditing: true,
-      aspect: [1, 1],
-      quality: 0.8,
+      aspect: [4, 3],
+      quality: 0.15,
+      base64: true,
     });
 
-    if (!result.canceled && result.assets[0]) {
-      setImageUri(result.assets[0].uri);
+    if (!result.canceled) {
+      setImageUri(`data:image/jpeg;base64,${result.assets[0].base64}`);
     }
-  };
-
-  const uploadImage = async (uri) => {
-    try {
-      const user = auth.currentUser;
-      const response = await fetch(uri);
-      const blob = await response.blob();
-      
-      const storage = getStorage();
-      const filename = `food_${Date.now()}.jpg`;
-      const storageRef = ref(storage, `food_images/${user.uid}/${filename}`);
-      
-      await uploadBytes(storageRef, blob);
-      const downloadURL = await getDownloadURL(storageRef);
-      
-      return downloadURL;
-    } catch (error) {
-      console.error('Error uploading image:', error);
-      throw error;
-    }
-  };
-
-  const calculateDiscount = () => {
-    const full = Number(formData.fullPrice) || 0;
-    const discounted = Number(formData.price) || 0;
-    if (full > 0 && discounted > 0 && discounted < full) {
-      return Math.round(((full - discounted) / full) * 100);
-    }
-    return 0;
   };
 
   const validateForm = () => {
-    if (!formData.name.trim()) {
-      Alert.alert('ผิดพลาด', 'กรุณากรอกชื่อเมนู');
-      return false;
-    }
-    if (!formData.fullPrice || Number(formData.fullPrice) <= 0) {
-      Alert.alert('ผิดพลาด', 'กรุณากรอกราคาเต็ม');
-      return false;
-    }
-    if (!formData.price || Number(formData.price) <= 0) {
-      Alert.alert('ผิดพลาด', 'กรุณากรอกราคา');
-      return false;
-    }
-    if (!formData.amount || Number(formData.amount) <= 0) {
-      Alert.alert('ผิดพลาด', 'กรุณากรอกจำนวน');
+    if (!formData.name || !formData.fullPrice || !formData.price || !formData.amount) {
+      Alert.alert('ข้อมูลไม่ครบ', 'กรุณากรอกข้อมูลที่มีเครื่องหมาย * ให้ครบถ้วน');
       return false;
     }
     return true;
+  };
+
+  const formatDateTime = (date) => {
+    const day = date.getDate().toString().padStart(2, '0');
+    const month = (date.getMonth() + 1).toString().padStart(2, '0');
+    const year = date.getFullYear();
+    const hours = date.getHours().toString().padStart(2, '0');
+    const minutes = date.getMinutes().toString().padStart(2, '0');
+    
+    return `${day}/${month}/${year} ${hours}:${minutes}`;
+  };
+
+  const onDateChange = (event, selectedDate) => {
+    setShowDatePicker(false);
+    if (selectedDate) {
+      setClosedForSaleDate(selectedDate);
+    }
+  };
+
+  const onTimeChange = (event, selectedTime) => {
+    setShowTimePicker(false);
+    if (selectedTime) {
+      setClosedForSaleDate(selectedTime);
+    }
   };
 
   const handleSubmit = async () => {
@@ -142,12 +133,6 @@ export default function CreateListingScreen({ navigation, route }) {
     setLoading(true);
     try {
       const user = auth.currentUser;
-      let imageUrl = editItem?.imageUrl || null;
-
-      // อัปโหลดรูปถ้ามีการเปลี่ยน
-      if (imageUri && imageUri !== editItem?.imageUrl) {
-        imageUrl = await uploadImage(imageUri);
-      }
 
       const itemData = {
         userId: user.uid,
@@ -158,8 +143,8 @@ export default function CreateListingScreen({ navigation, route }) {
         price: Number(formData.price),
         quantity: Number(formData.amount),
         unit: 'ชุด',
-        expiryDate: formData.closedForSale,
-        imageUrl: imageUrl,
+        expiryDate: closedForSaleDate.toISOString(), // Save as ISO string
+        imageUrl: imageUri,
         updatedAt: serverTimestamp(),
       };
 
@@ -169,153 +154,170 @@ export default function CreateListingScreen({ navigation, route }) {
           { text: 'ตกลง', onPress: () => navigation.goBack() }
         ]);
       } else {
-        itemData.createdAt = serverTimestamp();
-        await addDoc(collection(db, 'food_items'), itemData);
+        const newItemData = {
+          ...itemData,
+          createdAt: serverTimestamp(),
+          status: 'active',
+          soldCount: 0
+        };
+        await addDoc(collection(db, 'food_items'), newItemData);
         Alert.alert('สำเร็จ', 'เพิ่มรายการเรียบร้อย', [
           { text: 'ตกลง', onPress: () => navigation.goBack() }
         ]);
       }
     } catch (error) {
       console.error('Error saving item:', error);
-      Alert.alert('ผิดพลาด', 'ไม่สามารถบันทึกข้อมูลได้');
+      Alert.alert('ผิดพลาด', 'ไม่สามารถบันทึกข้อมูลได้ เนื่องจากขนาดรูปภาพอาจใหญ่เกินไป');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleCancel = () => {
-    navigation.goBack();
-  };
-
   return (
     <KeyboardAvoidingView 
-      style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      style={styles.container}
     >
-      <StatusBar barStyle="dark-content" backgroundColor="#fff" />
-
-      {/* Header */}
+      <StatusBar barStyle="dark-content" />
       <View style={styles.header}>
-        <TouchableOpacity onPress={handleCancel} style={styles.menuButton}>
-          <Ionicons name="menu" size={24} color="#1f2937" />
+        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+          <Ionicons name="arrow-back" size={24} color="#1f2937" />
         </TouchableOpacity>
-        <View style={styles.headerTitleContainer}>
-          <Ionicons name="storefront" size={20} color="#1f2937" />
-          <Text style={styles.headerTitle}>CREATE LISTING</Text>
-        </View>
-        <TouchableOpacity onPress={() => navigation.navigate('Profile')} style={styles.profileButton}>
-          <Ionicons name="person-circle-outline" size={28} color="#6b7280" />
-        </TouchableOpacity>
+        <Text style={styles.headerTitle}>{isEditing ? 'แก้ไขรายการ' : 'เพิ่มรายการใหม่'}</Text>
+        <View style={{ width: 40 }} />
       </View>
 
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-        {/* Image Picker */}
-        <View style={styles.imageSection}>
-          <TouchableOpacity style={styles.imageBox} onPress={pickImage}>
-            {imageUri ? (
-              <Image source={{ uri: imageUri }} style={styles.selectedImage} />
-            ) : (
-              <View style={styles.imagePlaceholder}>
-                <Ionicons name="image-outline" size={40} color="#d1d5db" />
+        <TouchableOpacity style={styles.imagePickerContainer} onPress={pickImage}>
+          {imageUri ? (
+            <View style={styles.imageWrapper}>
+              <Image source={{ uri: imageUri }} style={styles.previewImage} />
+              <View style={styles.cameraBadge}>
+                <Ionicons name="camera" size={20} color="#fff" />
               </View>
-            )}
-          </TouchableOpacity>
-
-          <TouchableOpacity style={styles.uploadButton} onPress={pickImage}>
-            <Text style={styles.uploadButtonText}>UPLOAD PIC</Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* Form */}
-        <View style={styles.formContainer}>
-          {/* Menu */}
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>Menu</Text>
-            <TextInput
-              style={styles.input}
-              placeholder=""
-              value={formData.name}
-              onChangeText={(text) => setFormData({ ...formData, name: text })}
-            />
-          </View>
-
-          {/* Full Price */}
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>Full Price</Text>
-            <TextInput
-              style={styles.input}
-              placeholder=""
-              keyboardType="numeric"
-              value={formData.fullPrice}
-              onChangeText={(text) => setFormData({ ...formData, fullPrice: text.replace(/[^0-9]/g, '') })}
-            />
-          </View>
-
-          {/* Price */}
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>Price</Text>
-            <TextInput
-              style={styles.input}
-              placeholder=""
-              keyboardType="numeric"
-              value={formData.price}
-              onChangeText={(text) => setFormData({ ...formData, price: text.replace(/[^0-9]/g, '') })}
-            />
-          </View>
-
-          {/* Discount */}
-          <View style={styles.discountGroup}>
-            <Text style={styles.label}>Discount</Text>
-            <View style={styles.discountDisplay}>
-              <Text style={styles.discountValue}>{calculateDiscount()}</Text>
-              <Text style={styles.discountPercent}>%</Text>
             </View>
-          </View>
+          ) : (
+            <View style={styles.placeholderBox}>
+              <Ionicons name="image-outline" size={48} color="#9ca3af" />
+              <Text style={styles.placeholderText}>กดเพื่อเพิ่มรูปภาพอาหาร</Text>
+            </View>
+          )}
+        </TouchableOpacity>
 
-          {/* Amount */}
+        <View style={styles.form}>
           <View style={styles.inputGroup}>
-            <Text style={styles.label}>Amount</Text>
+            <Text style={styles.label}>ชื่ออาหาร *</Text>
             <TextInput
               style={styles.input}
-              placeholder=""
-              keyboardType="numeric"
-              value={formData.amount}
-              onChangeText={(text) => setFormData({ ...formData, amount: text.replace(/[^0-9]/g, '') })}
+              placeholder="เช่น ข้าวกล่องกะเพราไข่ดาว"
+              value={formData.name}
+              onChangeText={(text) => setFormData({...formData, name: text})}
             />
           </View>
 
-          {/* Closed For Sale */}
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>Closed For Sale</Text>
-            <View style={styles.dateInput}>
-              <Ionicons name="calendar-outline" size={20} color="#6b7280" style={styles.calendarIcon} />
+          <View style={styles.row}>
+            <View style={[styles.inputGroup, { flex: 1 }]}>
+              <Text style={styles.label}>ราคาปกติ (บาท) *</Text>
               <TextInput
-                style={styles.dateTextInput}
-                placeholder="เลือกวันที่"
-                value={formData.closedForSale}
-                onChangeText={(text) => setFormData({ ...formData, closedForSale: text })}
+                style={styles.input}
+                placeholder="0"
+                keyboardType="numeric"
+                value={formData.fullPrice}
+                onChangeText={(text) => setFormData({...formData, fullPrice: text})}
+              />
+            </View>
+            <View style={[styles.inputGroup, { flex: 1, marginLeft: 15 }]}>
+              <Text style={styles.label}>ราคาลด (บาท) *</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="0"
+                keyboardType="numeric"
+                value={formData.price}
+                onChangeText={(text) => setFormData({...formData, price: text})}
               />
             </View>
           </View>
-        </View>
 
-        <View style={{ height: 120 }} />
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>จำนวนที่มี (ชุด) *</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="0"
+              keyboardType="numeric"
+              value={formData.amount}
+              onChangeText={(text) => setFormData({...formData, amount: text})}
+            />
+          </View>
+
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>ปิดรับออเดอร์เวลา</Text>
+            
+            <View style={styles.dateTimeContainer}>
+              <TouchableOpacity 
+                style={styles.dateTimeButton}
+                onPress={() => setShowDatePicker(true)}
+              >
+                <Ionicons name="calendar-outline" size={20} color="#10b981" />
+                <Text style={styles.dateTimeText}>
+                  {closedForSaleDate.toLocaleDateString('th-TH', {
+                    day: '2-digit',
+                    month: '2-digit',
+                    year: 'numeric'
+                  })}
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={styles.dateTimeButton}
+                onPress={() => setShowTimePicker(true)}
+              >
+                <Ionicons name="time-outline" size={20} color="#10b981" />
+                <Text style={styles.dateTimeText}>
+                  {closedForSaleDate.toLocaleTimeString('th-TH', {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    hour12: false
+                  })}
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            {showDatePicker && (
+              <DateTimePicker
+                value={closedForSaleDate}
+                mode="date"
+                display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                onChange={onDateChange}
+                minimumDate={new Date()}
+              />
+            )}
+
+            {showTimePicker && (
+              <DateTimePicker
+                value={closedForSaleDate}
+                mode="time"
+                display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                onChange={onTimeChange}
+                is24Hour={true}
+              />
+            )}
+          </View>
+        </View>
+        <View style={{ height: 40 }} />
       </ScrollView>
 
-      {/* Bottom Buttons */}
-      <View style={styles.bottomButtons}>
-        <TouchableOpacity style={styles.cancelButton} onPress={handleCancel}>
-          <Text style={styles.cancelButtonText}>CANCEL</Text>
-        </TouchableOpacity>
+      <View style={styles.footer}>
         <TouchableOpacity 
-          style={styles.postButton} 
+          style={[styles.submitButton, loading && styles.disabledButton]}
           onPress={handleSubmit}
           disabled={loading}
         >
           {loading ? (
-            <ActivityIndicator color="#1f2937" />
+            <ActivityIndicator color="#fff" />
           ) : (
-            <Text style={styles.postButtonText}>POST</Text>
+            <Text style={styles.submitButtonText}>
+              {isEditing ? 'บันทึกการแก้ไข' : 'ลงประกาศขาย'}
+            </Text>
           )}
         </TouchableOpacity>
       </View>
@@ -324,163 +326,88 @@ export default function CreateListingScreen({ navigation, route }) {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#ffffff',
-  },
+  container: { flex: 1, backgroundColor: '#fff' },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingTop: 50,
+    paddingHorizontal: 16,
+    paddingTop: Platform.OS === 'ios' ? 50 : 20,
     paddingBottom: 15,
-    backgroundColor: '#fff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#f3f4f6',
   },
-  menuButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#f3f4f6',
-    alignItems: 'center',
-    justifyContent: 'center',
+  headerTitle: { fontSize: 18, fontWeight: 'bold', color: '#1f2937' },
+  backButton: { padding: 8 },
+  content: { flex: 1, padding: 20 },
+  imagePickerContainer: {
+    width: '100%',
+    height: 220,
+    marginBottom: 25,
   },
-  headerTitleContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  headerTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#1f2937',
-  },
-  profileButton: {
-    width: 40,
-  },
-  content: {
+  placeholderBox: {
     flex: 1,
-  },
-  imageSection: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 20,
-    gap: 15,
-  },
-  imageBox: {
-    width: 120,
-    height: 120,
-    borderRadius: 12,
-    backgroundColor: '#f3f4f6',
+    backgroundColor: '#f9fafb',
     borderWidth: 2,
     borderColor: '#e5e7eb',
-    overflow: 'hidden',
-  },
-  selectedImage: {
-    width: '100%',
-    height: '100%',
-  },
-  imagePlaceholder: {
-    flex: 1,
-    alignItems: 'center',
+    borderStyle: 'dashed',
+    borderRadius: 20,
     justifyContent: 'center',
-  },
-  uploadButton: {
-    flex: 1,
-    backgroundColor: '#f3f4f6',
-    paddingVertical: 15,
-    borderRadius: 12,
     alignItems: 'center',
   },
-  uploadButtonText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#1f2937',
+  placeholderText: { marginTop: 12, color: '#9ca3af', fontSize: 14 },
+  imageWrapper: { flex: 1, position: 'relative' },
+  previewImage: { width: '100%', height: '100%', borderRadius: 20 },
+  cameraBadge: {
+    position: 'absolute',
+    bottom: 12,
+    right: 12,
+    backgroundColor: '#10b981',
+    padding: 10,
+    borderRadius: 25,
+    elevation: 4,
   },
-  formContainer: {
-    paddingHorizontal: 20,
-  },
-  inputGroup: {
-    marginBottom: 20,
-  },
-  label: {
-    fontSize: 14,
-    color: '#1f2937',
-    marginBottom: 8,
-  },
+  form: { gap: 15 },
+  label: { fontSize: 14, fontWeight: '600', color: '#374151', marginBottom: 8 },
   input: {
     backgroundColor: '#f3f4f6',
+    borderRadius: 12,
     padding: 15,
-    borderRadius: 12,
-    fontSize: 14,
+    fontSize: 16,
     color: '#1f2937',
   },
-  discountGroup: {
-    marginBottom: 20,
-  },
-  discountDisplay: {
+  row: { flexDirection: 'row' },
+  inputGroup: { marginBottom: 5 },
+  dateTimeContainer: {
     flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#f3f4f6',
-    borderRadius: 12,
-    paddingLeft: 15,
+    gap: 10,
   },
-  discountValue: {
-    fontSize: 14,
-    color: '#1f2937',
-    paddingVertical: 15,
-  },
-  discountPercent: {
-    fontSize: 14,
-    color: '#1f2937',
-    marginLeft: 8,
-  },
-  dateInput: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#f3f4f6',
-    borderRadius: 12,
-    paddingHorizontal: 15,
-  },
-  calendarIcon: {
-    marginRight: 10,
-  },
-  dateTextInput: {
+  dateTimeButton: {
     flex: 1,
-    paddingVertical: 15,
-    fontSize: 14,
-    color: '#1f2937',
-  },
-  bottomButtons: {
     flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f3f4f6',
+    borderRadius: 12,
+    padding: 15,
+    gap: 10,
+  },
+  dateTimeText: {
+    fontSize: 16,
+    color: '#1f2937',
+    fontWeight: '500',
+  },
+  footer: {
     padding: 20,
-    gap: 15,
-    backgroundColor: '#fff',
+    paddingBottom: Platform.OS === 'ios' ? 40 : 20,
     borderTopWidth: 1,
     borderTopColor: '#f3f4f6',
   },
-  cancelButton: {
-    flex: 1,
-    backgroundColor: '#f3f4f6',
-    paddingVertical: 15,
-    borderRadius: 12,
+  submitButton: {
+    backgroundColor: '#10b981',
+    paddingVertical: 16,
+    borderRadius: 15,
     alignItems: 'center',
   },
-  cancelButtonText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#1f2937',
-  },
-  postButton: {
-    flex: 1,
-    backgroundColor: '#f3f4f6',
-    paddingVertical: 15,
-    borderRadius: 12,
-    alignItems: 'center',
-  },
-  postButtonText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#1f2937',
-  },
+  disabledButton: { backgroundColor: '#a7f3d0' },
+  submitButtonText: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
 });

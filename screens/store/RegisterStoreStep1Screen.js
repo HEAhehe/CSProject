@@ -8,17 +8,68 @@ import {
   ScrollView,
   SafeAreaView,
   StatusBar,
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import DateTimePicker from '@react-native-community/datetimepicker';
 
 export default function RegisterStoreStep1Screen({ navigation, route }) {
   const [storeName, setStoreName] = useState('');
   const [storeOwner, setStoreOwner] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
-  const [openTime, setOpenTime] = useState('');
-  const [closeTime, setCloseTime] = useState('');
+  const [openDateTime, setOpenDateTime] = useState(new Date());
+  const [closeDateTime, setCloseDateTime] = useState(new Date());
+  const [showOpenDatePicker, setShowOpenDatePicker] = useState(false);
+  const [showOpenTimePicker, setShowOpenTimePicker] = useState(false);
+  const [showCloseDatePicker, setShowCloseDatePicker] = useState(false);
+  const [showCloseTimePicker, setShowCloseTimePicker] = useState(false);
   const [storeDetails, setStoreDetails] = useState('');
   const [selectedDelivery, setSelectedDelivery] = useState(null);
+
+  const formatDate = (date) => {
+    const day = date.getDate().toString().padStart(2, '0');
+    const month = (date.getMonth() + 1).toString().padStart(2, '0');
+    const year = date.getFullYear();
+    return `${day}/${month}/${year}`;
+  };
+
+  const formatTime = (date) => {
+    const hours = date.getHours().toString().padStart(2, '0');
+    const minutes = date.getMinutes().toString().padStart(2, '0');
+    return `${hours}:${minutes} น.`;
+  };
+
+  const formatDateTime = (date) => {
+    return `${formatDate(date)} ${formatTime(date)}`;
+  };
+
+  const onOpenDateChange = (event, selectedDate) => {
+    setShowOpenDatePicker(false);
+    if (selectedDate) {
+      setOpenDateTime(selectedDate);
+    }
+  };
+
+  const onOpenTimeChange = (event, selectedTime) => {
+    setShowOpenTimePicker(false);
+    if (selectedTime) {
+      setOpenDateTime(selectedTime);
+    }
+  };
+
+  const onCloseDateChange = (event, selectedDate) => {
+    setShowCloseDatePicker(false);
+    if (selectedDate) {
+      setCloseDateTime(selectedDate);
+    }
+  };
+
+  const onCloseTimeChange = (event, selectedTime) => {
+    setShowCloseTimePicker(false);
+    if (selectedTime) {
+      setCloseDateTime(selectedTime);
+    }
+  };
 
   const handleNext = () => {
     if (!storeName || !storeOwner || !phoneNumber || !selectedDelivery) {
@@ -32,8 +83,8 @@ export default function RegisterStoreStep1Screen({ navigation, route }) {
         storeName,
         storeOwner,
         phoneNumber,
-        openTime,
-        closeTime,
+        openDateTime: openDateTime.toISOString(),
+        closeDateTime: closeDateTime.toISOString(),
         storeDetails,
         deliveryMethod: selectedDelivery,
       }
@@ -135,29 +186,92 @@ export default function RegisterStoreStep1Screen({ navigation, route }) {
         />
 
         {/* Operating Hours */}
-        <View style={styles.timeContainer}>
-          <View style={styles.timeBox}>
-            <Ionicons name="time-outline" size={20} color="#666" />
-            <Text style={styles.timeLabel}>เวลาเปิดร้าน</Text>
-            <TextInput
-              style={styles.timeInput}
-              placeholder="--:-- น."
-              value={openTime}
-              onChangeText={setOpenTime}
-            />
-          </View>
+        <Text style={styles.label}>เวลาทำการ</Text>
+        
+        {/* Opening Date & Time */}
+        <Text style={styles.subLabel}>เวลาเปิดร้าน</Text>
+        <View style={styles.dateTimeContainer}>
+          <TouchableOpacity 
+            style={styles.dateTimeBox}
+            onPress={() => setShowOpenDatePicker(true)}
+          >
+            <Ionicons name="calendar-outline" size={20} color="#4CAF50" />
+            <Text style={styles.dateTimeLabel}>วันที่</Text>
+            <Text style={styles.dateTimeDisplay}>{formatDate(openDateTime)}</Text>
+          </TouchableOpacity>
 
-          <View style={styles.timeBox}>
-            <Ionicons name="time-outline" size={20} color="#666" />
-            <Text style={styles.timeLabel}>เวลาปิดร้าน</Text>
-            <TextInput
-              style={styles.timeInput}
-              placeholder="--:-- น."
-              value={closeTime}
-              onChangeText={setCloseTime}
-            />
-          </View>
+          <TouchableOpacity 
+            style={styles.dateTimeBox}
+            onPress={() => setShowOpenTimePicker(true)}
+          >
+            <Ionicons name="time-outline" size={20} color="#4CAF50" />
+            <Text style={styles.dateTimeLabel}>เวลา</Text>
+            <Text style={styles.dateTimeDisplay}>{formatTime(openDateTime)}</Text>
+          </TouchableOpacity>
         </View>
+
+        {/* Closing Date & Time */}
+        <Text style={styles.subLabel}>เวลาปิดร้าน</Text>
+        <View style={styles.dateTimeContainer}>
+          <TouchableOpacity 
+            style={styles.dateTimeBox}
+            onPress={() => setShowCloseDatePicker(true)}
+          >
+            <Ionicons name="calendar-outline" size={20} color="#4CAF50" />
+            <Text style={styles.dateTimeLabel}>วันที่</Text>
+            <Text style={styles.dateTimeDisplay}>{formatDate(closeDateTime)}</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+            style={styles.dateTimeBox}
+            onPress={() => setShowCloseTimePicker(true)}
+          >
+            <Ionicons name="time-outline" size={20} color="#4CAF50" />
+            <Text style={styles.dateTimeLabel}>เวลา</Text>
+            <Text style={styles.dateTimeDisplay}>{formatTime(closeDateTime)}</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Date and Time Pickers */}
+        {showOpenDatePicker && (
+          <DateTimePicker
+            value={openDateTime}
+            mode="date"
+            display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+            onChange={onOpenDateChange}
+            minimumDate={new Date()}
+          />
+        )}
+
+        {showOpenTimePicker && (
+          <DateTimePicker
+            value={openDateTime}
+            mode="time"
+            display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+            onChange={onOpenTimeChange}
+            is24Hour={true}
+          />
+        )}
+
+        {showCloseDatePicker && (
+          <DateTimePicker
+            value={closeDateTime}
+            mode="date"
+            display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+            onChange={onCloseDateChange}
+            minimumDate={new Date()}
+          />
+        )}
+
+        {showCloseTimePicker && (
+          <DateTimePicker
+            value={closeDateTime}
+            mode="time"
+            display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+            onChange={onCloseTimeChange}
+            is24Hour={true}
+          />
+        )}
 
         {/* Store Details */}
         <Text style={styles.label}>คำอธิบายร้านค้า</Text>
@@ -306,6 +420,13 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     marginTop: 15,
   },
+  subLabel: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: '#666',
+    marginBottom: 8,
+    marginTop: 10,
+  },
   input: {
     backgroundColor: '#FFFFFF',
     borderRadius: 12,
@@ -320,12 +441,13 @@ const styles = StyleSheet.create({
     height: 100,
     paddingTop: 12,
   },
-  timeContainer: {
+  dateTimeContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     gap: 10,
+    marginBottom: 10,
   },
-  timeBox: {
+  dateTimeBox: {
     flex: 1,
     backgroundColor: '#FFFFFF',
     borderRadius: 12,
@@ -334,17 +456,16 @@ const styles = StyleSheet.create({
     borderColor: '#E0E0E0',
     alignItems: 'center',
   },
-  timeLabel: {
-    fontSize: 12,
+  dateTimeLabel: {
+    fontSize: 11,
     color: '#666',
     marginTop: 5,
-    marginBottom: 10,
+    marginBottom: 5,
   },
-  timeInput: {
-    fontSize: 15,
+  dateTimeDisplay: {
+    fontSize: 14,
+    fontWeight: '600',
     color: '#333',
-    textAlign: 'center',
-    width: '100%',
   },
   deliveryOption: {
     backgroundColor: '#FFFFFF',
@@ -385,7 +506,7 @@ const styles = StyleSheet.create({
     borderTopColor: '#E0E0E0',
   },
   nextButton: {
-    backgroundColor: '#E0E0E0',
+    backgroundColor: '#4CAF50',
     borderRadius: 12,
     paddingVertical: 15,
     alignItems: 'center',
@@ -393,6 +514,6 @@ const styles = StyleSheet.create({
   nextButtonText: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#666',
+    color: '#FFFFFF',
   },
 });

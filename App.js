@@ -57,7 +57,8 @@ export default function App() {
   return (
     <NavigationContainer>
       <Stack.Navigator
-        initialRouteName={user ? "Home" : "Welcome"} // ถ้าล็อกอินไป Home ถ้าไม่ล็อกอินไป Welcome
+
+        initialRouteName={user ? "Home" : "Welcome"}
         screenOptions={{
           headerShown: false,
           animation: 'slide_from_right',
