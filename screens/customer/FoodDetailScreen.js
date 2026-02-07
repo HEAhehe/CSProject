@@ -8,13 +8,26 @@ import {
   StatusBar,
   Image,
   Alert,
+  Platform, // ✅ เพิ่มการ Import Platform เพื่อแก้ Error
   Dimensions,
   ActivityIndicator
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { db, auth } from '../../firebase.config';
-// ✅ Import เพิ่ม: query, where, getDocs เพื่อใช้ระบบค้นหาอัจฉริยะ
-import { collection, addDoc, doc, onSnapshot, setDoc, deleteDoc, runTransaction, getDoc, query, where, getDocs } from 'firebase/firestore';
+import {
+  collection,
+  addDoc,
+  doc,
+  onSnapshot,
+  setDoc,
+  deleteDoc,
+  runTransaction,
+  getDoc,
+  query,
+  where,
+  getDocs,
+  updateDoc
+} from 'firebase/firestore';
 
 const { width } = Dimensions.get('window');
 
@@ -24,9 +37,10 @@ export default function FoodDetailScreen({ navigation, route }) {
   const [isFavorite, setIsFavorite] = useState(false);
   const [quantity, setQuantity] = useState(1);
 
-  // State
+  // ✅ State สำหรับข้อมูลเวลาและร้านค้าที่ซิงค์จาก DB
   const [storeClosingTime, setStoreClosingTime] = useState(null);
   const [storeOpenTime, setStoreOpenTime] = useState(null);
+  const [storeName, setStoreName] = useState(food.storeName || "กำลังโหลด...");
   const [closingTimeDisplay, setClosingTimeDisplay] = useState("กำลังโหลด...");
   const [currentTime, setCurrentTime] = useState(new Date());
 
@@ -34,73 +48,62 @@ export default function FoodDetailScreen({ navigation, route }) {
   const price = Number(food.discountPrice) || Number(food.price) || 0;
   const discountPercent = originalPrice > 0 ? Math.round(((originalPrice - price) / originalPrice) * 100) : 0;
 
-  // Timer
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
     return () => clearInterval(timer);
   }, []);
 
-  // 1. ระบบค้นหาร้านค้าอัจฉริยะ (Smart Fetch Store Data)
+  // 1. 🟢 ระบบค้นหาร้านค้าอัจฉริยะ (Smart Fetch Store Data) - คืนค่าตามโค้ดเดิมที่ใช้งานได้
   useEffect(() => {
     const user = auth.currentUser;
-    // เราจะใช้ทั้ง storeId และ userId ในการตามหาข้อมูลร้าน
     const targetStoreId = food.storeId;
     const targetUserId = food.userId || food.userID;
 
     const fetchStoreData = async () => {
         try {
             let storeData = null;
-            let realStoreId = targetStoreId; // เก็บ ID จริงที่เจอเพื่อใช้เช็ค Favorite
+            let realStoreId = targetStoreId;
 
-            // 🔍 Step 1: ลองหาจาก 'stores' ด้วย storeId ตรงๆ ก่อน (วิธีมาตรฐาน)
+            // 🔍 Step 1: หาจาก 'stores' ด้วย storeId
             if (targetStoreId) {
-                const docRef = doc(db, 'stores', targetStoreId);
-                const docSnap = await getDoc(docRef);
+                const docSnap = await getDoc(doc(db, 'stores', targetStoreId));
                 if (docSnap.exists()) {
                     storeData = docSnap.data();
-                    console.log("Found store by StoreID ✅");
                 }
             }
 
-            // 🔍 Step 2: ถ้ายังไม่เจอ... ลอง Query หาจาก userId (เผื่อ storeId ผิด)
+            // 🔍 Step 2: หาจาก userId ในคอลเลกชัน stores (เผื่อ storeId ผิด)
             if (!storeData && targetUserId) {
-                console.log("Searching store by UserID... 🔍");
                 const q = query(collection(db, 'stores'), where('userId', '==', targetUserId));
                 const querySnap = await getDocs(q);
-
                 if (!querySnap.empty) {
-                    const foundDoc = querySnap.docs[0];
-                    storeData = foundDoc.data();
-                    realStoreId = foundDoc.id; // อัปเดต ID จริงที่เจอ
-                    console.log("Found store by UserID Query ✅");
+                    storeData = querySnap.docs[0].data();
+                    realStoreId = querySnap.docs[0].id;
                 }
             }
 
-            // 🔍 Step 3: ถ้ายังไม่เจออีก... ลองไปหาใน 'users' (เผื่อเป็นระบบเก่า)
+            // 🔍 Step 3: หาในคอลเลกชัน 'users' (สำหรับข้อมูลเวอร์ชันเก่า)
             if (!storeData && targetUserId) {
-                const docRef = doc(db, 'users', targetUserId);
-                const docSnap = await getDoc(docRef);
+                const docSnap = await getDoc(doc(db, 'users', targetUserId));
                 if (docSnap.exists() && (docSnap.data().closeTime || docSnap.data().closingTime)) {
                     storeData = docSnap.data();
-                    console.log("Found data in Users collection ⚠️");
                 }
             }
 
-            // ✅ อัปเดตข้อมูลเวลา (ถ้าเจอข้อมูล)
             if (storeData) {
+                // ✅ อัปเดตข้อมูลให้ซิงค์กัน (ใช้ storeName จาก DB ตามที่เคยแก้ไว้)
+                setStoreName(storeData.storeName || food.storeName);
                 setStoreClosingTime(storeData.closeTime || storeData.closingTime || "20:00");
                 setStoreOpenTime(storeData.openTime || "08:00");
             } else {
-                console.log("❌ Store not found anywhere, using defaults");
                 setStoreClosingTime("20:00");
                 setStoreOpenTime("08:00");
             }
 
-            // ✅ เช็ค Favorite ด้วย ID ที่ถูกต้องที่สุดที่หาเจอ
+            // เช็คสถานะรายการโปรด
             if (user && realStoreId) {
                 const favRef = doc(db, 'users', user.uid, 'favorites', realStoreId);
-                const unsubscribe = onSnapshot(favRef, (docSnapshot) => setIsFavorite(docSnapshot.exists()));
-                return () => unsubscribe();
+                onSnapshot(favRef, (docSnapshot) => setIsFavorite(docSnapshot.exists()));
             }
 
         } catch (error) {
@@ -108,11 +111,10 @@ export default function FoodDetailScreen({ navigation, route }) {
             setStoreClosingTime("20:00");
         }
     };
-
     fetchStoreData();
   }, [food]);
 
-  // 2. คำนวณเวลา
+  // 2. 🟢 การคำนวณเวลา (ใช้ Logic เดิมที่แสดงผลปกติ)
   useEffect(() => {
     if (!storeClosingTime) return;
 
@@ -121,22 +123,22 @@ export default function FoodDetailScreen({ navigation, route }) {
       const openDate = new Date();
       const closeDate = new Date();
 
-      if (typeof storeClosingTime === 'string') {
+      if (typeof storeClosingTime === 'string' && storeClosingTime.includes(':')) {
           const [h, m] = storeClosingTime.split(':').map(Number);
           closeDate.setHours(h, m, 0, 0);
       }
-      if (typeof storeOpenTime === 'string') {
+      if (typeof storeOpenTime === 'string' && storeOpenTime.includes(':')) {
           const [h, m] = storeOpenTime.split(':').map(Number);
           openDate.setHours(h, m, 0, 0);
       } else {
           openDate.setHours(0, 0, 0, 0);
       }
 
+      // เช็คเวลาเปิด-ปิด
       if (now < openDate) {
           setClosingTimeDisplay(`เปิด ${storeOpenTime} น.\n(ยังไม่เปิด ❌)`);
           return;
       }
-
       if (now > closeDate) {
         setClosingTimeDisplay(`${storeClosingTime} น.\n(ปิดแล้ว 😴)`);
         return;
@@ -157,22 +159,7 @@ export default function FoodDetailScreen({ navigation, route }) {
     calculateTimeLeft();
   }, [storeClosingTime, storeOpenTime, currentTime]);
 
-  const handleToggleFavorite = async () => {
-    const user = auth.currentUser;
-    if (!user) return Alert.alert('กรุณาเข้าสู่ระบบ');
-    const storeId = food.storeId || food.userId || food.userID;
-
-    // ใช้ storeId หรือ userId ก็ได้ (ระบบจะฉลาดพอ)
-    const targetId = storeId;
-    if (!targetId) return;
-
-    const favRef = doc(db, 'users', user.uid, 'favorites', targetId);
-    try {
-        if (isFavorite) await deleteDoc(favRef);
-        else await setDoc(favRef, { storeId: targetId, storeName: food.storeName || 'ร้านค้า', savedAt: new Date().toISOString() });
-    } catch (error) { console.error(error); }
-  };
-
+  // --- ฟังก์ชันการทำงานอื่นๆ ---
   const increaseQty = () => { if (quantity < food.quantity) setQuantity(quantity + 1); };
   const decreaseQty = () => { if (quantity > 1) setQuantity(quantity - 1); };
 
@@ -182,121 +169,58 @@ export default function FoodDetailScreen({ navigation, route }) {
     setLoading(true);
     try {
       await addDoc(collection(db, 'users', user.uid, 'cart'), {
-        foodId: food.id,
-        foodName: food.name,
-        price: price,
-        originalPrice: originalPrice,
-        quantity: quantity,
-        storeName: food.storeName || 'ร้านค้า',
-        storeId: food.storeId || food.userId || food.userID,
-        imageUrl: food.imageUrl,
-        addedAt: new Date().toISOString()
+        foodId: food.id, foodName: food.name, price, originalPrice, quantity,
+        storeName: storeName, // ✅ ใช้ชื่อที่ซิงค์แล้ว
+        storeId: food.storeId || food.userId, imageUrl: food.imageUrl, addedAt: new Date().toISOString()
       });
-      Alert.alert('สำเร็จ', 'เพิ่มลงตระกร้าแล้ว 🛒', [
-        { text: 'ซื้อต่อ' },
-        { text: 'ไปตระกร้า', onPress: () => navigation.navigate('Cart') }
-      ]);
-    } catch (error) {
-      Alert.alert('Error', 'ไม่สามารถเพิ่มลงตระกร้าได้');
-    } finally {
-      setLoading(false);
-    }
+      Alert.alert('สำเร็จ', 'เพิ่มลงตระกร้าแล้ว 🛒', [{ text: 'ซื้อต่อ' }, { text: 'ไปตะกร้า', onPress: () => navigation.navigate('Cart') }]);
+    } catch (e) { Alert.alert('Error', 'ลองใหม่อีกครั้ง'); } finally { setLoading(false); }
   };
 
   const handleBookNow = async () => {
     const user = auth.currentUser;
     if (!user) return Alert.alert('กรุณาเข้าสู่ระบบ');
-
-    Alert.alert(
-      'ยืนยันการจอง',
-      `จอง "${food.name}" จำนวน ${quantity} ที่ \nราคารวม ${price * quantity} บาท?`,
-      [
-        { text: 'ยกเลิก', style: 'cancel' },
-        {
-          text: 'ยืนยัน',
-          onPress: async () => {
-            setLoading(true);
-            try {
-              await runTransaction(db, async (transaction) => {
-                const foodRef = doc(db, 'food_items', food.id);
-                const foodDoc = await transaction.get(foodRef);
-
-                if (!foodDoc.exists()) throw "สินค้าถูกลบไปแล้ว";
-                const currentQty = foodDoc.data().quantity || 0;
-                if (currentQty < quantity) throw "สินค้าหมด หรือเหลือไม่พอ";
-
-                transaction.update(foodRef, { quantity: currentQty - quantity });
-
-                const newOrderRef = doc(collection(db, 'orders'));
-                const targetStoreId = food.storeId || food.userId || food.userID;
-
-                transaction.set(newOrderRef, {
-                  userId: user.uid,
-                  foodId: food.id,
-                  foodName: food.name,
-                  storeName: food.storeName || 'ร้านค้า',
-                  storeId: targetStoreId,
-                  totalPrice: price * quantity,
-                  quantity: quantity,
-                  status: 'pending',
-                  orderType: 'pickup',
-                  closingTime: storeClosingTime,
-                  createdAt: new Date().toISOString(),
-                  imageUrl: food.imageUrl || null
-                });
-
-                return newOrderRef.id;
-              }).then((orderId) => {
-                 setLoading(false);
-                 navigation.replace('OrderDetail', {
-                    order: {
-                        id: orderId,
-                        ...food,
-                        totalPrice: price * quantity,
-                        quantity: quantity,
-                        status: 'pending',
-                        orderType: 'pickup',
-                        closingTime: storeClosingTime,
-                        createdAt: new Date().toISOString()
-                    }
-                 });
-              });
-
-            } catch (error) {
-              console.error(error);
-              setLoading(false);
-              Alert.alert('จองไม่สำเร็จ', typeof error === 'string' ? error : 'เกิดข้อผิดพลาด');
-            }
-          },
-        },
-      ]
-    );
+    Alert.alert('ยืนยันการจอง', `ยอดรวม ${price * quantity} ฿?`, [{ text: 'ยกเลิก', style: 'cancel' }, {
+      text: 'ยืนยัน', onPress: async () => {
+        setLoading(true);
+        try {
+          await runTransaction(db, async (transaction) => {
+            const foodRef = doc(db, 'food_items', food.id);
+            const foodDoc = await transaction.get(foodRef);
+            if (!foodDoc.exists()) throw "สินค้าถูกลบแล้ว";
+            if (foodDoc.data().quantity < quantity) throw "สินค้าไม่พอ";
+            transaction.update(foodRef, { quantity: foodDoc.data().quantity - quantity });
+            const newOrderRef = doc(collection(db, 'orders'));
+            transaction.set(newOrderRef, {
+              userId: user.uid, foodId: food.id, foodName: food.name, storeName: storeName,
+              storeId: food.storeId || food.userId, totalPrice: price * quantity,
+              quantity, status: 'pending', orderType: 'pickup', closingTime: storeClosingTime,
+              createdAt: new Date().toISOString(), imageUrl: food.imageUrl || null
+            });
+            return newOrderRef.id;
+          }).then((orderId) => {
+            navigation.replace('OrderDetail', { order: { id: orderId, ...food, storeName, totalPrice: price * quantity, quantity, status: 'pending', orderType: 'pickup', closingTime: storeClosingTime, createdAt: new Date().toISOString() } });
+          });
+        } catch (e) { Alert.alert('จองไม่สำเร็จ', e); } finally { setLoading(false); }
+      }
+    }]);
   };
 
   return (
     <View style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="transparent" translucent />
       <View style={styles.imageContainer}>
-         {food.imageUrl ? ( <Image source={{ uri: food.imageUrl }} style={styles.foodImage} /> ) : ( <View style={styles.placeholderImage}><Ionicons name="fast-food" size={80} color="#ccc" /></View> )}
+         {food.imageUrl ? <Image source={{ uri: food.imageUrl }} style={styles.foodImage} /> : <View style={styles.placeholderImage}><Ionicons name="fast-food" size={80} color="#ccc" /></View>}
          <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}><Ionicons name="chevron-back" size={24} color="#000" /></TouchableOpacity>
-         <TouchableOpacity style={styles.heartButton} onPress={handleToggleFavorite}>
-            <Ionicons name={isFavorite ? "heart" : "heart-outline"} size={24} color={isFavorite ? "#ef4444" : "#000"} />
-         </TouchableOpacity>
-         {discountPercent > 0 && ( <View style={styles.discountBadge}><Text style={styles.discountText}>ลด {discountPercent}%</Text><Ionicons name="flame" size={16} color="#000" /></View> )}
+         {discountPercent > 0 && <View style={styles.discountBadge}><Text style={styles.discountText}>ลด {discountPercent}%</Text><Ionicons name="flame" size={16} color="#000" /></View>}
       </View>
       <ScrollView style={styles.contentContainer} showsVerticalScrollIndicator={false}>
          <View style={styles.headerSection}>
             <View style={styles.titleRow}>
                 <Text style={styles.foodName}>{food.name}</Text>
-                <View style={styles.priceBlock}>
-                    <Text style={styles.currentPrice}>{price} ฿</Text>
-                    {originalPrice > price && ( <Text style={styles.originalPrice}>{originalPrice} ฿</Text> )}
-                </View>
+                <View style={styles.priceBlock}><Text style={styles.currentPrice}>{price} ฿</Text>{originalPrice > price && <Text style={styles.originalPrice}>{originalPrice} ฿</Text>}</View>
             </View>
-            <View style={styles.storeRow}>
-                <Ionicons name="storefront-outline" size={16} color="#666" />
-                <Text style={styles.storeName}>{food.storeName || 'ชื่อร้านค้า'}</Text>
-            </View>
+            <View style={styles.storeRow}><Ionicons name="storefront-outline" size={16} color="#666" /><Text style={styles.storeName}>{storeName}</Text></View>
          </View>
          <View style={styles.quantitySection}>
             <Text style={styles.sectionTitle}>จำนวน</Text>
@@ -307,28 +231,14 @@ export default function FoodDetailScreen({ navigation, route }) {
             </View>
          </View>
          <View style={styles.divider} />
-
          <View style={styles.statsContainer}>
-            <View style={styles.statItem}>
-                <Ionicons name="restaurant-outline" size={20} color="#333" />
-                <Text style={styles.statLabel}>คงเหลือ</Text>
-                <Text style={styles.statValue}>{food.quantity} ชุด</Text>
-            </View>
-            <View style={styles.statItem}>
-                <Ionicons name="time-outline" size={20} color="#333" />
-                <Text style={styles.statLabel}>รับได้ถึง</Text>
-                <Text style={styles.statValueTime}>{closingTimeDisplay}</Text>
-            </View>
-            <View style={styles.statItem}>
-                <Ionicons name="location-outline" size={20} color="#333" />
-                <Text style={styles.statLabel}>ระยะทาง</Text>
-                <Text style={styles.statValue}>0.8 Km</Text>
-            </View>
+            <View style={styles.statItem}><Ionicons name="restaurant-outline" size={20} color="#333" /><Text style={styles.statLabel}>คงเหลือ</Text><Text style={styles.statValue}>{food.quantity} ชุด</Text></View>
+            <View style={styles.statItem}><Ionicons name="time-outline" size={20} color="#333" /><Text style={styles.statLabel}>รับได้ถึง</Text><Text style={styles.statValueTime}>{closingTimeDisplay}</Text></View>
+            <View style={styles.statItem}><Ionicons name="location-outline" size={20} color="#333" /><Text style={styles.statLabel}>ระยะทาง</Text><Text style={styles.statValue}>0.8 Km</Text></View>
          </View>
-
          <View style={styles.locationSection}>
             <Text style={styles.sectionTitle}>ที่อยู่ร้าน</Text>
-            <View style={styles.mapCard}><View style={styles.mapPlaceholder}><Ionicons name="location-sharp" size={30} color="#333" /><Text style={styles.mapText}>{food.storeName}</Text></View><Text style={styles.addressText}>123 ถนนตัวอย่าง กทม.</Text></View>
+            <View style={styles.mapCard}><View style={styles.mapPlaceholder}><Ionicons name="location-sharp" size={30} color="#333" /><Text style={styles.mapText}>{storeName}</Text></View><Text style={styles.addressText}>123 ถนนตัวอย่าง กทม.</Text></View>
          </View>
          <View style={{height: 100}} />
       </ScrollView>
@@ -346,8 +256,7 @@ const styles = StyleSheet.create({
   imageContainer: { width: '100%', height: 280, backgroundColor: '#f0f0f0', position: 'relative' },
   foodImage: { width: '100%', height: '100%', resizeMode: 'cover' },
   placeholderImage: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  backButton: { position: 'absolute', top: 50, left: 20, width: 40, height: 40, borderRadius: 20, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center', elevation: 2 },
-  heartButton: { position: 'absolute', top: 50, right: 20, width: 40, height: 40, borderRadius: 20, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center', elevation: 2 },
+  backButton: { position: 'absolute', top: Platform.OS === 'ios' ? 60 : 50, left: 20, width: 40, height: 40, borderRadius: 20, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center', elevation: 2 },
   discountBadge: { position: 'absolute', bottom: 30, right: 20, backgroundColor: '#e0e0e0', flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, gap: 5 },
   discountText: { fontWeight: 'bold', fontSize: 14 },
   contentContainer: { flex: 1, borderTopLeftRadius: 30, borderTopRightRadius: 30, backgroundColor: '#fff', marginTop: -20, paddingTop: 25, paddingHorizontal: 20 },
@@ -369,7 +278,7 @@ const styles = StyleSheet.create({
   statItem: { alignItems: 'center', flex: 1 },
   statLabel: { fontSize: 10, color: '#888', marginTop: 4 },
   statValue: { fontSize: 13, fontWeight: '600', color: '#000', marginTop: 2 },
-  statValueTime: { fontSize: 11, fontWeight: '600', color: '#000', marginTop: 2, textAlign: 'center' },
+  statValueTime: { fontSize: 11, fontWeight: '600', color: '#000', marginTop: 2, textAlign: 'center', lineHeight: 16 },
   locationSection: { marginBottom: 20 },
   mapCard: { borderWidth: 1, borderColor: '#eee', borderRadius: 12, overflow: 'hidden', marginBottom: 10 },
   mapPlaceholder: { height: 100, backgroundColor: '#f0f0f0', alignItems: 'center', justifyContent: 'center' },
@@ -381,5 +290,5 @@ const styles = StyleSheet.create({
   totalPrice: { fontSize: 20, fontWeight: 'bold', color: '#000' },
   cartButton: { width: 50, height: 50, borderRadius: 12, backgroundColor: '#333', alignItems: 'center', justifyContent: 'center' },
   bookButton: { flex: 2, backgroundColor: '#10b981', height: 50, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
-  bookButtonText: { fontSize: 16, fontWeight: 'bold', color: '#fff' },
-});
+  bookButtonText: { fontSize: 16, fontWeight: 'bold', color: '#fff' }
+}); // ✅ จบไฟล์อย่างถูกต้องเพื่อแก้ Unexpected token

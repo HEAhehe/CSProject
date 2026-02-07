@@ -6,6 +6,7 @@ import {
   FlatList,
   TouchableOpacity,
   StatusBar,
+  Platform,
   Image,
   RefreshControl,
   ActivityIndicator,
@@ -277,7 +278,18 @@ export default function OrdersScreen({ navigation }) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f9fafb' },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingTop: 60, paddingBottom: 20, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#f3f4f6', zIndex: 10 },
+   header: {
+     flexDirection: 'row',
+     justifyContent: 'space-between',
+     alignItems: 'center',
+     paddingHorizontal: 20,
+     paddingTop: Platform.OS === 'ios' ? 60 : 60,
+     paddingBottom: 15, // ✅ ลดลงเพื่อให้กระชับเท่าหน้า Home
+     backgroundColor: '#fff',
+     borderBottomWidth: 1,
+     borderBottomColor: '#f3f4f6',
+     zIndex: 10
+   },
   headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 15 },
   headerTitle: { fontSize: 20, fontWeight: 'bold', color: '#1f2937' },
   menuButton: { padding: 4 },
