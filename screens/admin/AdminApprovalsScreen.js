@@ -16,7 +16,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { db, auth } from '../../firebase.config';
-import { collection, getDocs, doc, updateDoc, query, orderBy } from 'firebase/firestore';
+import { collection, getDocs, doc, updateDoc, query, orderBy, getDoc } from 'firebase/firestore';
 
 export default function AdminApprovalsScreen({ navigation }) {
   const [selectedTab, setSelectedTab] = useState('pending'); // pending, approved, rejected
@@ -129,6 +129,13 @@ export default function AdminApprovalsScreen({ navigation }) {
   const processAction = async () => {
     if (!selectedRequest) return;
 
+    console.log('🔍 Processing action for request:', {
+      id: selectedRequest.id,
+      type: selectedRequest.type,
+      userId: selectedRequest.userId,
+      actionType: actionType
+    });
+
     try {
       const updateData = {
         status: actionType === 'approve' ? 'approved' : 'rejected',
@@ -141,45 +148,76 @@ export default function AdminApprovalsScreen({ navigation }) {
       }
 
       // 1. อัปเดตสถานะในตาราง approval_requests
+      console.log('📝 Updating approval_requests...');
       await updateDoc(doc(db, 'approval_requests', selectedRequest.id), updateData);
+      console.log('✅ approval_requests updated');
 
       // 2. 🔥 Special Logic: ถ้าเป็นการลงทะเบียนร้านค้า
-      if (selectedRequest.type === 'store_registration' && selectedRequest.userId) {
+      if (selectedRequest.type === 'store_registration') {
+        
+        if (!selectedRequest.userId) {
+          console.error('❌ userId is missing!');
+          Alert.alert('ข้อผิดพลาด', 'ไม่พบ userId ในคำขอนี้');
+          return;
+        }
+
+        console.log('🏪 Processing store registration for userId:', selectedRequest.userId);
+
+        // ตรวจสอบว่ามี store document อยู่หรือไม่
+        const storeRef = doc(db, 'stores', selectedRequest.userId);
+        const storeDoc = await getDoc(storeRef);
+        
+        if (!storeDoc.exists()) {
+          console.error('❌ Store document not found for userId:', selectedRequest.userId);
+          Alert.alert('ข้อผิดพลาด', 'ไม่พบข้อมูลร้านค้าในระบบ');
+          return;
+        }
+
+        console.log('✅ Store document exists');
         
         if (actionType === 'approve') {
           // 2.1 อนุมัติ: อัปเดต stores collection และ users collection
-          await updateDoc(doc(db, 'stores', selectedRequest.userId), {
+          console.log('✅ Approving store...');
+          
+          await updateDoc(storeRef, {
             status: 'approved',
             isActive: true,
             approvedBy: auth.currentUser?.email || 'Admin',
             approvedDate: new Date().toISOString(),
           });
+          console.log('✅ Store status updated to approved');
 
           await updateDoc(doc(db, 'users', selectedRequest.userId), {
             currentRole: 'store',
             hasStorePending: false,
           });
+          console.log('✅ User role updated to store');
 
           Alert.alert('เสร็จสิ้น', 'อนุมัติคำขอและเปิดใช้งานร้านค้าแล้ว');
           
         } else {
           // 2.2 ปฏิเสธ: อัปเดตสถานะใน stores collection
-          await updateDoc(doc(db, 'stores', selectedRequest.userId), {
+          console.log('❌ Rejecting store...');
+          
+          await updateDoc(storeRef, {
             status: 'rejected',
             isActive: false,
             rejectReason: rejectReason,
             rejectedBy: auth.currentUser?.email || 'Admin',
             rejectedDate: new Date().toISOString(),
           });
+          console.log('✅ Store status updated to rejected');
 
           await updateDoc(doc(db, 'users', selectedRequest.userId), {
             hasStorePending: false,
           });
+          console.log('✅ User hasStorePending updated');
 
           Alert.alert('เสร็จสิ้น', 'ปฏิเสธคำขอแล้ว');
         }
       } else {
         // กรณีเป็น type อื่นๆ
+        console.log('ℹ️ Non-store registration request processed');
         Alert.alert(
           'สำเร็จ',
           `${actionType === 'approve' ? 'อนุมัติ' : 'ปฏิเสธ'}คำขอแล้ว`
@@ -190,10 +228,16 @@ export default function AdminApprovalsScreen({ navigation }) {
       setRejectReason('');
       setSelectedRequest(null);
       fetchRequests(); // โหลดข้อมูลใหม่
+      console.log('✅ Process completed successfully');
 
     } catch (error) {
-      console.error('Action error:', error);
-      Alert.alert('ข้อผิดพลาด', 'ไม่สามารถทำรายการได้');
+      console.error('❌ Action error:', error);
+      console.error('Error details:', {
+        message: error.message,
+        code: error.code,
+        stack: error.stack
+      });
+      Alert.alert('ข้อผิดพลาด', `ไม่สามารถทำรายการได้: ${error.message}`);
     }
   };
 
@@ -210,25 +254,22 @@ export default function AdminApprovalsScreen({ navigation }) {
         onPress={() => handleRequestPress(item)}
       >
         <View style={styles.requestHeader}>
-          <View style={[styles.typeIcon, { backgroundColor: `${typeColor}20` }]}>
-            <Ionicons
+          <View style={[styles.typeIcon, { backgroundColor: typeColor + '20' }]}>
+            <Ionicons 
               name={
                 item.type === 'store_registration' ? 'storefront' :
                 item.type === 'food_listing' ? 'restaurant' :
                 'pricetag'
-              }
-              size={20}
-              color={typeColor}
+              } 
+              size={20} 
+              color={typeColor} 
             />
           </View>
-
           <View style={styles.requestInfo}>
             <Text style={styles.requestType}>{getRequestTypeLabel(item.type)}</Text>
-            <Text style={styles.requestUser}>{item.userName || item.storeName || 'ไม่ระบุชื่อ'}</Text>
-            <Text style={styles.requestDate}>วันที่: {displayDate}</Text>
+            <Text style={styles.requestUser}>{item.userName || 'ไม่ระบุชื่อ'}</Text>
+            <Text style={styles.requestDate}>{displayDate}</Text>
           </View>
-
-          <Ionicons name="chevron-forward" size={20} color="#d1d5db" />
         </View>
 
         {item.storeName && (
@@ -240,23 +281,14 @@ export default function AdminApprovalsScreen({ navigation }) {
     );
   };
 
-  if (loading) {
-    return (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" color="#3b82f6" />
-        <Text style={{ marginTop: 10, color: '#6b7280' }}>กำลังโหลด...</Text>
-      </View>
-    );
-  }
-
   return (
     <View style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#fff" />
 
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
-          <Ionicons name="chevron-back" size={24} color="#1f2937" />
+        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+          <Ionicons name="arrow-back" size={24} color="#1f2937" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>คำขออนุมัติ</Text>
         <View style={styles.placeholder} />
@@ -269,37 +301,38 @@ export default function AdminApprovalsScreen({ navigation }) {
           onPress={() => setSelectedTab('pending')}
         >
           <Text style={[styles.tabText, selectedTab === 'pending' && styles.tabTextActive]}>
-            รออนุมัติ ({requests.filter(r => (r.status || 'pending') === 'pending').length})
+            รอดำเนินการ
           </Text>
         </TouchableOpacity>
-
         <TouchableOpacity
           style={[styles.tab, selectedTab === 'approved' && styles.tabActive]}
           onPress={() => setSelectedTab('approved')}
         >
           <Text style={[styles.tabText, selectedTab === 'approved' && styles.tabTextActive]}>
-            อนุมัติแล้ว ({requests.filter(r => r.status === 'approved').length})
+            อนุมัติแล้ว
           </Text>
         </TouchableOpacity>
-
         <TouchableOpacity
           style={[styles.tab, selectedTab === 'rejected' && styles.tabActive]}
           onPress={() => setSelectedTab('rejected')}
         >
           <Text style={[styles.tabText, selectedTab === 'rejected' && styles.tabTextActive]}>
-            ปฏิเสธ ({requests.filter(r => r.status === 'rejected').length})
+            ปฏิเสธ
           </Text>
         </TouchableOpacity>
       </View>
 
       {/* List */}
-      {filteredRequests.length > 0 ? (
+      {loading ? (
+        <View style={styles.center}>
+          <ActivityIndicator size="large" color="#1f2937" />
+        </View>
+      ) : filteredRequests.length > 0 ? (
         <FlatList
           data={filteredRequests}
-          keyExtractor={(item) => item.id}
           renderItem={renderRequest}
+          keyExtractor={(item) => item.id}
           contentContainerStyle={styles.requestsList}
-          showsVerticalScrollIndicator={false}
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
           }
@@ -353,6 +386,14 @@ export default function AdminApprovalsScreen({ navigation }) {
                       <Text style={styles.value}>{selectedRequest.storeName}</Text>
                     </View>
                   )}
+
+                  {/* Debug Info - แสดง userId */}
+                  <View style={styles.infoRow}>
+                    <Text style={styles.label}>User ID:</Text>
+                    <Text style={[styles.value, { fontSize: 11 }]}>
+                      {selectedRequest.userId || 'ไม่พบ userId'}
+                    </Text>
+                  </View>
 
                   <View style={styles.divider} />
 

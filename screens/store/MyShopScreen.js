@@ -24,9 +24,11 @@ export default function MyShopScreen({ navigation }) {
   const [refreshing, setRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState('active'); // 'active' หรือ 'sold'
   const [stats, setStats] = useState({ posted: 0, sold: 0, revenue: 0 });
+  const [statusChecked, setStatusChecked] = useState(false); // เพิ่ม flag เพื่อป้องกัน Alert ซ้ำ
 
   useFocusEffect(
     useCallback(() => {
+      setStatusChecked(false); // รีเซ็ต flag เมื่อเข้าหน้าใหม่
       loadStoreData();
       loadListings();
     }, [])
@@ -47,7 +49,9 @@ export default function MyShopScreen({ navigation }) {
         // ตรวจสอบสถานะการอนุมัติ
         if (storeInfo.status === 'approved') {
           setStoreData(storeInfo);
-        } else if (storeInfo.status === 'pending') {
+          setStatusChecked(true);
+        } else if (storeInfo.status === 'pending' && !statusChecked) {
+          setStatusChecked(true);
           Alert.alert(
             'รอการอนุมัติ',
             'ร้านค้าของคุณอยู่ระหว่างการตรวจสอบ กรุณารอการอนุมัติจากผู้ดูแลระบบ',
@@ -58,7 +62,8 @@ export default function MyShopScreen({ navigation }) {
               }
             ]
           );
-        } else if (storeInfo.status === 'rejected') {
+        } else if (storeInfo.status === 'rejected' && !statusChecked) {
+          setStatusChecked(true);
           Alert.alert(
             'คำขออนุมัติถูกปฏิเสธ',
             'ร้านค้าของคุณไม่ได้รับการอนุมัติ กรุณาติดต่อผู้ดูแลระบบ',
@@ -72,21 +77,24 @@ export default function MyShopScreen({ navigation }) {
         }
       } else {
         // ถ้าไม่มีข้อมูลร้านค้า ให้นำไปหน้าสมัคร
-        Alert.alert(
-          'ยังไม่มีร้านค้า',
-          'คุณยังไม่ได้สมัครเป็นร้านค้า ต้องการสมัครหรือไม่?',
-          [
-            {
-              text: 'ยกเลิก',
-              onPress: () => navigation.goBack(),
-              style: 'cancel'
-            },
-            {
-              text: 'สมัคร',
-              onPress: () => navigation.navigate('RegisterStoreStep1')
-            }
-          ]
-        );
+        if (!statusChecked) {
+          setStatusChecked(true);
+          Alert.alert(
+            'ยังไม่มีร้านค้า',
+            'คุณยังไม่ได้สมัครเป็นร้านค้า ต้องการสมัครหรือไม่?',
+            [
+              {
+                text: 'ยกเลิก',
+                onPress: () => navigation.goBack(),
+                style: 'cancel'
+              },
+              {
+                text: 'สมัคร',
+                onPress: () => navigation.navigate('RegisterStoreStep1')
+              }
+            ]
+          );
+        }
       }
     } catch (error) {
       console.error('Error loading store data:', error);
@@ -290,6 +298,7 @@ export default function MyShopScreen({ navigation }) {
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={() => {
             setRefreshing(true);
+            setStatusChecked(false); // รีเซ็ต flag เมื่อ pull to refresh
             loadStoreData();
             loadListings();
           }} />
