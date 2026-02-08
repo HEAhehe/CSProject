@@ -22,83 +22,198 @@ export default function MyShopScreen({ navigation }) {
   const [soldListings, setSoldListings] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [activeTab, setActiveTab] = useState('active'); // 'active' หรือ 'sold'
+  const [activeTab, setActiveTab] = useState('active');
   const [stats, setStats] = useState({ posted: 0, sold: 0, revenue: 0 });
-  const [statusChecked, setStatusChecked] = useState(false); // เพิ่ม flag เพื่อป้องกัน Alert ซ้ำ
+  const [statusChecked, setStatusChecked] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
-      setStatusChecked(false); // รีเซ็ต flag เมื่อเข้าหน้าใหม่
-      loadStoreData();
-      loadListings();
+      // ✅ รีเซ็ตทุกอย่างเมื่อเข้าหน้าใหม่
+      setStatusChecked(false);
+      setStoreData(null);
+      setLoading(true);
+      checkAuthAndLoadData();
     }, [])
   );
+
+  const checkAuthAndLoadData = async () => {
+    try {
+      const user = auth.currentUser;
+      
+      if (!user) {
+        Alert.alert(
+          'ต้องเข้าสู่ระบบ',
+          'กรุณาเข้าสู่ระบบเพื่อดำเนินการต่อ',
+          [
+            {
+              text: 'ตกลง',
+              onPress: () => navigation.replace('SignIn')
+            }
+          ]
+        );
+        return;
+      }
+
+      // ✅ Reload user และ refresh token
+      try {
+        await user.reload();
+        await user.getIdToken(true);
+        console.log('✅ Token refreshed successfully');
+      } catch (tokenError) {
+        console.error('❌ Token refresh error:', tokenError);
+        
+        if (tokenError.code === 'auth/invalid-credential' || 
+            tokenError.code === 'auth/user-token-expired') {
+          
+          await auth.signOut();
+          Alert.alert(
+            'เซสชันหมดอายุ',
+            'กรุณาเข้าสู่ระบบใหม่อีกครั้ง',
+            [
+              {
+                text: 'ตกลง',
+                onPress: () => navigation.replace('SignIn')
+              }
+            ]
+          );
+          return;
+        }
+      }
+
+      await loadStoreData();
+      await loadListings();
+      
+    } catch (error) {
+      console.error('Error in checkAuthAndLoadData:', error);
+      setLoading(false);
+    }
+  };
 
   const loadStoreData = async () => {
     try {
       const user = auth.currentUser;
       if (!user) return;
 
-      // ดึงข้อมูลร้านค้าจาก stores collection
+      console.log('🔍 Loading store data for userId:', user.uid);
+
+      // ✅ ดึงข้อมูลร้านค้าจาก stores collection แบบ real-time (ไม่ cache)
       const storeDocRef = doc(db, 'stores', user.uid);
       const storeDoc = await getDoc(storeDocRef);
       
       if (storeDoc.exists()) {
         const storeInfo = storeDoc.data();
+        console.log('📦 Store data loaded:', {
+          status: storeInfo.status,
+          storeName: storeInfo.storeName
+        });
         
-        // ตรวจสอบสถานะการอนุมัติ
+        // ✅ ตรวจสอบสถานะล่าสุด
         if (storeInfo.status === 'approved') {
+          console.log('✅ Store is APPROVED');
           setStoreData(storeInfo);
           setStatusChecked(true);
-        } else if (storeInfo.status === 'pending' && !statusChecked) {
-          setStatusChecked(true);
-          Alert.alert(
-            'รอการอนุมัติ',
-            'ร้านค้าของคุณอยู่ระหว่างการตรวจสอบ กรุณารอการอนุมัติจากผู้ดูแลระบบ',
-            [
-              {
-                text: 'ตกลง',
-                onPress: () => navigation.goBack()
-              }
-            ]
-          );
-        } else if (storeInfo.status === 'rejected' && !statusChecked) {
-          setStatusChecked(true);
-          Alert.alert(
-            'คำขออนุมัติถูกปฏิเสธ',
-            'ร้านค้าของคุณไม่ได้รับการอนุมัติ กรุณาติดต่อผู้ดูแลระบบ',
-            [
-              {
-                text: 'ตกลง',
-                onPress: () => navigation.goBack()
-              }
-            ]
-          );
+          
+        } else if (storeInfo.status === 'pending') {
+          console.log('⏳ Store is PENDING');
+          if (!statusChecked) {
+            setStatusChecked(true);
+            Alert.alert(
+              'รอการอนุมัติ',
+              'ร้านค้าของคุณอยู่ระหว่างการตรวจสอบ กรุณารอการอนุมัติจากผู้ดูแลระบบ',
+              [
+                {
+                  text: 'ตกลง',
+                  onPress: () => navigation.goBack()
+                }
+              ]
+            );
+          }
+        } else if (storeInfo.status === 'rejected') {
+          console.log('❌ Store is REJECTED');
+          if (!statusChecked) {
+            setStatusChecked(true);
+            Alert.alert(
+              'คำขออนุมัติถูกปฏิเสธ',
+              storeInfo.rejectReason || 'ร้านค้าของคุณไม่ได้รับการอนุมัติ กรุณาติดต่อผู้ดูแลระบบ',
+              [
+                {
+                  text: 'ตกลง',
+                  onPress: () => navigation.goBack()
+                }
+              ]
+            );
+          }
         }
       } else {
-        // ถ้าไม่มีข้อมูลร้านค้า ให้นำไปหน้าสมัคร
-        if (!statusChecked) {
-          setStatusChecked(true);
-          Alert.alert(
-            'ยังไม่มีร้านค้า',
-            'คุณยังไม่ได้สมัครเป็นร้านค้า ต้องการสมัครหรือไม่?',
-            [
-              {
-                text: 'ยกเลิก',
-                onPress: () => navigation.goBack(),
-                style: 'cancel'
-              },
-              {
-                text: 'สมัคร',
-                onPress: () => navigation.navigate('RegisterStoreStep1')
-              }
-            ]
-          );
+        console.log('❌ Store document does NOT exist');
+        
+        // ✅ ตรวจสอบว่ามี approval_request หรือไม่
+        const approvalQuery = query(
+          collection(db, 'approval_requests'), 
+          where('userId', '==', user.uid),
+          where('type', '==', 'store_registration')
+        );
+        const approvalSnapshot = await getDocs(approvalQuery);
+        
+        if (!approvalSnapshot.empty) {
+          // มี request อยู่แล้ว แต่ยังไม่มี store document = กำลังรอสร้าง
+          console.log('⏳ Has approval request but no store document yet');
+          if (!statusChecked) {
+            setStatusChecked(true);
+            Alert.alert(
+              'รอการอนุมัติ',
+              'ร้านค้าของคุณอยู่ระหว่างการตรวจสอบ กรุณารอการอนุมัติจากผู้ดูแลระบบ',
+              [
+                {
+                  text: 'ตกลง',
+                  onPress: () => navigation.goBack()
+                }
+              ]
+            );
+          }
+        } else {
+          // ไม่มีทั้ง store document และ approval request = ยังไม่เคยสมัคร
+          console.log('📝 No store, no request - needs to register');
+          if (!statusChecked) {
+            setStatusChecked(true);
+            Alert.alert(
+              'ยังไม่มีร้านค้า',
+              'คุณยังไม่ได้สมัครเป็นร้านค้า ต้องการสมัครหรือไม่?',
+              [
+                {
+                  text: 'ยกเลิก',
+                  onPress: () => navigation.goBack(),
+                  style: 'cancel'
+                },
+                {
+                  text: 'สมัคร',
+                  onPress: () => navigation.navigate('RegisterStoreStep1')
+                }
+              ]
+            );
+          }
         }
       }
     } catch (error) {
       console.error('Error loading store data:', error);
-      Alert.alert('ข้อผิดพลาด', 'ไม่สามารถโหลดข้อมูลร้านค้าได้');
+      
+      if (error.code === 'auth/invalid-credential' || 
+          error.code === 'auth/user-token-expired') {
+        
+        await auth.signOut();
+        Alert.alert(
+          'เซสชันหมดอายุ',
+          'กรุณาเข้าสู่ระบบใหม่อีกครั้ง',
+          [
+            {
+              text: 'ตกลง',
+              onPress: () => navigation.replace('SignIn')
+            }
+          ]
+        );
+      } else {
+        Alert.alert('ข้อผิดพลาด', 'ไม่สามารถโหลดข้อมูลร้านค้าได้');
+      }
     }
   };
 
@@ -107,19 +222,16 @@ export default function MyShopScreen({ navigation }) {
       const user = auth.currentUser;
       if (!user) return;
 
-      // ดึงรายการสินค้าทั้งหมดของร้านนี้
       const q = query(collection(db, 'food_items'), where('userId', '==', user.uid));
       const snapshot = await getDocs(q);
       const items = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
-      // แยกสินค้าตามสถานะ
       const active = items.filter(item => item.quantity > 0);
       const sold = items.filter(item => item.quantity === 0);
 
       setActiveListings(active);
       setSoldListings(sold);
 
-      // คำนวณ stats
       const totalRevenue = sold.reduce((sum, item) => {
         return sum + (Number(item.discountPrice) || Number(item.price) || 0);
       }, 0);
@@ -131,6 +243,22 @@ export default function MyShopScreen({ navigation }) {
       });
     } catch (error) {
       console.error('Error loading listings:', error);
+      
+      if (error.code === 'auth/invalid-credential' || 
+          error.code === 'auth/user-token-expired') {
+        
+        await auth.signOut();
+        Alert.alert(
+          'เซสชันหมดอายุ',
+          'กรุณาเข้าสู่ระบบใหม่อีกครั้ง',
+          [
+            {
+              text: 'ตกลง',
+              onPress: () => navigation.replace('SignIn')
+            }
+          ]
+        );
+      }
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -177,9 +305,8 @@ export default function MyShopScreen({ navigation }) {
     
     try {
       const date = new Date(dateString);
-      if (isNaN(date.getTime())) return dateString; // Return original if invalid
+      if (isNaN(date.getTime())) return dateString;
       
-      // Format: วันที่ DD/MM/YYYY เวลา HH:MM น.
       const day = date.getDate().toString().padStart(2, '0');
       const month = (date.getMonth() + 1).toString().padStart(2, '0');
       const year = date.getFullYear();
@@ -196,12 +323,10 @@ export default function MyShopScreen({ navigation }) {
     const originalPrice = Number(item.originalPrice) || 0;
     const discountPrice = Number(item.discountPrice) || Number(item.price) || 0;
     const discountPercent = originalPrice > 0 ? Math.round(((originalPrice - discountPrice) / originalPrice) * 100) : 0;
-    const isSold = item.quantity === 0;
 
     return (
       <View key={item.id} style={styles.listingCard}>
         <View style={styles.cardContent}>
-          {/* Image */}
           <View style={styles.listingImageContainer}>
             {item.imageUrl ? (
               <Image source={{ uri: item.imageUrl }} style={styles.listingImage} />
@@ -212,7 +337,6 @@ export default function MyShopScreen({ navigation }) {
             )}
           </View>
 
-          {/* Info */}
           <View style={styles.listingInfo}>
             <Text style={styles.listingName} numberOfLines={1}>{item.name}</Text>
             <Text style={styles.listingPrice}>ราคาเต็ม : {originalPrice} ฿</Text>
@@ -226,7 +350,6 @@ export default function MyShopScreen({ navigation }) {
           </View>
         </View>
 
-        {/* Buttons */}
         <View style={styles.cardButtons}>
           <TouchableOpacity 
             style={styles.editBtn}
@@ -243,6 +366,14 @@ export default function MyShopScreen({ navigation }) {
         </View>
       </View>
     );
+  };
+
+  const handleRefresh = () => {
+    console.log('🔄 Manual refresh triggered');
+    setRefreshing(true);
+    setStatusChecked(false);
+    setStoreData(null);
+    checkAuthAndLoadData();
   };
 
   return (
@@ -296,12 +427,12 @@ export default function MyShopScreen({ navigation }) {
       <ScrollView 
         style={styles.content}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={() => {
-            setRefreshing(true);
-            setStatusChecked(false); // รีเซ็ต flag เมื่อ pull to refresh
-            loadStoreData();
-            loadListings();
-          }} />
+          <RefreshControl 
+            refreshing={refreshing} 
+            onRefresh={handleRefresh}
+            colors={['#10b981']}
+            tintColor="#10b981"
+          />
         }
       >
         {loading ? (
@@ -322,14 +453,16 @@ export default function MyShopScreen({ navigation }) {
         <View style={{ height: 100 }} />
       </ScrollView>
 
-      {/* NEW POST Button (Fixed at bottom) */}
-      <TouchableOpacity 
-        style={styles.newPostButton}
-        onPress={() => navigation.navigate('CreateListing')}
-      >
-        <Ionicons name="add" size={24} color="#1f2937" />
-        <Text style={styles.newPostButtonText}>NEW POST</Text>
-      </TouchableOpacity>
+      {/* NEW POST Button - แสดงเฉพาะเมื่อ approved */}
+      {storeData?.status === 'approved' && (
+        <TouchableOpacity 
+          style={styles.newPostButton}
+          onPress={() => navigation.navigate('CreateListing')}
+        >
+          <Ionicons name="add" size={24} color="#1f2937" />
+          <Text style={styles.newPostButtonText}>NEW POST</Text>
+        </TouchableOpacity>
+      )}
     </View>
   );
 }
@@ -359,8 +492,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: '#1f2937',
-    flexDirection: 'row',
-    alignItems: 'center',
   },
   greetingContainer: {
     padding: 20,

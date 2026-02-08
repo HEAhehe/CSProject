@@ -15,7 +15,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { db, auth } from '../../firebase.config';
-import { collection, getDocs, doc, updateDoc, query } from 'firebase/firestore';
+import { collection, getDocs, doc, updateDoc, getDoc, setDoc, query } from 'firebase/firestore';
 
 export default function AdminHomeScreen({ navigation }) {
   const [requests, setRequests] = useState([]);
@@ -143,6 +143,8 @@ export default function AdminHomeScreen({ navigation }) {
 
   const processUpdate = async (actionType, request, reason) => {
     try {
+      console.log('🔄 Starting approval process for:', request.userId);
+      
       const updateData = {
         status: actionType === 'approve' ? 'approved' : 'rejected',
         approvedBy: auth.currentUser?.email || 'Admin',
@@ -154,14 +156,96 @@ export default function AdminHomeScreen({ navigation }) {
         updateData.rejectReason = reason;
       }
 
-      // อัปเดตสถานะคำขอ
+      // 🔥 STEP 1: อัปเดตสถานะคำขอใน approval_requests
+      console.log('📝 Updating approval_requests...');
       await updateDoc(doc(db, 'approval_requests', request.id), updateData);
 
-      // ถ้าอนุมัติ -> อัปเกรด User เป็น Store
+      // ถ้าอนุมัติ
       if (actionType === 'approve' && request.userId) {
+        
+        // 🔥 STEP 2: ตรวจสอบว่ามี stores document หรือยัง
+        console.log('🔍 Checking stores document...');
+        const storeDocRef = doc(db, 'stores', request.userId);
+        const storeDoc = await getDoc(storeDocRef);
+
+        const storeData = {
+          status: 'approved',
+          isActive: true,
+          approvedBy: auth.currentUser?.email || 'Admin',
+          approvedDate: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        };
+
+        if (storeDoc.exists()) {
+          // ถ้ามีแล้ว ก็ update
+          console.log('✏️ Updating existing store document...');
+          await updateDoc(storeDocRef, storeData);
+        } else {
+          // ถ้ายังไม่มี ก็สร้างใหม่จากข้อมูลใน request
+          console.log('🆕 Creating new store document...');
+          const newStoreData = {
+            userId: request.userId,
+            storeName: request.details?.['ชื่อร้าน'] || request.storeName || 'ไม่ระบุ',
+            storeOwner: request.userName || 'ไม่ระบุ',
+            phoneNumber: request.details?.['เบอร์โทรศัพท์'] || '',
+            latitude: request.details?.latitude || null,
+            longitude: request.details?.longitude || null,
+            deliveryOptions: request.details?.['การจัดส่ง'] || 'รับที่ร้าน',
+            createdAt: new Date().toISOString(),
+            ...storeData
+          };
+          await setDoc(storeDocRef, newStoreData);
+        }
+
+        // 🔥 STEP 3: อัปเดต users collection
+        console.log('👤 Updating user document...');
         await updateDoc(doc(db, 'users', request.userId), {
-          currentRole: 'store'
+          currentRole: 'store',
+          hasStorePending: false,
+          updatedAt: new Date().toISOString()
         });
+
+        console.log('✅ Approval process completed successfully!');
+      }
+
+      // ถ้าปฏิเสธ
+      if (actionType === 'reject' && request.userId) {
+        console.log('❌ Processing rejection...');
+        
+        // อัปเดต users collection
+        await updateDoc(doc(db, 'users', request.userId), {
+          hasStorePending: false,
+          updatedAt: new Date().toISOString()
+        });
+
+        // ตรวจสอบและอัปเดต stores collection
+        const storeDocRef = doc(db, 'stores', request.userId);
+        const storeDoc = await getDoc(storeDocRef);
+
+        const rejectData = {
+          status: 'rejected',
+          isActive: false,
+          rejectReason: reason,
+          rejectedBy: auth.currentUser?.email || 'Admin',
+          rejectedDate: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        };
+
+        if (storeDoc.exists()) {
+          await updateDoc(storeDocRef, rejectData);
+        } else {
+          // สร้าง document ใหม่พร้อม status rejected
+          const newStoreData = {
+            userId: request.userId,
+            storeName: request.details?.['ชื่อร้าน'] || request.storeName || 'ไม่ระบุ',
+            storeOwner: request.userName || 'ไม่ระบุ',
+            createdAt: new Date().toISOString(),
+            ...rejectData
+          };
+          await setDoc(storeDocRef, newStoreData);
+        }
+
+        console.log('✅ Rejection process completed!');
       }
 
       Alert.alert('สำเร็จ', 'บันทึกสถานะเรียบร้อยแล้ว');
@@ -170,8 +254,9 @@ export default function AdminHomeScreen({ navigation }) {
       fetchData(); // โหลดข้อมูลใหม่
 
     } catch (error) {
-      console.error('Update error:', error);
-      Alert.alert('ข้อผิดพลาด', 'ไม่สามารถอัปเดตข้อมูลได้');
+      console.error('❌ Update error:', error);
+      console.error('Error details:', error.message);
+      Alert.alert('ข้อผิดพลาด', `ไม่สามารถอัปเดตข้อมูลได้: ${error.message}`);
     }
   };
 
@@ -193,82 +278,97 @@ export default function AdminHomeScreen({ navigation }) {
   );
 
   const RequestItem = ({ item }) => {
-    const isPending = (item.status || 'pending') === 'pending';
-    const details = item.details || {};
+    const status = item.status || 'pending';
+    let statusColor = '#f59e0b'; // pending = orange
+    let statusBg = '#fef3c7';
+    let statusText = 'รอดำเนินการ';
+
+    if (status === 'approved') {
+      statusColor = '#10b981';
+      statusBg = '#d1fae5';
+      statusText = 'อนุมัติแล้ว';
+    } else if (status === 'rejected') {
+      statusColor = '#ef4444';
+      statusBg = '#fee2e2';
+      statusText = 'ปฏิเสธ';
+    }
+
+    // แปลงวันที่เป็นรูปแบบไทย
+    const formatDate = (dateStr) => {
+      if (!dateStr) return 'ไม่ระบุ';
+      const date = new Date(dateStr);
+      return date.toLocaleDateString('th-TH', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    };
 
     return (
       <View style={styles.requestCard}>
+        {/* Header */}
         <View style={styles.requestHeader}>
           <View style={styles.requestIcon}>
-            <Ionicons name="storefront" size={24} color="#6b7280" />
+            <Ionicons name="storefront" size={24} color="#10b981" />
           </View>
           <View style={styles.requestInfo}>
             <Text style={styles.storeName}>
-              {details['ชื่อร้าน'] || item.storeName || item.userName || 'ไม่ระบุชื่อร้าน'}
+              {item.details?.['ชื่อร้าน'] || item.storeName || 'ไม่ระบุชื่อร้าน'}
             </Text>
-            <Text style={styles.ownerName}>ผู้ขอ: {item.userEmail}</Text>
+            <Text style={styles.ownerName}>เจ้าของร้าน: {item.userName || 'ไม่ระบุ'}</Text>
             <Text style={styles.requestDate}>
-                {item.requestDate ? new Date(item.requestDate).toLocaleDateString('th-TH') : '-'}
+              วันที่สมัคร: {formatDate(item.requestDate)}
             </Text>
           </View>
-          {/* Badge สถานะ */}
-          <View style={[
-            styles.statusBadge,
-            { backgroundColor: item.status === 'approved' ? '#dcfce7' : item.status === 'rejected' ? '#fee2e2' : '#fef3c7' }
-          ]}>
-            <Text style={[
-                styles.statusText,
-                { color: item.status === 'approved' ? '#16a34a' : item.status === 'rejected' ? '#ef4444' : '#d97706' }
-            ]}>
-                {item.status === 'approved' ? 'อนุมัติ' : item.status === 'rejected' ? 'ปฏิเสธ' : 'รอตรวจสอบ'}
-            </Text>
+          <View style={[styles.statusBadge, { backgroundColor: statusBg }]}>
+            <Text style={[styles.statusText, { color: statusColor }]}>{statusText}</Text>
           </View>
         </View>
 
-        {/* 🔥 แสดงรายละเอียดเพิ่มเติม */}
-        {Object.keys(details).length > 0 && (
+        {/* Details */}
+        {item.details && (
           <View style={styles.detailsContainer}>
-            {details['เจ้าของร้าน'] && (
+            {item.details['เบอร์โทรศัพท์'] && (
               <View style={styles.detailRow}>
-                <Ionicons name="person-outline" size={16} color="#6b7280" />
-                <Text style={styles.detailText}>เจ้าของร้าน: {details['เจ้าของร้าน']}</Text>
+                <Ionicons name="call" size={14} color="#6b7280" />
+                <Text style={styles.detailText}>โทร: {item.details['เบอร์โทรศัพท์']}</Text>
               </View>
             )}
-            {details['เบอร์โทร'] && (
+            {item.details['ที่อยู่'] && (
               <View style={styles.detailRow}>
-                <Ionicons name="call-outline" size={16} color="#6b7280" />
-                <Text style={styles.detailText}>โทร: {details['เบอร์โทร']}</Text>
+                <Ionicons name="location" size={14} color="#6b7280" />
+                <Text style={styles.detailText} numberOfLines={2}>
+                  ที่อยู่: {item.details['ที่อยู่']}
+                </Text>
               </View>
             )}
-            {details['ที่อยู่'] && (
+            {item.details['การจัดส่ง'] && (
               <View style={styles.detailRow}>
-                <Ionicons name="location-outline" size={16} color="#6b7280" />
-                <Text style={styles.detailText}>ที่อยู่: {details['ที่อยู่']}</Text>
+                <Ionicons name="bicycle" size={14} color="#6b7280" />
+                <Text style={styles.detailText}>การจัดส่ง: {item.details['การจัดส่ง']}</Text>
               </View>
             )}
-            {details['การจัดส่ง'] && (
+            {item.details['เปิด-ปิด'] && (
               <View style={styles.detailRow}>
-                <Ionicons name="bicycle-outline" size={16} color="#6b7280" />
-                <Text style={styles.detailText}>การจัดส่ง: {details['การจัดส่ง']}</Text>
-              </View>
-            )}
-            {details['เวลาเปิด'] && (
-              <View style={styles.detailRow}>
-                <Ionicons name="time-outline" size={16} color="#6b7280" />
-                <Text style={styles.detailText}>เปิด: {details['เวลาเปิด']}</Text>
-              </View>
-            )}
-            {details['เวลาปิด'] && (
-              <View style={styles.detailRow}>
-                <Ionicons name="time-outline" size={16} color="#6b7280" />
-                <Text style={styles.detailText}>ปิด: {details['เวลาปิด']}</Text>
+                <Ionicons name="time" size={14} color="#6b7280" />
+                <Text style={styles.detailText}>เวลา: {item.details['เปิด-ปิด']}</Text>
               </View>
             )}
           </View>
         )}
 
-        {/* Action Buttons (แสดงเฉพาะเมื่อสถานะเป็น pending) */}
-        {isPending && (
+        {/* Reject Reason (if any) */}
+        {status === 'rejected' && item.rejectReason && (
+          <View style={styles.rejectReasonContainer}>
+            <Text style={styles.rejectReasonLabel}>เหตุผลที่ปฏิเสธ:</Text>
+            <Text style={styles.rejectReasonText}>{item.rejectReason}</Text>
+          </View>
+        )}
+
+        {/* Action Buttons */}
+        {status === 'pending' && (
           <View style={styles.actionButtons}>
             <TouchableOpacity
               style={[styles.btn, styles.btnReject]}
@@ -284,21 +384,13 @@ export default function AdminHomeScreen({ navigation }) {
             </TouchableOpacity>
           </View>
         )}
-
-        {/* แสดงเหตุผลการปฏิเสธ (ถ้ามี) */}
-        {item.status === 'rejected' && item.rejectReason && (
-          <View style={styles.rejectReasonContainer}>
-            <Text style={styles.rejectReasonLabel}>เหตุผลการปฏิเสธ:</Text>
-            <Text style={styles.rejectReasonText}>{item.rejectReason}</Text>
-          </View>
-        )}
       </View>
     );
   };
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="dark-content" backgroundColor="#fff" />
+      <StatusBar barStyle="dark-content" />
 
       {/* Header */}
       <View style={styles.header}>
@@ -306,39 +398,38 @@ export default function AdminHomeScreen({ navigation }) {
           <Text style={styles.headerTitle}>Admin Panel</Text>
           <Text style={styles.headerSubtitle}>จัดการคำขออนุมัติร้านค้า</Text>
         </View>
-        <TouchableOpacity
-            style={styles.statsButton}
-            onPress={() => navigation.navigate('AdminApprovals')}
+        <TouchableOpacity 
+          style={styles.statsButton}
+          onPress={() => navigation.navigate('AdminReports')}
         >
-            <Ionicons name="bar-chart-outline" size={16} color="#1f2937" />
-            <Text style={styles.statsButtonText}>ไปยังสถิติ</Text>
+          <Ionicons name="bar-chart-outline" size={18} color="#1f2937" />
+          <Text style={styles.statsButtonText}>ไปยังสถิติ</Text>
         </TouchableOpacity>
       </View>
 
-      <ScrollView
+      <ScrollView 
         style={styles.content}
-        refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-        }
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+        showsVerticalScrollIndicator={false}
       >
-        {/* Status Cards Grid */}
+        {/* Status Cards */}
         <View style={styles.cardsGrid}>
           <StatusCard
             icon="time-outline"
             label="รอดำเนินการ"
             count={counts.pending}
-            color="#d97706"
+            color="#f59e0b"
             filterKey="pending"
           />
           <StatusCard
-            icon="checkmark-circle-outline"
+            icon="checkmark-circle"
             label="อนุมัติแล้ว"
             count={counts.approved}
             color="#10b981"
             filterKey="approved"
           />
           <StatusCard
-            icon="close-circle-outline"
+            icon="close-circle"
             label="ปฏิเสธ"
             count={counts.rejected}
             color="#ef4444"
@@ -355,13 +446,13 @@ export default function AdminHomeScreen({ navigation }) {
 
         {/* Search Bar */}
         <View style={styles.searchContainer}>
-            <Ionicons name="search" size={20} color="#9ca3af" />
-            <TextInput
-                style={styles.searchInput}
-                placeholder="Search..."
-                value={searchQuery}
-                onChangeText={setSearchQuery}
-            />
+          <Ionicons name="search" size={20} color="#6b7280" />
+          <TextInput
+            style={styles.searchInput}
+            placeholder="ค้นหาชื่อร้าน หรือเจ้าของร้าน..."
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+          />
         </View>
 
         {/* Tabs */}
@@ -534,7 +625,7 @@ const styles = StyleSheet.create({
   statusBadge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, height: 24 },
   statusText: { fontSize: 11, fontWeight: 'bold' },
 
-  // 🔥 สไตล์ใหม่สำหรับแสดงรายละเอียด
+  // รายละเอียด
   detailsContainer: {
     marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#f3f4f6', gap: 6
   },
