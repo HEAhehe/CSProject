@@ -6,6 +6,7 @@ import {
   TouchableOpacity,
   StatusBar,
   FlatList,
+  Platform,
   Image,
   ActivityIndicator,
   Alert
@@ -128,7 +129,7 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f9fafb' },
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 20, paddingTop: 50, paddingBottom: 15, backgroundColor: '#fff',
+    paddingHorizontal: 20, paddingTop: 40, paddingBottom: 15, backgroundColor: '#fff',
     borderBottomWidth: 1, borderBottomColor: '#f3f4f6'
   },
   backButton: {

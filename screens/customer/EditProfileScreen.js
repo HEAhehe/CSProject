@@ -159,7 +159,17 @@ export default function EditProfileScreen({ navigation }) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f9fafb' },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 50, paddingBottom: 15, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#f3f4f6' },
+header: {
+  flexDirection: 'row',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  paddingHorizontal: 20,
+  paddingTop: Platform.OS === 'ios' ? 60 : 60,
+  paddingBottom: 15,
+  backgroundColor: '#fff',
+  borderBottomWidth: 1, // ✅ เพิ่มเส้นขอบล่าง
+  borderBottomColor: '#f3f4f6'
+},
   backButton: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#f3f4f6', alignItems: 'center', justifyContent: 'center' },
   headerTitle: { fontSize: 18, fontWeight: '600', color: '#1f2937' },
   saveButton: { width: 70, alignItems: 'flex-end' },

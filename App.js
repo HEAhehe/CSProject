@@ -14,7 +14,6 @@ import ForgotPasswordScreen from './screens/auth/ForgotPasswordScreen';
 import HomeScreen from './screens/customer/HomeScreen';
 import ProfileScreen from './screens/customer/ProfileScreen';
 import EditProfileScreen from './screens/customer/EditProfileScreen';
-import MenuScreen from './screens/customer/MenuScreen';
 import FoodListScreen from './screens/customer/FoodListScreen';
 import FoodDetailScreen from './screens/customer/FoodDetailScreen';
 import NotificationsScreen from './screens/customer/NotificationsScreen';
@@ -58,6 +57,7 @@ export default function App() {
   return (
     <NavigationContainer>
       <Stack.Navigator
+
         initialRouteName={user ? "Home" : "Welcome"}
         screenOptions={{
           headerShown: false,
@@ -69,7 +69,6 @@ export default function App() {
           <>
             {/* --- Customer Flow --- */}
             <Stack.Screen name="Home" component={HomeScreen} />
-            <Stack.Screen name="Menu" component={MenuScreen} />
             <Stack.Screen name="Profile" component={ProfileScreen} />
             <Stack.Screen name="EditProfile" component={EditProfileScreen} />
 
