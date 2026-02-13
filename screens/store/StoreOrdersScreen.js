@@ -14,18 +14,21 @@ import {
   Modal,
   TouchableWithoutFeedback,
   Platform,
+  ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { auth, db } from '../../firebase.config';
-import { collection, query, where, getDocs, orderBy, updateDoc, doc, getDoc } from 'firebase/firestore';
+import { collection, query, where, getDocs, orderBy, updateDoc, doc, getDoc, onSnapshot } from 'firebase/firestore';
 
 const { width } = Dimensions.get('window');
 
 export default function StoreOrdersScreen({ navigation }) {
   const [orders, setOrders] = useState([]);
+  const [allOrders, setAllOrders] = useState([]); // ✅ เพิ่ม state เพื่อเก็บออเดอร์ทั้งหมด
   const [refreshing, setRefreshing] = useState(false);
-  const [filter, setFilter] = useState('pending'); // pending, confirmed, completed, cancelled
+  const [filter, setFilter] = useState('pending');
   const [storeData, setStoreData] = useState(null);
+  const [loading, setLoading] = useState(true);
 
   // Drawer states
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
@@ -34,11 +37,10 @@ export default function StoreOrdersScreen({ navigation }) {
 
   const defaultAvatar = Image.resolveAssetSource(require('../../assets/icon.png')).uri;
 
-  // Mock stats data - ในการใช้งานจริงควรดึงจาก Firebase
   const [stats, setStats] = useState({
-    pending: 2,
-    total: 8,
-    revenue: 320
+    pending: 0,
+    total: 0,
+    revenue: 0
   });
 
   useEffect(() => {
@@ -65,39 +67,123 @@ export default function StoreOrdersScreen({ navigation }) {
   const loadOrders = async () => {
     try {
       const user = auth.currentUser;
-      if (user) {
-        // ดึงข้อมูลออเดอร์จาก Firebase
-        const q = query(
-          collection(db, 'orders'),
-          where('storeId', '==', user.uid),
-          where('status', '==', filter),
-          orderBy('createdAt', 'desc')
-        );
+      if (!user) {
+        console.log('❌ No user logged in');
+        setLoading(false);
+        return;
+      }
+
+      console.log('🔍 Loading orders for storeId:', user.uid);
+      console.log('🔍 Filter:', filter);
+
+      // ✅ Query 1: ดึงออเดอร์ตาม filter ที่เลือก
+      const q = query(
+        collection(db, 'orders'),
+        where('storeId', '==', user.uid),
+        where('status', '==', filter),
+        orderBy('createdAt', 'desc')
+      );
+      
+      const querySnapshot = await getDocs(q);
+      const ordersList = [];
+      
+      // ✅ ดึงข้อมูลชื่อลูกค้าจาก users collection
+      for (const docSnap of querySnapshot.docs) {
+        const data = docSnap.data();
         
-        const querySnapshot = await getDocs(q);
-        const ordersList = [];
+        // ดึงชื่อลูกค้า
+        let customerName = 'ลูกค้า';
+        if (data.userId) {
+          try {
+            const customerDoc = await getDoc(doc(db, 'users', data.userId));
+            if (customerDoc.exists()) {
+              const customerData = customerDoc.data();
+              customerName = customerData.username || customerData.displayName || `ลูกค้า ${data.userId.slice(0, 6)}`;
+            }
+          } catch (err) {
+            console.log('Cannot fetch customer name:', err);
+          }
+        }
         
-        querySnapshot.forEach((doc) => {
-          ordersList.push({
-            id: doc.id,
-            ...doc.data(),
-          });
+        console.log('📦 Found order:', {
+          id: docSnap.id,
+          storeId: data.storeId,
+          status: data.status,
+          foodName: data.foodName,
+          customerName: customerName
         });
         
-        setOrders(ordersList);
+        ordersList.push({
+          id: docSnap.id,
+          ...data,
+          customerName: customerName, // ✅ เพิ่มชื่อลูกค้า
+        });
       }
+
+      console.log(`✅ Loaded ${ordersList.length} orders with status: ${filter}`);
+      setOrders(ordersList);
+
+      // ✅ Query 2: ดึงออเดอร์ทั้งหมดเพื่อคำนวณ stats
+      const qAll = query(
+        collection(db, 'orders'),
+        where('storeId', '==', user.uid)
+      );
+      
+      const allSnapshot = await getDocs(qAll);
+      const allOrdersList = [];
+      
+      allSnapshot.forEach((doc) => {
+        allOrdersList.push({
+          id: doc.id,
+          ...doc.data(),
+        });
+      });
+
+      console.log(`📊 Total orders in database: ${allOrdersList.length}`);
+      setAllOrders(allOrdersList);
+
+      // ✅ คำนวณ stats
+      const pendingCount = allOrdersList.filter(o => o.status === 'pending').length;
+      const totalRevenue = allOrdersList
+        .filter(o => o.status === 'completed')
+        .reduce((sum, o) => sum + (o.totalPrice || 0), 0);
+
+      setStats({
+        pending: pendingCount,
+        total: allOrdersList.length,
+        revenue: totalRevenue
+      });
+
+      console.log('📊 Stats:', {
+        pending: pendingCount,
+        total: allOrdersList.length,
+        revenue: totalRevenue
+      });
+
     } catch (error) {
-      console.error('Error loading orders:', error);
+      console.error('❌ Error loading orders:', error);
+      console.error('Error code:', error.code);
+      console.error('Error message:', error.message);
+      
+      // ✅ ถ้า error เกี่ยวกับ index ให้แจ้ง user
+      if (error.code === 'failed-precondition' || error.message?.includes('index')) {
+        Alert.alert(
+          'ต้องสร้าง Database Index',
+          'กรุณาติดต่อผู้พัฒนาระบบเพื่อสร้าง Firestore Index สำหรับ orders collection',
+          [{ text: 'ตกลง' }]
+        );
+      }
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
     }
   };
 
   const onRefresh = async () => {
     setRefreshing(true);
     await loadOrders();
-    setRefreshing(false);
   };
 
-  // ฟังก์ชันจัดรูปแบบ Order ID
   const getFormattedOrderId = (orderId, type) => {
     if (!orderId) return 'N/A';
     const shortId = orderId.slice(0, 6).toUpperCase();
@@ -105,13 +191,11 @@ export default function StoreOrdersScreen({ navigation }) {
     return `${prefix}-${shortId}`;
   };
 
-  // คัดลอก Order ID
   const handleCopyOrderID = (orderId, type) => {
     const formattedId = getFormattedOrderId(orderId, type);
     Alert.alert('คัดลอกรหัสแล้ว', `รหัสออเดอร์: ${formattedId}`);
   };
 
-  // ยกเลิกออเดอร์
   const handleCancelOrder = (orderId) => {
     Alert.alert(
       'ยกเลิกออเดอร์',
@@ -140,7 +224,6 @@ export default function StoreOrdersScreen({ navigation }) {
     );
   };
 
-  // ยืนยันออเดอร์
   const handleConfirmOrder = async (orderId) => {
     try {
       await updateDoc(doc(db, 'orders', orderId), {
@@ -153,7 +236,6 @@ export default function StoreOrdersScreen({ navigation }) {
     }
   };
 
-  // Drawer functions
   const toggleDrawer = () => {
     if (isDrawerOpen) {
       Animated.parallel([
@@ -195,7 +277,6 @@ export default function StoreOrdersScreen({ navigation }) {
   const DrawerContent = () => (
     <View style={styles.drawerWrapper}>
       <View style={styles.drawerContent}>
-        {/* Header */}
         <View style={styles.drawerTopHeader}>
           <View style={styles.logoContainer}>
             <View style={styles.logoCircle}>
@@ -211,7 +292,6 @@ export default function StoreOrdersScreen({ navigation }) {
           </TouchableOpacity>
         </View>
 
-        {/* Profile Card */}
         <View style={styles.profileCard}>
           <View style={styles.profileHeader}>
             <Image 
@@ -224,7 +304,6 @@ export default function StoreOrdersScreen({ navigation }) {
             </View>
           </View>
           
-          {/* Mode Switcher */}
           <View style={styles.modeContainer}>
             <TouchableOpacity 
               style={styles.modeButtonInactive}
@@ -246,7 +325,6 @@ export default function StoreOrdersScreen({ navigation }) {
           </View>
         </View>
 
-        {/* Menu Section */}
         <Text style={styles.sectionTitle}>เมนูหลัก</Text>
         
         <TouchableOpacity 
@@ -307,7 +385,6 @@ export default function StoreOrdersScreen({ navigation }) {
           <Ionicons name="chevron-forward" size={18} color="#d1d5db" style={{marginLeft: 'auto'}} />
         </TouchableOpacity>
 
-        {/* Logout */}
         <TouchableOpacity 
           style={styles.drawerLogout}
           onPress={handleLogout}
@@ -323,428 +400,339 @@ export default function StoreOrdersScreen({ navigation }) {
 
   const renderOrderCard = ({ item }) => {
     const formattedId = getFormattedOrderId(item.id, item.orderType);
-    const isExpired = filter === 'cancelled' && item.cancelReason;
+    const statusColors = {
+      pending: '#f59e0b',
+      confirmed: '#3b82f6',
+      completed: '#10b981',
+      cancelled: '#ef4444'
+    };
+    const statusTexts = {
+      pending: 'รอยืนยัน',
+      confirmed: 'ยืนยันแล้ว',
+      completed: 'สำเร็จ',
+      cancelled: 'ยกเลิก'
+    };
 
     return (
       <View style={styles.orderCard}>
-        {/* Header */}
         <View style={styles.orderHeader}>
-          <View style={styles.orderHeaderLeft}>
-            <View style={styles.avatarCircle}>
-              <Ionicons name="person" size={24} color="#6b7280" />
+          <View>
+            <TouchableOpacity onPress={() => handleCopyOrderID(item.id, item.orderType)}>
+              <Text style={styles.orderId}>#{formattedId}</Text>
+            </TouchableOpacity>
+            <Text style={styles.orderTime}>
+              {item.createdAt ? new Date(item.createdAt).toLocaleString('th-TH') : 'ไม่ระบุเวลา'}
+            </Text>
+          </View>
+          <View style={[styles.statusBadge, { backgroundColor: statusColors[item.status] + '20' }]}>
+            <Text style={[styles.statusText, { color: statusColors[item.status] }]}>
+              {statusTexts[item.status]}
+            </Text>
+          </View>
+        </View>
+
+        <View style={styles.divider} />
+
+        <View style={styles.orderDetails}>
+          <View style={styles.detailsRow}>
+            <View style={styles.detailItem}>
+              <Ionicons name="person-outline" size={16} color="#6b7280" />
+              <Text style={styles.detailText}>
+                {item.customerName || `ลูกค้า ${item.userId?.slice(0, 8)}` || 'ไม่ระบุ'}
+              </Text>
             </View>
-            <View>
-              <Text style={styles.orderTitle}>{item.customerName || 'ชื่อลูกค้า'}</Text>
-              <Text style={styles.orderSubtitle}>
-                #{formattedId}
+            <View style={styles.detailItem}>
+              <Ionicons 
+                name={item.orderType === 'delivery' ? "bicycle" : "storefront"} 
+                size={16} 
+                color="#6b7280" 
+              />
+              <Text style={styles.detailText}>
+                {item.orderType === 'delivery' ? 'จัดส่ง' : 'รับเอง'}
               </Text>
             </View>
           </View>
-          <TouchableOpacity 
-            onPress={() => handleCopyOrderID(item.id, item.orderType)}
-            style={styles.copyButton}
-          >
-            <Text style={styles.copyButtonText}>สถานะออเดอร์</Text>
-          </TouchableOpacity>
-        </View>
 
-        {/* Items List */}
-        <View style={styles.itemsBox}>
-          {item.items && item.items.map((orderItem, index) => (
-            <View key={index} style={styles.itemRow}>
-              <Text style={styles.itemName}>{orderItem.foodName} - x{orderItem.quantity} (ที่เหลือ)</Text>
-              <Text style={styles.itemPrice}>ราคา</Text>
-            </View>
-          ))}
+          <View style={styles.itemsContainer}>
+            <Text style={styles.itemsTitle}>รายการอาหาร:</Text>
+            {item.items && item.items.length > 0 ? (
+              item.items.map((food, index) => (
+                <View key={index} style={styles.itemRow}>
+                  <Text style={styles.itemName}>{food.foodName} x{food.quantity}</Text>
+                  <Text style={styles.itemPrice}>฿{food.price * food.quantity}</Text>
+                </View>
+              ))
+            ) : (
+              <View style={styles.itemRow}>
+                <Text style={styles.itemName}>{item.foodName || 'ไม่ระบุ'}</Text>
+                <Text style={styles.itemPrice}>฿{item.totalPrice || 0}</Text>
+              </View>
+            )}
+          </View>
+
           <View style={styles.totalRow}>
             <Text style={styles.totalLabel}>ยอดรวม</Text>
-            <Text style={styles.totalValue}>ราคารวม</Text>
+            <Text style={styles.totalValue}>฿{item.totalPrice || 0}</Text>
           </View>
-        </View>
 
-        {/* Order Details */}
-        <View style={styles.detailsRow}>
-          <View style={styles.detailItem}>
-            <Ionicons name="time-outline" size={16} color="#6b7280" />
-            <Text style={styles.detailText}>
-              รับภายใน: {item.pickupTime || 'xx.xx - xx.xx น.'}
-            </Text>
-          </View>
-        </View>
-
-        <View style={styles.detailsRow}>
-          <View style={styles.detailItem}>
-            <Ionicons name="location-outline" size={16} color="#6b7280" />
-            <Text style={styles.detailText}>{item.storeName || 'รับที่ร้าน'}</Text>
-          </View>
-        </View>
-
-        <View style={styles.detailsRow}>
-          <View style={styles.detailItem}>
-            <Ionicons name="call-outline" size={16} color="#6b7280" />
-            <Text style={styles.detailText}>
-              เบอร์โทร: {item.phoneNumber || 'xxx-xxx-xxxx'}
-            </Text>
-          </View>
-        </View>
-
-        {/* Expired Warning (for cancelled tab) */}
-        {isExpired && (
-          <View style={styles.expiredBox}>
-            <Text style={styles.expiredText}>
-              เหตุผล: {item.cancelReason || 'ลูกค้ามารับของไม่ทันเวลา'}
-            </Text>
-            <Text style={styles.expiredTime}>
-              ยกเลิกเมื่อ: {item.cancelledAt || 'xx.xx น.'}
-            </Text>
-          </View>
-        )}
-
-        {/* Action Buttons */}
-        <View style={styles.actionButtons}>
-          {filter === 'pending' && (
-            <>
-              <TouchableOpacity 
-                style={styles.cancelButton}
-                onPress={() => handleCancelOrder(item.id)}
-              >
-                <Text style={styles.cancelButtonText}>ยกเลิกออเดอร์</Text>
-              </TouchableOpacity>
-              <TouchableOpacity 
-                style={styles.confirmButton}
-                onPress={() => handleConfirmOrder(item.id)}
-              >
-                <Text style={styles.confirmButtonText}>
-                  {filter === 'confirmed' ? 'ลูกค้ารับของแล้ว' : 'ยืนยันออเดอร์'}
-                </Text>
-              </TouchableOpacity>
-            </>
+          {item.closingTime && (
+            <View style={styles.expiredBox}>
+              <Text style={styles.expiredText}>⏰ เวลารับสินค้า</Text>
+              <Text style={styles.expiredTime}>ภายในวันนี้ ก่อน {item.closingTime} น.</Text>
+            </View>
           )}
-          {filter === 'confirmed' && (
+        </View>
+
+        {item.status === 'pending' && (
+          <View style={styles.actionButtons}>
+            <TouchableOpacity 
+              style={styles.cancelButton}
+              onPress={() => handleCancelOrder(item.id)}
+            >
+              <Text style={styles.cancelButtonText}>ยกเลิก</Text>
+            </TouchableOpacity>
             <TouchableOpacity 
               style={styles.confirmButton}
               onPress={() => handleConfirmOrder(item.id)}
             >
-              <Text style={styles.confirmButtonText}>ลูกค้ารับของแล้ว</Text>
+              <Text style={styles.confirmButtonText}>ยืนยันออเดอร์</Text>
             </TouchableOpacity>
-          )}
-        </View>
+          </View>
+        )}
       </View>
     );
   };
+
+  if (loading) {
+    return (
+      <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
+        <ActivityIndicator size="large" color="#10b981" />
+        <Text style={{ marginTop: 16, color: '#6b7280' }}>กำลังโหลดคำสั่งซื้อ...</Text>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#fff" />
       
-      {/* Header with Hamburger */}
       <View style={styles.header}>
         <TouchableOpacity onPress={toggleDrawer} style={styles.menuButton}>
           <Ionicons name="menu" size={24} color="#1f2937" />
         </TouchableOpacity>
-        
-        <View style={styles.headerCenter}>
-          <Ionicons name="storefront" size={24} color="#1f2937" />
-          <Text style={styles.headerTitle}>ORDER</Text>
-        </View>
-        
-        <TouchableOpacity style={styles.profileButton} onPress={() => navigation.navigate('Profile')}>
-          <Ionicons name="person" size={24} color="#1f2937" />
-        </TouchableOpacity>
+        <Text style={styles.headerTitle}>คำสั่งซื้อของร้าน</Text>
+        <View style={{ width: 40 }} />
       </View>
 
-      {/* Today's Stats */}
-      <View style={styles.statsSection}>
-        <View style={styles.statsHeader}>
-          <Ionicons name="stats-chart" size={20} color="#1f2937" />
-          <Text style={styles.statsTitle}>Today's Stats</Text>
+      <View style={styles.statsContainer}>
+        <View style={styles.statCard}>
+          <Text style={styles.statValue}>{stats.pending}</Text>
+          <Text style={styles.statLabel}>รอยืนยัน</Text>
         </View>
-        
-        <View style={styles.statsCards}>
-          <View style={styles.statCard}>
-            <Text style={styles.statValue}>{stats.pending}</Text>
-            <Text style={styles.statLabel}>รอดำเนินการ</Text>
-          </View>
-          <View style={styles.statCard}>
-            <Text style={styles.statValue}>{stats.total}</Text>
-            <Text style={styles.statLabel}>ทั้งหมด</Text>
-          </View>
-          <View style={styles.statCard}>
-            <Text style={styles.statValue}>{stats.revenue} ฿</Text>
-            <Text style={styles.statLabel}>รายได้</Text>
-          </View>
+        <View style={styles.statCard}>
+          <Text style={styles.statValue}>{stats.total}</Text>
+          <Text style={styles.statLabel}>ทั้งหมด</Text>
+        </View>
+        <View style={styles.statCard}>
+          <Text style={styles.statValue}>฿{stats.revenue}</Text>
+          <Text style={styles.statLabel}>รายได้</Text>
         </View>
       </View>
 
-      {/* Filter Tabs */}
       <View style={styles.filterContainer}>
-        <TouchableOpacity
-          style={[styles.filterTab, filter === 'pending' && styles.filterTabActive]}
-          onPress={() => setFilter('pending')}
-        >
-          <Text style={[styles.filterText, filter === 'pending' && styles.filterTextActive]}>
-            รอดำเนินการ
-          </Text>
-        </TouchableOpacity>
-        
-        <TouchableOpacity
-          style={[styles.filterTab, filter === 'confirmed' && styles.filterTabActive]}
-          onPress={() => setFilter('confirmed')}
-        >
-          <Text style={[styles.filterText, filter === 'confirmed' && styles.filterTextActive]}>
-            จองแล้ว
-          </Text>
-        </TouchableOpacity>
-        
-        <TouchableOpacity
-          style={[styles.filterTab, filter === 'completed' && styles.filterTabActive]}
-          onPress={() => setFilter('completed')}
-        >
-          <Text style={[styles.filterText, filter === 'completed' && styles.filterTextActive]}>
-            สำเร็จ
-          </Text>
-        </TouchableOpacity>
-        
-        <TouchableOpacity
-          style={[styles.filterTab, filter === 'cancelled' && styles.filterTabActive]}
-          onPress={() => setFilter('cancelled')}
-        >
-          <Text style={[styles.filterText, filter === 'cancelled' && styles.filterTextActive]}>
-            ยกเลิก
-          </Text>
-        </TouchableOpacity>
+        {['pending', 'confirmed', 'completed', 'cancelled'].map(status => (
+          <TouchableOpacity
+            key={status}
+            style={[styles.filterButton, filter === status && styles.filterButtonActive]}
+            onPress={() => setFilter(status)}
+          >
+            <Text style={[styles.filterText, filter === status && styles.filterTextActive]}>
+              {status === 'pending' && 'รอยืนยัน'}
+              {status === 'confirmed' && 'ยืนยันแล้ว'}
+              {status === 'completed' && 'สำเร็จ'}
+              {status === 'cancelled' && 'ยกเลิก'}
+            </Text>
+          </TouchableOpacity>
+        ))}
       </View>
 
-      {/* Orders List */}
       <FlatList
         data={orders}
         renderItem={renderOrderCard}
-        keyExtractor={(item) => item.id}
+        keyExtractor={item => item.id}
         contentContainerStyle={styles.listContent}
-        showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
         ListEmptyComponent={
           <View style={styles.emptyState}>
-            <Ionicons name="receipt-outline" size={80} color="#d1d5db" />
-            <Text style={styles.emptyText}>ไม่มีออเดอร์</Text>
+            <Ionicons name="receipt-outline" size={64} color="#d1d5db" />
+            <Text style={styles.emptyText}>ไม่มีคำสั่งซื้อ</Text>
             <Text style={styles.emptySubtext}>
-              {filter === 'pending' ? 'ยังไม่มีออเดอร์ใหม่' : 'ไม่มีออเดอร์ในหมวดหมู่นี้'}
+              {filter === 'pending' 
+                ? 'ยังไม่มีคำสั่งซื้อที่รอยืนยัน' 
+                : `ไม่มีคำสั่งซื้อที่${filter === 'confirmed' ? 'ยืนยันแล้ว' : filter === 'completed' ? 'สำเร็จ' : 'ยกเลิก'}`}
+            </Text>
+            {/* ✅ Debug info */}
+            <Text style={styles.debugText}>
+              Debug: ออเดอร์ทั้งหมดในระบบ = {allOrders.length}
             </Text>
           </View>
         }
       />
 
-      {/* Bottom Navigation */}
       <View style={styles.bottomNav}>
-        <TouchableOpacity style={styles.navItem}>
-          <Ionicons name="storefront" size={24} color="#1f2937" />
-          <Text style={styles.navLabel}>ร้านค้าของฉัน</Text>
+        <TouchableOpacity 
+          style={styles.navItem}
+          onPress={() => navigation.navigate('MyShop')}
+        >
+          <Ionicons name="home-outline" size={24} color="#9ca3af" />
+          <Text style={styles.navLabel}>หน้าหลัก</Text>
         </TouchableOpacity>
-        
-        <TouchableOpacity style={[styles.navItem, styles.navItemActive]}>
-          <Ionicons name="receipt" size={24} color="#1f2937" />
+
+        <TouchableOpacity 
+          style={[styles.navItem, styles.navItemActive]}
+          onPress={() => {}}
+        >
+          <Ionicons name="list" size={24} color="#1f2937" />
           <Text style={[styles.navLabel, styles.navLabelActive]}>ออเดอร์</Text>
         </TouchableOpacity>
-        
-        <TouchableOpacity style={styles.navItem}>
+
+        <TouchableOpacity 
+          style={styles.navItem}
+          onPress={() => Alert.alert('กำลังพัฒนา')}
+        >
           <Ionicons name="notifications-outline" size={24} color="#9ca3af" />
           <Text style={styles.navLabel}>แจ้งเตือน</Text>
         </TouchableOpacity>
-        
-        <TouchableOpacity style={styles.navItem}>
+
+        <TouchableOpacity 
+          style={styles.navItem}
+          onPress={() => Alert.alert('กำลังพัฒนา')}
+        >
           <Ionicons name="person-outline" size={24} color="#9ca3af" />
           <Text style={styles.navLabel}>โปรไฟล์</Text>
         </TouchableOpacity>
       </View>
 
-      {/* Drawer Modal */}
       <Modal
         visible={isDrawerOpen}
         transparent
         animationType="none"
         onRequestClose={toggleDrawer}
       >
-        <View style={styles.drawerOverlay}>
-          <TouchableWithoutFeedback onPress={toggleDrawer}>
-            <Animated.View style={[styles.drawerBackdrop, { opacity: fadeAnim }]} />
-          </TouchableWithoutFeedback>
-          <Animated.View style={[styles.drawerContainer, { transform: [{ translateX: slideAnim }] }]}>
-            <DrawerContent />
+        <TouchableWithoutFeedback onPress={toggleDrawer}>
+          <Animated.View style={[styles.drawerOverlay, { opacity: fadeAnim }]}>
+            <TouchableWithoutFeedback>
+              <Animated.View style={[styles.drawerContainer, { transform: [{ translateX: slideAnim }] }]}>
+                <DrawerContent />
+              </Animated.View>
+            </TouchableWithoutFeedback>
+            <TouchableWithoutFeedback onPress={toggleDrawer}>
+              <View style={styles.drawerBackdrop} />
+            </TouchableWithoutFeedback>
           </Animated.View>
-        </View>
+        </TouchableWithoutFeedback>
       </Modal>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#f9fafb',
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingTop: 50,
-    paddingBottom: 15,
+  container: { flex: 1, backgroundColor: '#f9fafb' },
+  header: { 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    justifyContent: 'space-between', 
+    paddingHorizontal: 20, 
+    paddingTop: Platform.OS === 'ios' ? 60 : 50, 
+    paddingBottom: 15, 
     backgroundColor: '#fff',
     borderBottomWidth: 1,
     borderBottomColor: '#f3f4f6',
   },
-  menuButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#f3f4f6',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  profileButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#f3f4f6',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  headerCenter: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#1f2937',
-  },
-  statsSection: {
-    backgroundColor: '#fff',
-    paddingHorizontal: 20,
-    paddingVertical: 15,
-  },
-  statsHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 15,
-  },
-  statsTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#1f2937',
-  },
-  statsCards: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  statCard: {
-    flex: 1,
-    backgroundColor: '#f3f4f6',
-    borderRadius: 12,
-    padding: 15,
-    alignItems: 'center',
-  },
-  statValue: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#1f2937',
-    marginBottom: 4,
-  },
-  statLabel: {
-    fontSize: 12,
-    color: '#6b7280',
-  },
-  filterContainer: {
-    flexDirection: 'row',
-    paddingHorizontal: 20,
-    paddingVertical: 15,
+  menuButton: { padding: 8 },
+  headerTitle: { fontSize: 18, fontWeight: 'bold', color: '#1f2937' },
+  statsContainer: { 
+    flexDirection: 'row', 
+    padding: 20, 
+    gap: 10,
     backgroundColor: '#fff',
     borderBottomWidth: 1,
     borderBottomColor: '#f3f4f6',
+  },
+  statCard: { 
+    flex: 1, 
+    backgroundColor: '#f9fafb', 
+    padding: 16, 
+    borderRadius: 12, 
+    alignItems: 'center' 
+  },
+  statValue: { fontSize: 24, fontWeight: 'bold', color: '#1f2937' },
+  statLabel: { fontSize: 12, color: '#6b7280', marginTop: 4 },
+  filterContainer: { 
+    flexDirection: 'row', 
+    paddingHorizontal: 20, 
+    paddingVertical: 12,
     gap: 8,
-  },
-  filterTab: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
-    backgroundColor: '#f9fafb',
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
-  },
-  filterTabActive: {
     backgroundColor: '#fff',
-    borderColor: '#1f2937',
   },
-  filterText: {
-    fontSize: 13,
-    color: '#6b7280',
-    fontWeight: '500',
+  filterButton: { 
+    paddingHorizontal: 16, 
+    paddingVertical: 8, 
+    borderRadius: 20, 
+    backgroundColor: '#f9fafb' 
   },
-  filterTextActive: {
-    color: '#1f2937',
-    fontWeight: '600',
-  },
-  listContent: {
-    padding: 20,
-    paddingBottom: 100,
-  },
-  orderCard: {
-    backgroundColor: '#fff',
-    borderRadius: 16,
-    padding: 16,
+  filterButtonActive: { backgroundColor: '#1f2937' },
+  filterText: { fontSize: 13, color: '#6b7280', fontWeight: '500' },
+  filterTextActive: { color: '#fff' },
+  listContent: { padding: 20, paddingBottom: 100 },
+  orderCard: { 
+    backgroundColor: '#fff', 
+    borderRadius: 16, 
+    padding: 16, 
     marginBottom: 16,
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
   },
-  orderHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 15,
-  },
-  orderHeaderLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  avatarCircle: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#f3f4f6',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  orderTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#1f2937',
-  },
-  orderSubtitle: {
-    fontSize: 12,
-    color: '#9ca3af',
-    marginTop: 2,
-  },
-  copyButton: {
-    backgroundColor: '#f3f4f6',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 12,
-  },
-  copyButtonText: {
-    fontSize: 12,
-    color: '#1f2937',
-    fontWeight: '500',
-  },
-  itemsBox: {
-    backgroundColor: '#f9fafb',
-    borderRadius: 12,
-    padding: 12,
+  orderHeader: { 
+    flexDirection: 'row', 
+    justifyContent: 'space-between', 
+    alignItems: 'flex-start',
     marginBottom: 12,
+  },
+  orderId: { fontSize: 16, fontWeight: 'bold', color: '#1f2937' },
+  orderTime: { fontSize: 12, color: '#9ca3af', marginTop: 4 },
+  statusBadge: { 
+    paddingHorizontal: 12, 
+    paddingVertical: 6, 
+    borderRadius: 12 
+  },
+  statusText: { fontSize: 12, fontWeight: '600' },
+  divider: { height: 1, backgroundColor: '#f3f4f6', marginBottom: 12 },
+  orderDetails: {},
+  detailsRow: { marginBottom: 12 },
+  detailItem: { 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    gap: 6,
+    marginBottom: 8,
+  },
+  detailText: { fontSize: 13, color: '#6b7280' },
+  itemsContainer: { 
+    backgroundColor: '#f9fafb', 
+    padding: 12, 
+    borderRadius: 8,
+    marginBottom: 12,
+  },
+  itemsTitle: { 
+    fontSize: 13, 
+    fontWeight: '600', 
+    color: '#374151',
+    marginBottom: 8,
   },
   itemRow: {
     flexDirection: 'row',
@@ -778,18 +766,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#1f2937',
     fontWeight: '600',
-  },
-  detailsRow: {
-    marginBottom: 8,
-  },
-  detailItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  detailText: {
-    fontSize: 13,
-    color: '#6b7280',
   },
   expiredBox: {
     backgroundColor: '#fef2f2',
@@ -853,6 +829,12 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#9ca3af',
     textAlign: 'center',
+  },
+  debugText: {
+    fontSize: 12,
+    color: '#3b82f6',
+    marginTop: 16,
+    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
   },
   bottomNav: {
     position: 'absolute',

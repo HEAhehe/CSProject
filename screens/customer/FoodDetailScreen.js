@@ -45,6 +45,9 @@ export default function FoodDetailScreen({ navigation, route }) {
   const [storeDeliveryMethod, setStoreDeliveryMethod] = useState('pickup');
   const [selectedMethod, setSelectedMethod] = useState('pickup');
 
+  // ✅ เพิ่ม state สำหรับเก็บ storeId ที่แท้จริง
+  const [actualStoreId, setActualStoreId] = useState(null);
+
   const originalPrice = Number(food.originalPrice) || 0;
   const price = Number(food.discountPrice) || Number(food.price) || 0;
   const discountPercent = originalPrice > 0 ? Math.round(((originalPrice - price) / originalPrice) * 100) : 0;
@@ -59,6 +62,13 @@ export default function FoodDetailScreen({ navigation, route }) {
     const targetStoreId = food.storeId;
     const targetUserId = food.userId || food.userID;
 
+    console.log('🔍 FoodDetailScreen - Food data:', {
+      foodId: food.id,
+      storeId: targetStoreId,
+      userId: targetUserId,
+      storeName: food.storeName
+    });
+
     const fetchStoreData = async () => {
         try {
             let sData = null;
@@ -66,17 +76,32 @@ export default function FoodDetailScreen({ navigation, route }) {
 
             if (targetStoreId) {
                 const docSnap = await getDoc(doc(db, 'stores', targetStoreId));
-                if (docSnap.exists()) sData = docSnap.data();
+                if (docSnap.exists()) {
+                  sData = docSnap.data();
+                  console.log('✅ Found store by storeId:', targetStoreId);
+                }
             }
 
             if (!sData && targetUserId) {
+                console.log('🔍 Searching store by userId:', targetUserId);
                 const q = query(collection(db, 'stores'), where('userId', '==', targetUserId));
                 const querySnap = await getDocs(q);
                 if (!querySnap.empty) {
                     sData = querySnap.docs[0].data();
                     realStoreId = querySnap.docs[0].id;
+                    console.log('✅ Found store by userId. Store ID:', realStoreId);
                 }
             }
+
+            // ✅ ถ้ายังไม่เจอ ลองใช้ userId โดยตรง
+            if (!realStoreId && targetUserId) {
+              console.log('⚠️ Using userId as storeId:', targetUserId);
+              realStoreId = targetUserId;
+            }
+
+            // ✅ บันทึก actualStoreId
+            setActualStoreId(realStoreId);
+            console.log('📌 Final storeId to be used:', realStoreId);
 
             if (sData) {
                 setStoreData(sData);
@@ -97,7 +122,7 @@ export default function FoodDetailScreen({ navigation, route }) {
                 onSnapshot(favRef, (docSnapshot) => setIsFavorite(docSnapshot.exists()));
             }
         } catch (error) {
-            console.error("Error fetching store data:", error);
+            console.error("❌ Error fetching store data:", error);
         }
     };
     fetchStoreData();
@@ -156,18 +181,39 @@ export default function FoodDetailScreen({ navigation, route }) {
   const handleAddToCart = async () => {
     const user = auth.currentUser;
     if (!user) return Alert.alert('กรุณาเข้าสู่ระบบ');
+    
+    // ✅ ตรวจสอบว่ามี storeId หรือไม่
+    const finalStoreId = actualStoreId || food.storeId || food.userId;
+    if (!finalStoreId) {
+      console.error('❌ No storeId available!');
+      Alert.alert('ผิดพลาด', 'ไม่สามารถระบุร้านค้าได้');
+      return;
+    }
+
+    console.log('🛒 Adding to cart with storeId:', finalStoreId);
+    
     setLoading(true);
     try {
       await addDoc(collection(db, 'users', user.uid, 'cart'), {
-          foodId: food.id, foodName: food.name, price: price, originalPrice: originalPrice,
-          quantity: quantity, storeName: storeName, storeId: food.storeId || food.userId,
-          imageUrl: food.imageUrl, deliveryMethod: selectedMethod, addedAt: new Date().toISOString()
+          foodId: food.id, 
+          foodName: food.name, 
+          price: price, 
+          originalPrice: originalPrice,
+          quantity: quantity, 
+          storeName: storeName, 
+          storeId: finalStoreId, // ✅ ใช้ storeId ที่แน่นอน
+          imageUrl: food.imageUrl, 
+          deliveryMethod: selectedMethod, 
+          addedAt: new Date().toISOString()
       });
       Alert.alert('สำเร็จ', 'เพิ่มลงตะกร้าแล้ว', [
         { text: 'ซื้อต่อ' },
         { text: 'ไปตะกร้า', onPress: () => navigation.navigate('Cart') }
       ]);
-    } catch (e) { Alert.alert('ผิดพลาด', 'เพิ่มลงตะกร้าไม่ได้'); }
+    } catch (e) { 
+      console.error('❌ Add to cart error:', e);
+      Alert.alert('ผิดพลาด', 'เพิ่มลงตะกร้าไม่ได้'); 
+    }
     finally { setLoading(false); }
   };
 
@@ -177,6 +223,16 @@ export default function FoodDetailScreen({ navigation, route }) {
   const handleBookNow = async () => {
     const user = auth.currentUser;
     if (!user) return Alert.alert('กรุณาเข้าสู่ระบบ');
+
+    // ✅ ตรวจสอบว่ามี storeId หรือไม่
+    const finalStoreId = actualStoreId || food.storeId || food.userId;
+    if (!finalStoreId) {
+      console.error('❌ No storeId available!');
+      Alert.alert('ผิดพลาด', 'ไม่สามารถระบุร้านค้าได้');
+      return;
+    }
+
+    console.log('📦 Creating order with storeId:', finalStoreId);
 
     setLoading(true);
     try {
@@ -190,10 +246,11 @@ export default function FoodDetailScreen({ navigation, route }) {
         if (foodDoc.data().quantity < quantity) throw "สินค้าหมดพอดี";
 
         transaction.update(foodRef, { quantity: foodDoc.data().quantity - quantity });
-        transaction.set(newOrderRef, {
+        
+        const orderData = {
           id: orderId,
           userId: user.uid,
-          storeId: food.storeId || food.userId,
+          storeId: finalStoreId, // ✅ ใช้ storeId ที่แน่นอน
           storeName: storeName,
           items: [{ foodId: food.id, foodName: food.name, quantity, price }],
           foodName: food.name,
@@ -203,7 +260,17 @@ export default function FoodDetailScreen({ navigation, route }) {
           orderType: selectedMethod,
           closingTime: storeClosingTime || '20:00',
           createdAt: new Date().toISOString()
+        };
+
+        // ✅ Log ข้อมูลออเดอร์ก่อนบันทึก
+        console.log('📝 Order data to be saved:', {
+          orderId: orderData.id,
+          userId: orderData.userId,
+          storeId: orderData.storeId,
+          status: orderData.status
         });
+
+        transaction.set(newOrderRef, orderData);
       });
 
       setLoading(false);
@@ -222,6 +289,7 @@ export default function FoodDetailScreen({ navigation, route }) {
       });
     } catch (error) {
       setLoading(false);
+      console.error('❌ Order creation error:', error);
       Alert.alert('จองไม่สำเร็จ', error);
     }
   };
@@ -316,11 +384,9 @@ export default function FoodDetailScreen({ navigation, route }) {
              </TouchableOpacity>
          </View>
 
-         {/* ✅ เพิ่มพื้นที่ว่างด้านล่างสุดของ ScrollView เพื่อไม่ให้ปุ่มทับข้อมูล */}
          <View style={{height: 150}} />
       </ScrollView>
 
-      {/* ✅ กู้คืน Bottom Bar ที่มีทั้งปุ่มตะกร้าและปุ่มจอง */}
       <View style={styles.bottomBar}>
          <View style={styles.totalPriceContainer}>
              <Text style={styles.totalLabel}>ยอดรวม</Text>
@@ -386,6 +452,7 @@ const styles = StyleSheet.create({
   statValue: { fontSize: 13, fontWeight: '600', color: '#000' },
   statValueTime: { fontSize: 11, fontWeight: '600', textAlign: 'center' },
   locationSection: { marginTop: 25 },
+  sectionTitle: { fontSize: 16 },
   mapBox: {
     width: '100%',
     height: 160,
@@ -402,8 +469,6 @@ const styles = StyleSheet.create({
   addressText: { fontSize: 13, color: '#9ca3af', marginTop: 10, textAlign: 'left', paddingHorizontal: 5 },
   mapsBtn: { flexDirection: 'row', backgroundColor: '#e5e7eb', padding: 15, borderRadius: 12, marginTop: 15, justifyContent: 'center', alignItems: 'center', gap: 10 },
   mapsBtnText: { fontWeight: 'bold', color: '#1f2937' },
-
-  // ✅ Bottom Bar Styles แก้ไขให้เห็นปุ่มชัดเจน
   bottomBar: {
     flexDirection: 'row',
     alignItems: 'center',
