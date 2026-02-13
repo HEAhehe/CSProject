@@ -33,11 +33,20 @@ export default function CreateListingScreen({ navigation, route }) {
   const [imageUri, setImageUri] = useState(null);
   const [loading, setLoading] = useState(false);
   const [storeName, setStoreName] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState('ของคาว');
   
   // Date/Time Picker states
   const [closedForSaleDate, setClosedForSaleDate] = useState(new Date());
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showTimePicker, setShowTimePicker] = useState(false);
+
+  // หมวดหมู่อาหาร
+  const foodCategories = [
+    { id: 'savory', label: 'ของคาว', icon: 'restaurant' },
+    { id: 'sweet', label: 'ของหวาน', icon: 'ice-cream' },
+    { id: 'beverage', label: 'เครื่องดื่ม', icon: 'cafe' },
+    { id: 'snack', label: 'ของว่าง', icon: 'fast-food' },
+  ];
 
   useEffect(() => {
     loadStoreName();
@@ -49,6 +58,7 @@ export default function CreateListingScreen({ navigation, route }) {
         amount: String(editItem.quantity || ''),
       });
       setImageUri(editItem.imageUrl);
+      setSelectedCategory(editItem.category || 'ของคาว');
       
       // Parse existing date if available
       if (editItem.expiryDate) {
@@ -138,6 +148,7 @@ export default function CreateListingScreen({ navigation, route }) {
         userId: user.uid,
         storeName: storeName,
         name: formData.name.trim(),
+        category: selectedCategory,
         originalPrice: Number(formData.fullPrice),
         discountPrice: Number(formData.price),
         price: Number(formData.price),
@@ -205,6 +216,34 @@ export default function CreateListingScreen({ navigation, route }) {
         </TouchableOpacity>
 
         <View style={styles.form}>
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>หมวดหมู่อาหาร *</Text>
+            <View style={styles.categoryContainer}>
+              {foodCategories.map((category) => (
+                <TouchableOpacity
+                  key={category.id}
+                  style={[
+                    styles.categoryButton,
+                    selectedCategory === category.label && styles.categoryButtonActive
+                  ]}
+                  onPress={() => setSelectedCategory(category.label)}
+                >
+                  <Ionicons 
+                    name={category.icon} 
+                    size={20} 
+                    color={selectedCategory === category.label ? '#fff' : '#10b981'} 
+                  />
+                  <Text style={[
+                    styles.categoryButtonText,
+                    selectedCategory === category.label && styles.categoryButtonTextActive
+                  ]}>
+                    {category.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+
           <View style={styles.inputGroup}>
             <Text style={styles.label}>ชื่ออาหาร *</Text>
             <TextInput
@@ -369,6 +408,34 @@ const styles = StyleSheet.create({
   },
   form: { gap: 15 },
   label: { fontSize: 14, fontWeight: '600', color: '#374151', marginBottom: 8 },
+  categoryContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  categoryButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 20,
+    borderWidth: 2,
+    borderColor: '#10b981',
+    backgroundColor: '#fff',
+    gap: 6,
+  },
+  categoryButtonActive: {
+    backgroundColor: '#10b981',
+    borderColor: '#10b981',
+  },
+  categoryButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#10b981',
+  },
+  categoryButtonTextActive: {
+    color: '#fff',
+  },
   input: {
     backgroundColor: '#f3f4f6',
     borderRadius: 12,
