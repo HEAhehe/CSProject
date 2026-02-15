@@ -516,13 +516,13 @@ export default function MyShopScreen({ navigation }) {
           style={styles.drawerMenuItem}
           onPress={() => {
             toggleDrawer();
-            navigation.navigate('StoreNotifications');
+            navigation.navigate('StoreDashboard');
           }}
         >
           <View style={styles.menuIconBox}>
             <Ionicons name="notifications-outline" size={20} color="#3b82f6" />
           </View>
-          <Text style={styles.drawerMenuText}>แจ้งเตือนร้านค้า</Text><Ionicons name="chevron-forward" size={18} color="#d1d5db" style={{marginLeft: 'auto'}} />
+          <Text style={styles.drawerMenuText}>Dashboard</Text><Ionicons name="chevron-forward" size={18} color="#d1d5db" style={{marginLeft: 'auto'}} />
         </TouchableOpacity>
 
         <Text style={styles.sectionTitle}>บัญชี</Text>

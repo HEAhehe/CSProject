@@ -31,6 +31,7 @@ import RegisterStoreStep3Screen from './screens/store/RegisterStoreStep3Screen';
 import MyShopScreen from './screens/store/MyShopScreen';
 import CreateListingScreen from './screens/store/CreateListingScreen';
 import StoreOrdersScreen from './screens/store/StoreOrdersScreen';
+import StoreDashboardScreen from './screens/store/StoreDashboardScreen';
 
 // --- 📂 ADMIN Screens ---
 import AdminHomeScreen from './screens/admin/AdminHomeScreen';
@@ -88,12 +89,14 @@ export default function App() {
             {/* --- Store Flow (Registration & Management) --- */}
 
             <Stack.Screen name="MyShop" component={MyShopScreen} />
+            <Stack.Screen name="StoreDashboard" component={StoreDashboardScreen} />
             <Stack.Screen name="CreateListing" component={CreateListingScreen} />
             <Stack.Screen name="AddFood" component={AddFoodScreen} />
             <Stack.Screen name="StoreOrders" component={StoreOrdersScreen} />
             <Stack.Screen name="RegisterStoreStep1" component={RegisterStoreStep1Screen} />
             <Stack.Screen name="RegisterStoreStep2" component={RegisterStoreStep2Screen} />
             <Stack.Screen name="RegisterStoreStep3" component={RegisterStoreStep3Screen} />
+            
 
             {/* --- Admin Flow --- */}
             <Stack.Screen name="AdminHome" component={AdminHomeScreen} />
