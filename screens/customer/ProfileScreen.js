@@ -79,7 +79,6 @@ export default function ProfileScreen({ navigation }) {
             <View style={[styles.statusDot, { backgroundColor: userData?.currentRole === 'store' ? '#f59e0b' : '#10b981' }]} />
           </View>
           <Text style={styles.profileName}>{userData?.username || 'User'}</Text>
-          <Text style={styles.profileEmail}>{userData?.email || ''}</Text>
 
           {/* Impact Dashboard - ปรับขนาดให้เท่ากัน */}
           <View style={styles.impactContainer}>
