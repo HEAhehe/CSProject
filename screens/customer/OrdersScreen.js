@@ -50,15 +50,15 @@ export default function OrdersScreen({ navigation }) {
     }, [])
   );
 
-  const fetchOrders = async () => {
+const fetchOrders = async () => {
     try {
       const user = auth.currentUser;
       if (!user) return;
 
+      // ✅ 1. เอา orderBy ออก เพื่อไม่ให้ติด Error เรื่อง Index
       const q = query(
         collection(db, 'orders'),
-        where('userId', '==', user.uid),
-        orderBy('createdAt', 'desc')
+        where('userId', '==', user.uid)
       );
 
       const snapshot = await getDocs(q);
@@ -66,6 +66,9 @@ export default function OrdersScreen({ navigation }) {
         id: doc.id,
         ...doc.data()
       }));
+
+      // ✅ 2. นำข้อมูลมาจัดเรียงเวลา (Sort) เองในแอป เรียงจากใหม่ล่าสุดไปเก่า
+      ordersData.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
       setOrders(ordersData);
     } catch (error) {
