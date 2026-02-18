@@ -18,21 +18,52 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { auth, db } from '../../firebase.config';
-import { collection, getDocs, query, where, doc, getDoc, orderBy } from 'firebase/firestore';
+import { collection, getDocs, query, where, doc, getDoc } from 'firebase/firestore';
 
 const { width } = Dimensions.get('window');
 
 export default function StoreDashboardScreen({ navigation }) {
   const [storeData, setStoreData] = useState(null);
+  const [userData, setUserData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState('overview'); // overview, orders, reviews
-  const [selectedMonth, setSelectedMonth] = useState('วันนี้');
-  const [selectedYear, setSelectedYear] = useState('สัปดาห์นี้');
+  const [selectedPeriod, setSelectedPeriod] = useState('today'); // today, week, month, all
+  const [showPeriodModal, setShowPeriodModal] = useState(false);
+  const [allOrders, setAllOrders] = useState([]);
+
+  // Report table filters (month + year)
+  const [reportMonth, setReportMonth] = useState(new Date().getMonth()); // 0-11
+  const [reportYear, setReportYear] = useState(new Date().getFullYear());
+  const [showMonthModal, setShowMonthModal] = useState(false);
+  const [showYearModal, setShowYearModal] = useState(false);
+
+  const monthNames = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
+  const currentYear = new Date().getFullYear();
+  const yearOptions = [currentYear, currentYear - 1, currentYear - 2];
+
+  const filteredTableOrders = allOrders.filter(o => {
+    const d = o.createdAt?.toDate ? o.createdAt.toDate() : new Date(o.createdAt ?? 0);
+    return d.getMonth() === reportMonth && d.getFullYear() === reportYear;
+  });
+
+  const tableRevenue = filteredTableOrders
+    .filter(o => o.status === 'completed' || o.status === 'confirmed')
+    .reduce((sum, o) => sum + (Number(o.totalPrice) || 0), 0);
+
+  const periodOptions = [
+    { key: 'today', label: 'วันนี้' },
+    { key: 'week', label: 'สัปดาห์นี้' },
+    { key: 'month', label: 'เดือนนี้' },
+    { key: 'all', label: 'ทั้งหมด' },
+  ];
+
+  const getPeriodLabel = () => periodOptions.find(p => p.key === selectedPeriod)?.label || 'วันนี้';
 
   // Statistics
   const [stats, setStats] = useState({
     totalRevenue: 0,
+    confirmedRevenue: 0,
     totalOrders: 0,
     completedOrders: 0,
     completionRate: 0,
@@ -54,6 +85,12 @@ export default function StoreDashboardScreen({ navigation }) {
     loadDashboardData();
   }, []);
 
+  useEffect(() => {
+    if (allOrders.length >= 0) {
+      calculateStats(allOrders, selectedPeriod);
+    }
+  }, [selectedPeriod, allOrders]);
+
   const loadDashboardData = async () => {
     try {
       const user = auth.currentUser;
@@ -68,6 +105,13 @@ export default function StoreDashboardScreen({ navigation }) {
       
       if (storeDoc.exists()) {
         setStoreData(storeDoc.data());
+      }
+
+      // Load user data
+      const userDocRef = doc(db, 'users', user.uid);
+      const userDoc = await getDoc(userDocRef);
+      if (userDoc.exists()) {
+        setUserData(userDoc.data());
       }
 
       // Load orders statistics
@@ -88,38 +132,49 @@ export default function StoreDashboardScreen({ navigation }) {
     }
   };
 
+  const filterOrdersByPeriod = (orders, period) => {
+    const now = new Date();
+    return orders.filter(o => {
+      const createdAt = o.createdAt?.toDate ? o.createdAt.toDate() : new Date(o.createdAt);
+      if (!createdAt || isNaN(createdAt)) return period === 'all';
+      if (period === 'today') {
+        return createdAt.toDateString() === now.toDateString();
+      } else if (period === 'week') {
+        const weekAgo = new Date(now); weekAgo.setDate(weekAgo.getDate() - 7);
+        return createdAt >= weekAgo;
+      } else if (period === 'month') {
+        return createdAt.getMonth() === now.getMonth() && createdAt.getFullYear() === now.getFullYear();
+      }
+      return true; // 'all'
+    });
+  };
+
+  const calculateStats = (orders, period = selectedPeriod) => {
+    const filtered = filterOrdersByPeriod(orders, period);
+    const totalOrders = filtered.length;
+    const completedOrders = filtered.filter(o => o.status === 'completed').length;
+    // รายได้จาก completed + confirmed (ยืนยันแล้วรอรับ)
+    const totalRevenue = filtered
+      .filter(o => o.status === 'completed' || o.status === 'confirmed')
+      .reduce((sum, o) => sum + (Number(o.totalPrice) || 0), 0);
+    const confirmedRevenue = filtered
+      .filter(o => o.status === 'confirmed')
+      .reduce((sum, o) => sum + (Number(o.totalPrice) || 0), 0);
+    const completionRate = totalOrders > 0 ? Math.round((completedOrders / totalOrders) * 100) : 0;
+    const ordersWithRating = filtered.filter(o => o.rating && o.rating > 0);
+    const averageRating = ordersWithRating.length > 0
+      ? (ordersWithRating.reduce((sum, o) => sum + o.rating, 0) / ordersWithRating.length).toFixed(1)
+      : 0;
+    setStats({ totalRevenue, confirmedRevenue, totalOrders, completedOrders, completionRate, averageRating: parseFloat(averageRating) });
+  };
+
   const loadOrderStats = async (userId) => {
     try {
-      // Query all orders for this store
-      const ordersQuery = query(
-        collection(db, 'orders'),
-        where('storeId', '==', userId)
-      );
+      const ordersQuery = query(collection(db, 'orders'), where('storeId', '==', userId));
       const ordersSnapshot = await getDocs(ordersQuery);
       const orders = ordersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-
-      // Calculate statistics
-      const totalOrders = orders.length;
-      const completedOrders = orders.filter(o => o.status === 'completed').length;
-      const totalRevenue = orders
-        .filter(o => o.status === 'completed')
-        .reduce((sum, o) => sum + (o.totalPrice || 0), 0);
-      const completionRate = totalOrders > 0 ? Math.round((completedOrders / totalOrders) * 100) : 0;
-
-      // Calculate average rating (from completed orders)
-      const ordersWithRating = orders.filter(o => o.rating && o.rating > 0);
-      const averageRating = ordersWithRating.length > 0
-        ? (ordersWithRating.reduce((sum, o) => sum + o.rating, 0) / ordersWithRating.length).toFixed(1)
-        : 0;
-
-      setStats({
-        totalRevenue,
-        totalOrders,
-        completedOrders,
-        completionRate,
-        averageRating: parseFloat(averageRating),
-      });
-
+      setAllOrders(orders);
+      calculateStats(orders, selectedPeriod); // pass period explicitly to avoid stale closure
     } catch (error) {
       console.error('Error loading order stats:', error);
     }
@@ -151,15 +206,22 @@ export default function StoreDashboardScreen({ navigation }) {
 
   const loadRecentOrders = async (userId) => {
     try {
+      // ไม่ใช้ orderBy ร่วมกับ where เพื่อหลีกเลี่ยง Firestore composite index error
       const ordersQuery = query(
         collection(db, 'orders'),
-        where('storeId', '==', userId),
-        orderBy('createdAt', 'desc')
+        where('storeId', '==', userId)
       );
       const ordersSnapshot = await getDocs(ordersQuery);
-      
+
+      // Sort ใน JavaScript แทน
+      const sortedDocs = ordersSnapshot.docs.sort((a, b) => {
+        const aTime = a.data().createdAt?.toDate?.() ?? new Date(a.data().createdAt ?? 0);
+        const bTime = b.data().createdAt?.toDate?.() ?? new Date(b.data().createdAt ?? 0);
+        return bTime - aTime;
+      });
+
       const ordersList = [];
-      for (const docSnap of ordersSnapshot.docs.slice(0, 10)) {
+      for (const docSnap of sortedDocs.slice(0, 10)) {
         const data = docSnap.data();
         
         // Get customer name
@@ -238,11 +300,16 @@ export default function StoreDashboardScreen({ navigation }) {
         <View style={styles.drawerTopHeader}>
           <View style={styles.logoContainer}>
             <View style={styles.logoCircle}>
-              <Ionicons name="leaf" size={24} color="#10b981" />
+              {storeData?.storeImage
+                ? <Image source={{ uri: storeData.storeImage }} style={{ width: 40, height: 40, borderRadius: 20 }} />
+                : <Ionicons name="storefront" size={24} color="#10b981" />
+              }
             </View>
             <View>
-              <Text style={styles.appName}>ครัวคุณแม่</Text>
-              <Text style={styles.appSlogan}>Dashboard ร้านค้า</Text>
+              <Text style={styles.appName}>{storeData?.storeName || 'ร้านค้าของฉัน'}</Text>
+              <Text style={styles.appSlogan}>
+                {storeData?.category || 'Dashboard ร้านค้า'}
+              </Text>
             </View>
           </View>
           <TouchableOpacity onPress={toggleDrawer} style={styles.closeButton}>
@@ -258,7 +325,14 @@ export default function StoreDashboardScreen({ navigation }) {
             />
             <View style={{ flex: 1 }}>
               <Text style={styles.drawerName}>{storeData?.storeName || 'ร้านค้า'}</Text>
-              <Text style={styles.drawerRole}>โหมด: ร้านค้า</Text>
+              <Text style={styles.drawerRole}>
+                เจ้าของ: {userData?.username || userData?.displayName || 'ผู้ใช้'}
+              </Text>
+              {storeData?.phone ? (
+                <Text style={[styles.drawerRole, { fontSize: 11 }]}>
+                  <Ionicons name="call-outline" size={11} color="#6b7280" /> {storeData.phone}
+                </Text>
+              ) : null}
             </View>
           </View>
           
@@ -356,8 +430,10 @@ export default function StoreDashboardScreen({ navigation }) {
             <Ionicons name="menu" size={24} color="#1f2937" />
           </TouchableOpacity>
           <View>
-            <Text style={styles.headerTitle}>ครัวคุณแม่</Text>
-            <Text style={styles.headerSubtitle}>Dashboard ร้านค้า</Text>
+            <Text style={styles.headerTitle}>{storeData?.storeName || 'ร้านค้าของฉัน'}</Text>
+            <Text style={styles.headerSubtitle}>
+              {storeData?.category ? `${storeData.category} · ` : ''}Dashboard ร้านค้า
+            </Text>
           </View>
         </View>
         <TouchableOpacity onPress={() => navigation.navigate('Notifications')}>
@@ -418,33 +494,66 @@ export default function StoreDashboardScreen({ navigation }) {
       >
         {activeTab === 'overview' && (
           <>
-            {/* Date Filters */}
+            {/* Period Filter */}
             <View style={styles.filtersRow}>
-              <TouchableOpacity style={styles.filterButton}>
-                <Text style={styles.filterLabel}>เลือกเดือน</Text>
+              <TouchableOpacity style={styles.filterButton} onPress={() => setShowPeriodModal(true)}>
+                <Text style={styles.filterLabel}>ช่วงเวลา</Text>
                 <View style={styles.filterValueContainer}>
-                  <Text style={styles.filterValue}>{selectedMonth}</Text>
+                  <Text style={styles.filterValue}>{getPeriodLabel()}</Text>
                   <Ionicons name="chevron-down" size={16} color="#1f2937" />
                 </View>
               </TouchableOpacity>
 
-              <TouchableOpacity style={styles.filterButton}>
-                <Text style={styles.filterLabel}>เลือกปี</Text>
-                <View style={styles.filterValueContainer}>
-                  <Text style={styles.filterValue}>{selectedYear}</Text>
-                  <Ionicons name="chevron-down" size={16} color="#1f2937" />
-                </View>
-              </TouchableOpacity>
+              {/* Revenue highlight */}
+              <View style={[styles.filterButton, { backgroundColor: '#f0fdf4', borderColor: '#10b981', borderWidth: 1 }]}>
+                <Text style={[styles.filterLabel, { color: '#10b981' }]}>รายได้ {getPeriodLabel()}</Text>
+                <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#10b981' }}>
+                  ฿{stats.totalRevenue.toLocaleString()}
+                </Text>
+              </View>
             </View>
+
+            {/* Period Modal */}
+            <Modal visible={showPeriodModal} transparent animationType="fade" onRequestClose={() => setShowPeriodModal(false)}>
+              <TouchableWithoutFeedback onPress={() => setShowPeriodModal(false)}>
+                <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', alignItems: 'center' }}>
+                  <TouchableWithoutFeedback>
+                    <View style={{ backgroundColor: '#fff', borderRadius: 16, padding: 20, width: width * 0.7 }}>
+                      <Text style={{ fontSize: 16, fontWeight: 'bold', color: '#1f2937', marginBottom: 15 }}>เลือกช่วงเวลา</Text>
+                      {periodOptions.map(opt => (
+                        <TouchableOpacity
+                          key={opt.key}
+                          onPress={() => { setSelectedPeriod(opt.key); setShowPeriodModal(false); }}
+                          style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#f3f4f6' }}
+                        >
+                          <Ionicons
+                            name={selectedPeriod === opt.key ? 'radio-button-on' : 'radio-button-off'}
+                            size={20} color={selectedPeriod === opt.key ? '#10b981' : '#9ca3af'}
+                          />
+                          <Text style={{ marginLeft: 12, fontSize: 15, color: selectedPeriod === opt.key ? '#10b981' : '#1f2937', fontWeight: selectedPeriod === opt.key ? '600' : '400' }}>
+                            {opt.label}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </TouchableWithoutFeedback>
+                </View>
+              </TouchableWithoutFeedback>
+            </Modal>
 
             {/* Stats Cards */}
             <View style={styles.statsGrid}>
-              <View style={styles.statCard}>
+              <View style={[styles.statCard, { borderLeftWidth: 3, borderLeftColor: '#10b981' }]}>
                 <View style={styles.statIconContainer}>
                   <Ionicons name="cash-outline" size={24} color="#10b981" />
                 </View>
-                <Text style={styles.statValue}>฿ {stats.totalRevenue.toLocaleString()}</Text>
+                <Text style={styles.statValue}>฿{stats.totalRevenue.toLocaleString()}</Text>
                 <Text style={styles.statLabel}>รายได้</Text>
+                {stats.confirmedRevenue > 0 && (
+                  <Text style={{ fontSize: 10, color: '#f59e0b', marginTop: 2 }}>
+                    รอรับ ฿{stats.confirmedRevenue.toLocaleString()}
+                  </Text>
+                )}
               </View>
 
               <View style={styles.statCard}>
@@ -505,73 +614,155 @@ export default function StoreDashboardScreen({ navigation }) {
 
         {activeTab === 'orders' && (
           <>
-            {/* Filters */}
-            <View style={styles.filtersRow}>
-              <TouchableOpacity style={styles.filterButton}>
-                <Text style={styles.filterLabel}>เลือกเดือน</Text>
-                <View style={styles.filterValueContainer}>
-                  <Text style={styles.filterValue}>{selectedMonth}</Text>
-                  <Ionicons name="chevron-down" size={16} color="#1f2937" />
+            {/* ── Revenue Hero Card ── */}
+            <View style={rStyles.heroCard}>
+              <View style={rStyles.heroTop}>
+                <View>
+                  <Text style={rStyles.heroLabel}>รายได้ทั้งหมด</Text>
+                  <Text style={rStyles.heroValue}>฿{stats.totalRevenue.toLocaleString()}</Text>
                 </View>
-              </TouchableOpacity>
-
-              <TouchableOpacity style={styles.filterButton}>
-                <Text style={styles.filterLabel}>เลือกปี</Text>
-                <View style={styles.filterValueContainer}>
-                  <Text style={styles.filterValue}>{selectedYear}</Text>
-                  <Ionicons name="chevron-down" size={16} color="#1f2937" />
+                <View style={rStyles.heroIcon}>
+                  <Ionicons name="trending-up" size={28} color="#10b981" />
                 </View>
-              </TouchableOpacity>
-            </View>
-
-            {/* Stats Summary */}
-            <View style={styles.statsGrid}>
-              <View style={styles.statCard}>
-                <View style={styles.statIconContainer}>
-                  <Ionicons name="cash-outline" size={24} color="#10b981" />
-                </View>
-                <Text style={styles.statValue}>฿ {stats.totalRevenue.toLocaleString()}</Text>
-                <Text style={styles.statLabel}>รายได้</Text>
               </View>
-
-              <View style={styles.statCard}>
-                <View style={styles.statIconContainer}>
-                  <Ionicons name="receipt-outline" size={24} color="#f59e0b" />
+              <View style={rStyles.heroStats}>
+                <View style={rStyles.heroStatItem}>
+                  <Text style={rStyles.heroStatNum}>{stats.totalOrders}</Text>
+                  <Text style={rStyles.heroStatLbl}>ออเดอร์</Text>
                 </View>
-                <Text style={styles.statValue}>{stats.totalOrders}</Text>
-                <Text style={styles.statLabel}>ออเดอร์</Text>
+                <View style={rStyles.heroStatDivider} />
+                <View style={rStyles.heroStatItem}>
+                  <Text style={rStyles.heroStatNum}>{stats.completedOrders}</Text>
+                  <Text style={rStyles.heroStatLbl}>สำเร็จ</Text>
+                </View>
+                <View style={rStyles.heroStatDivider} />
+                <View style={rStyles.heroStatItem}>
+                  <Text style={rStyles.heroStatNum}>{stats.completionRate}%</Text>
+                  <Text style={rStyles.heroStatLbl}>อัตราสำเร็จ</Text>
+                </View>
               </View>
             </View>
 
-            <View style={styles.statCard}>
-              <View style={styles.statPercentBadge}>
-                <Text style={styles.statPercent}>{stats.completionRate}%</Text>
+            {/* ── Report Section Header ── */}
+            <View style={rStyles.sectionRow}>
+              <Text style={rStyles.sectionTitle}>รายงานรายเดือน</Text>
+              <View style={rStyles.filterPills}>
+                <TouchableOpacity style={rStyles.pill} onPress={() => setShowMonthModal(true)}>
+                  <Ionicons name="calendar-outline" size={13} color="#10b981" />
+                  <Text style={rStyles.pillText}>{monthNames[reportMonth]}</Text>
+                  <Ionicons name="chevron-down" size={12} color="#10b981" />
+                </TouchableOpacity>
+                <TouchableOpacity style={rStyles.pill} onPress={() => setShowYearModal(true)}>
+                  <Text style={rStyles.pillText}>{reportYear}</Text>
+                  <Ionicons name="chevron-down" size={12} color="#10b981" />
+                </TouchableOpacity>
               </View>
-              <Text style={styles.statValue}>{stats.completedOrders}</Text>
-              <Text style={styles.statLabel}>สำเร็จ</Text>
             </View>
 
-            {/* Orders Table */}
-            <View style={styles.tableContainer}>
-              <View style={styles.tableHeader}>
-                <Text style={[styles.tableHeaderText, { flex: 2 }]}>ชื่อเมนู</Text>
-                <Text style={[styles.tableHeaderText, { flex: 1, textAlign: 'center' }]}>ขายได้</Text>
-                <Text style={[styles.tableHeaderText, { flex: 1, textAlign: 'right' }]}>รายได้</Text>
+            {/* ── Revenue for selected month ── */}
+            <View style={rStyles.monthRevenueRow}>
+              <View style={rStyles.monthRevLeft}>
+                <Text style={rStyles.monthRevLabel}>รายได้ {monthNames[reportMonth]} {reportYear}</Text>
+                <Text style={rStyles.monthRevValue}>฿{tableRevenue.toLocaleString()}</Text>
+              </View>
+              <View style={rStyles.monthRevRight}>
+                <Text style={rStyles.monthRevCount}>{filteredTableOrders.length} ออเดอร์</Text>
+              </View>
+            </View>
+
+            {/* Month Modal */}
+            <Modal visible={showMonthModal} transparent animationType="fade" onRequestClose={() => setShowMonthModal(false)}>
+              <TouchableWithoutFeedback onPress={() => setShowMonthModal(false)}>
+                <View style={rStyles.modalOverlay}>
+                  <TouchableWithoutFeedback>
+                    <View style={rStyles.modalBox}>
+                      <Text style={rStyles.modalTitle}>เลือกเดือน</Text>
+                      <View style={rStyles.monthGrid}>
+                        {monthNames.map((m, i) => (
+                          <TouchableOpacity
+                            key={i}
+                            onPress={() => { setReportMonth(i); setShowMonthModal(false); }}
+                            style={[rStyles.monthChip, reportMonth === i && rStyles.monthChipActive]}
+                          >
+                            <Text style={[rStyles.monthChipText, reportMonth === i && rStyles.monthChipTextActive]}>
+                              {m}
+                            </Text>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    </View>
+                  </TouchableWithoutFeedback>
+                </View>
+              </TouchableWithoutFeedback>
+            </Modal>
+
+            {/* Year Modal */}
+            <Modal visible={showYearModal} transparent animationType="fade" onRequestClose={() => setShowYearModal(false)}>
+              <TouchableWithoutFeedback onPress={() => setShowYearModal(false)}>
+                <View style={rStyles.modalOverlay}>
+                  <TouchableWithoutFeedback>
+                    <View style={[rStyles.modalBox, { width: width * 0.55 }]}>
+                      <Text style={rStyles.modalTitle}>เลือกปี</Text>
+                      {yearOptions.map(y => (
+                        <TouchableOpacity
+                          key={y}
+                          onPress={() => { setReportYear(y); setShowYearModal(false); }}
+                          style={rStyles.yearRow}
+                        >
+                          <View style={[rStyles.yearRadio, reportYear === y && rStyles.yearRadioActive]}>
+                            {reportYear === y && <View style={rStyles.yearRadioDot} />}
+                          </View>
+                          <Text style={[rStyles.yearText, reportYear === y && rStyles.yearTextActive]}>{y}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </TouchableWithoutFeedback>
+                </View>
+              </TouchableWithoutFeedback>
+            </Modal>
+
+            {/* ── Orders Table ── */}
+            <View style={rStyles.tableCard}>
+              {/* Table Header */}
+              <View style={rStyles.tableHead}>
+                <Text style={[rStyles.tableHeadCell, { flex: 2 }]}>เมนู</Text>
+                <Text style={[rStyles.tableHeadCell, { flex: 1, textAlign: 'center' }]}>จำนวน</Text>
+                <Text style={[rStyles.tableHeadCell, { flex: 1, textAlign: 'right' }]}>รายได้</Text>
               </View>
 
-              {recentOrders.map((order) => (
-                <View key={order.id} style={styles.tableRow}>
-                  <Text style={[styles.tableCell, { flex: 2 }]} numberOfLines={1}>
-                    {order.foodName || 'ไม่ระบุ'}
-                  </Text>
-                  <Text style={[styles.tableCell, { flex: 1, textAlign: 'center' }]}>
-                    {order.quantity || 0} จาน
-                  </Text>
-                  <Text style={[styles.tableCell, { flex: 1, textAlign: 'right' }]}>
-                    ฿ {(order.totalPrice || 0).toLocaleString()}
-                  </Text>
+              {filteredTableOrders.length === 0 ? (
+                <View style={rStyles.emptyState}>
+                  <View style={rStyles.emptyIcon}>
+                    <Ionicons name="receipt-outline" size={32} color="#10b981" />
+                  </View>
+                  <Text style={rStyles.emptyTitle}>ยังไม่มีออเดอร์</Text>
+                  <Text style={rStyles.emptySubtitle}>ไม่พบข้อมูลใน{monthNames[reportMonth]} {reportYear}</Text>
                 </View>
-              ))}
+              ) : (
+                filteredTableOrders.map((order, index) => (
+                  <View key={order.id} style={[rStyles.tableRow, index % 2 === 0 && rStyles.tableRowAlt]}>
+                    <View style={{ flex: 2, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <View style={rStyles.rowDot} />
+                      <Text style={rStyles.tableCell} numberOfLines={1}>{order.foodName || 'ไม่ระบุ'}</Text>
+                    </View>
+                    <View style={{ flex: 1, alignItems: 'center' }}>
+                      <View style={rStyles.qtyBadge}>
+                        <Text style={rStyles.qtyText}>{order.quantity || 0}</Text>
+                      </View>
+                    </View>
+                    <Text style={[rStyles.tableCell, rStyles.priceCell, { flex: 1, textAlign: 'right' }]}>
+                      ฿{(order.totalPrice || 0).toLocaleString()}
+                    </Text>
+                  </View>
+                ))
+              )}
+
+              {filteredTableOrders.length > 0 && (
+                <View style={rStyles.tableFoot}>
+                  <Text style={rStyles.tableFootLabel}>รวมทั้งหมด</Text>
+                  <Text style={rStyles.tableFootValue}>฿{tableRevenue.toLocaleString()}</Text>
+                </View>
+              )}
             </View>
           </>
         )}
@@ -632,6 +823,327 @@ export default function StoreDashboardScreen({ navigation }) {
     </View>
   );
 }
+
+// ─── Report Tab Styles ───────────────────────────────────────────
+const rStyles = StyleSheet.create({
+  // Hero card
+  heroCard: {
+    backgroundColor: '#fff',
+    borderRadius: 20,
+    padding: 20,
+    marginBottom: 16,
+    shadowColor: '#10b981',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 12,
+    elevation: 4,
+    borderWidth: 1,
+    borderColor: '#e6faf4',
+  },
+  heroTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 20,
+  },
+  heroLabel: {
+    fontSize: 12,
+    color: '#6b7280',
+    marginBottom: 4,
+    letterSpacing: 0.5,
+  },
+  heroValue: {
+    fontSize: 32,
+    fontWeight: 'bold',
+    color: '#064e3b',
+    letterSpacing: -0.5,
+  },
+  heroIcon: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: '#f0fdf4',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  heroStats: {
+    flexDirection: 'row',
+    backgroundColor: '#f9fafb',
+    borderRadius: 14,
+    padding: 14,
+  },
+  heroStatItem: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  heroStatDivider: {
+    width: 1,
+    backgroundColor: '#e5e7eb',
+    marginVertical: 4,
+  },
+  heroStatNum: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#1f2937',
+  },
+  heroStatLbl: {
+    fontSize: 11,
+    color: '#9ca3af',
+    marginTop: 2,
+  },
+  // Section header
+  sectionRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  sectionTitle: {
+    fontSize: 15,
+    fontWeight: 'bold',
+    color: '#1f2937',
+  },
+  filterPills: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  pill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#f0fdf4',
+    borderWidth: 1,
+    borderColor: '#a7f3d0',
+    borderRadius: 20,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  pillText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#10b981',
+  },
+  // Month revenue summary
+  monthRevenueRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#f0fdf4',
+    borderRadius: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#a7f3d0',
+  },
+  monthRevLeft: {},
+  monthRevLabel: {
+    fontSize: 11,
+    color: '#059669',
+    marginBottom: 2,
+  },
+  monthRevValue: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    color: '#064e3b',
+  },
+  monthRevRight: {
+    backgroundColor: '#fff',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  monthRevCount: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#10b981',
+  },
+  // Table card
+  tableCard: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#f3f4f6',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    elevation: 2,
+    marginBottom: 20,
+  },
+  tableHead: {
+    flexDirection: 'row',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    backgroundColor: '#064e3b',
+  },
+  tableHeadCell: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#a7f3d0',
+    letterSpacing: 0.3,
+  },
+  tableRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 13,
+    paddingHorizontal: 16,
+  },
+  tableRowAlt: {
+    backgroundColor: '#fafafa',
+  },
+  rowDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#d1fae5',
+  },
+  tableCell: {
+    fontSize: 13,
+    color: '#374151',
+  },
+  priceCell: {
+    fontWeight: '600',
+    color: '#1f2937',
+  },
+  qtyBadge: {
+    backgroundColor: '#f3f4f6',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  qtyText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#6b7280',
+  },
+  tableFoot: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderTopWidth: 2,
+    borderTopColor: '#f3f4f6',
+    backgroundColor: '#f9fafb',
+  },
+  tableFootLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#6b7280',
+  },
+  tableFootValue: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#10b981',
+  },
+  // Empty state
+  emptyState: {
+    alignItems: 'center',
+    paddingVertical: 40,
+    paddingHorizontal: 20,
+  },
+  emptyIcon: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: '#f0fdf4',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 12,
+  },
+  emptyTitle: {
+    fontSize: 15,
+    fontWeight: 'bold',
+    color: '#1f2937',
+    marginBottom: 4,
+  },
+  emptySubtitle: {
+    fontSize: 13,
+    color: '#9ca3af',
+    textAlign: 'center',
+  },
+  // Modal
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalBox: {
+    backgroundColor: '#fff',
+    borderRadius: 20,
+    padding: 22,
+    width: width * 0.78,
+  },
+  modalTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#1f2937',
+    marginBottom: 16,
+  },
+  monthGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  monthChip: {
+    width: '30%',
+    paddingVertical: 11,
+    borderRadius: 12,
+    alignItems: 'center',
+    backgroundColor: '#f3f4f6',
+    borderWidth: 1,
+    borderColor: 'transparent',
+  },
+  monthChipActive: {
+    backgroundColor: '#10b981',
+    borderColor: '#059669',
+  },
+  monthChipText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#374151',
+  },
+  monthChipTextActive: {
+    color: '#fff',
+  },
+  yearRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f3f4f6',
+    gap: 12,
+  },
+  yearRadio: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 2,
+    borderColor: '#d1d5db',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  yearRadioActive: {
+    borderColor: '#10b981',
+  },
+  yearRadioDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: '#10b981',
+  },
+  yearText: {
+    fontSize: 15,
+    color: '#6b7280',
+  },
+  yearTextActive: {
+    color: '#10b981',
+    fontWeight: '700',
+  },
+});
 
 const styles = StyleSheet.create({
   container: {
