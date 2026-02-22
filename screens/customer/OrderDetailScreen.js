@@ -6,22 +6,16 @@ import {
   ScrollView,
   TouchableOpacity,
   StatusBar,
-  Alert,
   Dimensions,
-  ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { db, auth } from '../../firebase.config';
-import { doc, updateDoc, increment } from 'firebase/firestore';
 
 const { width } = Dimensions.get('window');
 
 export default function OrderDetailScreen({ navigation, route }) {
   const { order } = route.params || {};
-  const [loading, setLoading] = useState(false);
   const [isItemsExpanded, setIsItemsExpanded] = useState(false);
 
-  // ป้องกันกรณีไม่มีข้อมูล Order ส่งมา
   if (!order) {
     return (
       <View style={styles.container}>
@@ -36,46 +30,6 @@ export default function OrderDetailScreen({ navigation, route }) {
     );
   }
 
-  // ✅ ฟังก์ชันยืนยันการรับอาหาร (เพิ่มแต้มลดขยะอาหาร)
-  const handleConfirmReceived = async () => {
-    Alert.alert(
-      'ยืนยันการได้รับอาหาร',
-      'คุณได้รับอาหารและช่วยลดขยะอาหารเรียบร้อยแล้วใช่หรือไม่? ระบบจะบันทึกสถิติการลดขยะให้คุณทันที',
-      [
-        { text: 'ยกเลิก', style: 'cancel' },
-        {
-          text: 'ยืนยัน',
-          onPress: async () => {
-            setLoading(true);
-            try {
-              const user = auth.currentUser;
-              // คำนวณน้ำหนักสะสม (ชิ้นละ 0.4 kg)
-              const orderWeight = (order.quantity || 1) * 0.4;
-
-              // 1. อัปเดตสถานะออเดอร์เป็น completed
-              const orderRef = doc(db, 'orders', order.id);
-              await updateDoc(orderRef, { status: 'completed' });
-
-              // 2. อัปเดตยอดสะสมไปที่ Profile ของผู้ใช้
-              const userRef = doc(db, 'users', user.uid);
-              await updateDoc(userRef, {
-                totalWeightSaved: increment(orderWeight)
-              });
-
-              Alert.alert('สำเร็จ!', `คุณช่วยโลกโดยการลดขยะอาหารไปได้ ${orderWeight.toFixed(1)} kg 🌍`);
-              navigation.navigate('Home');
-            } catch (error) {
-              console.error(error);
-              Alert.alert('เกิดข้อผิดพลาด', 'ไม่สามารถบันทึกข้อมูลได้');
-            } finally {
-              setLoading(false);
-            }
-          }
-        }
-      ]
-    );
-  };
-
   const getFormattedOrderId = (orderId, type) => {
     if (!orderId) return 'N/A';
     const shortId = orderId.slice(0, 6).toUpperCase();
@@ -85,18 +39,10 @@ export default function OrderDetailScreen({ navigation, route }) {
 
   const formattedId = getFormattedOrderId(order.id, order.orderType);
 
-  const getTimeDisplay = () => {
-      if (order.closingTime) {
-          return `ภายในวันนี้ ก่อน ${order.closingTime} น.`;
-      }
-      return "ภายในวันนี้ ก่อน 20:00 น.";
-  };
-
   return (
     <View style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#fff" />
 
-      {/* Header */}
       <View style={styles.header}>
             <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
                 <Ionicons name="chevron-back" size={24} color="#1f2937" />
@@ -107,16 +53,16 @@ export default function OrderDetailScreen({ navigation, route }) {
 
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
 
-        {/* Success Banner */}
         <View style={styles.successSection}>
-            <View style={styles.successIconCircle}>
-                <Ionicons name="checkmark" size={40} color="#fff" />
+            <View style={[styles.successIconCircle, { backgroundColor: order.status === 'completed' ? '#10b981' : '#f59e0b' }]}>
+                <Ionicons name={order.status === 'completed' ? "checkmark" : "time"} size={40} color="#fff" />
             </View>
-            <Text style={styles.successTitle}>สั่งซื้อสำเร็จ!</Text>
+            <Text style={styles.successTitle}>
+              {order.status === 'completed' ? 'สั่งซื้อสำเร็จแล้ว!' : 'รอรับอาหาร...'}
+            </Text>
             <Text style={styles.successSubtitle}>ขอบคุณที่ช่วยลดขยะอาหารกับเรา</Text>
         </View>
 
-        {/* Order ID Card */}
         <View style={styles.orderIdCard}>
             <Text style={styles.orderIdLabel}>
               Order ID ({order.orderType === 'delivery' ? 'จัดส่ง' : 'รับเอง'})
@@ -126,7 +72,6 @@ export default function OrderDetailScreen({ navigation, route }) {
             </View>
         </View>
 
-        {/* Details Section */}
         <View style={styles.detailsSection}>
             <Text style={styles.sectionHeader}>รายละเอียด</Text>
 
@@ -175,25 +120,24 @@ export default function OrderDetailScreen({ navigation, route }) {
             </View>
         </View>
 
-        {/* ✅ ปุ่มยืนยันการรับสินค้า */}
-        {order.status !== 'completed' && (
-          <TouchableOpacity
-            style={styles.confirmButton}
-            onPress={handleConfirmReceived}
-            disabled={loading}
-          >
-            {loading ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <>
-                <Ionicons name="checkmark-circle-outline" size={24} color="#fff" />
-                <Text style={styles.confirmButtonText}>ฉันได้รับอาหารเรียบร้อยแล้ว</Text>
-              </>
-            )}
-          </TouchableOpacity>
+        {/* ✅ แสดงปุ่มรีวิวเมื่อร้านค้ายืนยันจนสถานะเป็น completed แล้วเท่านั้น (เอาปุ่มยืนยันของลูกค้าออก) */}
+        {order.status === 'completed' && (
+          !order.isReviewed ? (
+            <TouchableOpacity
+              style={styles.reviewButton}
+              onPress={() => navigation.navigate('WriteReview', { order: order })}
+            >
+              <Ionicons name="star" size={20} color="#fff" />
+              <Text style={styles.reviewButtonText}>ให้คะแนนรีวิวร้านค้านี้</Text>
+            </TouchableOpacity>
+          ) : (
+            <View style={styles.reviewedBadge}>
+              <Ionicons name="checkmark-circle" size={20} color="#10b981" />
+              <Text style={styles.reviewedText}>คุณได้รีวิวออเดอร์นี้แล้ว ขอบคุณครับ!</Text>
+            </View>
+          )
         )}
 
-        {/* Home Button */}
         <TouchableOpacity style={styles.homeButton} onPress={() => navigation.navigate('Home')}>
             <Ionicons name="home" size={20} color="#10b981" style={{ marginRight: 8 }} />
             <Text style={styles.homeButtonText}>กลับไปหน้าหลัก</Text>
@@ -212,7 +156,7 @@ const styles = StyleSheet.create({
   backButton: { padding: 5 },
   content: { flex: 1, paddingHorizontal: 20 },
   successSection: { alignItems: 'center', marginVertical: 20 },
-  successIconCircle: { width: 70, height: 70, borderRadius: 35, backgroundColor: '#10b981', alignItems: 'center', justifyContent: 'center', marginBottom: 10 },
+  successIconCircle: { width: 70, height: 70, borderRadius: 35, alignItems: 'center', justifyContent: 'center', marginBottom: 10 },
   successTitle: { fontSize: 22, fontWeight: 'bold', color: '#1f2937' },
   successSubtitle: { fontSize: 14, color: '#6b7280' },
   orderIdCard: { backgroundColor: '#fff', borderRadius: 16, padding: 20, alignItems: 'center', marginBottom: 20, borderWidth: 1, borderColor: '#e5e7eb' },
@@ -232,8 +176,15 @@ const styles = StyleSheet.create({
   itemSmallName: { fontSize: 14, color: '#374151', flex: 1 },
   itemSmallQty: { fontSize: 14, color: '#6b7280', marginHorizontal: 10 },
   itemSmallPrice: { fontSize: 14, fontWeight: '600', color: '#10b981' },
-  confirmButton: { backgroundColor: '#10b981', paddingVertical: 15, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', borderRadius: 12, marginBottom: 15, gap: 10, elevation: 3 },
-  confirmButtonText: { fontSize: 16, fontWeight: 'bold', color: '#fff' },
+  errorContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  errorText: { fontSize: 18, color: '#6b7280', marginTop: 15, marginBottom: 20 },
+  backLink: { fontSize: 16, color: '#10b981', fontWeight: 'bold' },
+
+  reviewButton: { backgroundColor: '#f59e0b', paddingVertical: 15, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', borderRadius: 12, marginBottom: 15, gap: 8, elevation: 3 },
+  reviewButtonText: { fontSize: 16, fontWeight: 'bold', color: '#fff' },
+  reviewedBadge: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: '#ecfdf5', padding: 15, borderRadius: 12, marginBottom: 15, gap: 8, borderWidth: 1, borderColor: '#dcfce7' },
+  reviewedText: { color: '#10b981', fontWeight: 'bold', fontSize: 14 },
+
   homeButton: { backgroundColor: '#fff', paddingVertical: 15, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', borderRadius: 12, borderWidth: 1, borderColor: '#10b981' },
   homeButtonText: { fontSize: 16, fontWeight: 'bold', color: '#10b981' },
 });

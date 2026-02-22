@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react'; // ✅ ต้องอยู่ตรงนี้
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -15,20 +15,47 @@ import {
   Modal,
   TouchableWithoutFeedback,
   Alert,
-  Platform // ✅ Platform ต้องอยู่ใน react-native
+  Platform
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { auth, db } from '../../firebase.config';
 import { doc, collection, getDocs, query, where, onSnapshot, setDoc, deleteDoc, getDoc } from 'firebase/firestore';
 import { useFocusEffect } from '@react-navigation/native';
+import * as Location from 'expo-location';
 
 const { width } = Dimensions.get('window');
+
+const categories = [
+  { id: 'all', name: 'ทั้งหมด', icon: 'grid' },
+  { id: 'เบเกอรี่ / ขนมปัง', name: 'เบเกอรี่ / ขนมปัง', icon: 'pie-chart' },
+  { id: 'อาหารกล่อง / ข้าวกล่อง', name: 'อาหารกล่อง', icon: 'restaurant' },
+  { id: 'เครื่องดื่ม/น้ำ', name: 'เครื่องดื่ม/น้ำ', icon: 'cafe' },
+  { id: 'อาหารสด/วัตถุดิบ', name: 'อาหารสด/วัตถุดิบ', icon: 'leaf' },
+  { id: 'discount_50', name: 'ลดมากกว่า 50%', icon: 'flame' },
+  { id: 'under_50', name: 'ต่ำกว่า 50 บาท', icon: 'pricetag' },
+];
+
+const calculateDistance = (lat1, lon1, lat2, lon2) => {
+  if (!lat1 || !lon1 || !lat2 || !lon2) return null;
+  const R = 6371;
+  const dLat = (lat2 - lat1) * (Math.PI / 180);
+  const dLon = (lon2 - lon1) * (Math.PI / 180);
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1 * (Math.PI / 180)) * Math.cos(lat2 * (Math.PI / 180)) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  const distance = R * c;
+  return distance.toFixed(1);
+};
 
 export default function HomeScreen({ navigation }) {
   const [userData, setUserData] = useState(null);
   const [foodItems, setFoodItems] = useState([]);
   const [filteredFood, setFilteredFood] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
+
+  const [selectedCategory, setSelectedCategory] = useState('all');
+
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [isCheckingRole, setIsCheckingRole] = useState(true);
@@ -38,6 +65,11 @@ export default function HomeScreen({ navigation }) {
   const [storesData, setStoresData] = useState({});
   const [currentTime, setCurrentTime] = useState(new Date());
 
+  const [userLocation, setUserLocation] = useState(null);
+
+  const [closedStoreModalVisible, setClosedStoreModalVisible] = useState(false);
+  const [closedStoreMessage, setClosedStoreMessage] = useState('');
+
   const scrollRef = useRef(null);
   const [showScrollTop, setShowScrollTop] = useState(false);
 
@@ -46,6 +78,19 @@ export default function HomeScreen({ navigation }) {
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
   const defaultAvatar = Image.resolveAssetSource(require('../../assets/icon.png')).uri;
+
+  useEffect(() => {
+    (async () => {
+      try {
+        let { status } = await Location.requestForegroundPermissionsAsync();
+        if (status !== 'granted') return;
+        let location = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+        setUserLocation(location.coords);
+      } catch (error) {
+        console.log("Error getting location", error);
+      }
+    })();
+  }, []);
 
   useEffect(() => {
     let unsubscribeUser;
@@ -103,7 +148,8 @@ export default function HomeScreen({ navigation }) {
         const snapshot = await getDocs(q);
         const items = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         setFoodItems(items);
-        setFilteredFood(items);
+
+        filterItems(items, searchQuery, selectedCategory);
 
         const uniqueStoreIds = [...new Set(items.map(item => item.storeId || item.userId).filter(id => id))];
         const storesInfo = {};
@@ -132,12 +178,47 @@ export default function HomeScreen({ navigation }) {
 
   const onRefresh = () => { setRefreshing(true); fetchFoodItems(); };
 
-  const handleSearch = (text) => {
-    setSearchQuery(text);
+  const filterItems = (itemsList, text, categoryId) => {
+    let filtered = itemsList;
+
     if (text) {
       const lower = text.toLowerCase();
-      setFilteredFood(foodItems.filter(i => (i.name||'').toLowerCase().includes(lower) || (i.storeName||'').toLowerCase().includes(lower)));
-    } else setFilteredFood(foodItems);
+      filtered = filtered.filter(i =>
+        (i.name || '').toLowerCase().includes(lower) ||
+        (i.storeName || '').toLowerCase().includes(lower)
+      );
+    }
+
+    if (categoryId !== 'all') {
+      if (categoryId === 'discount_50') {
+        filtered = filtered.filter(i => {
+          const originalPrice = Number(i.originalPrice) || 0;
+          const discountPrice = Number(i.discountPrice) || Number(i.price) || 0;
+          if (originalPrice === 0) return false;
+          const percent = ((originalPrice - discountPrice) / originalPrice) * 100;
+          return percent >= 50;
+        });
+      } else if (categoryId === 'under_50') {
+        filtered = filtered.filter(i => {
+          const discountPrice = Number(i.discountPrice) || Number(i.price) || 0;
+          return discountPrice > 0 && discountPrice <= 50;
+        });
+      } else {
+        filtered = filtered.filter(i => i.category === categoryId);
+      }
+    }
+
+    setFilteredFood(filtered);
+  };
+
+  const handleSearch = (text) => {
+    setSearchQuery(text);
+    filterItems(foodItems, text, selectedCategory);
+  };
+
+  const handleCategorySelect = (categoryId) => {
+    setSelectedCategory(categoryId);
+    filterItems(foodItems, searchQuery, categoryId);
   };
 
   const handleToggleFavorite = async (targetStoreId, targetStoreName) => {
@@ -152,35 +233,76 @@ export default function HomeScreen({ navigation }) {
 
   const getStoreStatus = (storeId) => {
       const store = storesData[storeId];
-      const closeTimeStr = store?.closeTime || store?.closingTime;
-      const openTimeStr = store?.openTime;
-      if (!closeTimeStr) return { text: "เปิดอยู่", color: "#10b981", isOpen: true };
+      if (!store) return { text: "ไม่มีข้อมูล", color: "#9ca3af", isOpen: false };
 
       const now = currentTime;
-      const openDate = new Date();
-      const closeDate = new Date();
+      const daysMap = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+      const currentDayIdx = now.getDay();
+      const prevDayIdx = currentDayIdx === 0 ? 6 : currentDayIdx - 1;
 
-      if (typeof closeTimeStr === 'string' && closeTimeStr.includes(':')) {
-          const [hours, minutes] = closeTimeStr.split(':').map(Number);
-          closeDate.setHours(hours, minutes, 0, 0);
+      let todayHours, prevDayHours;
+
+      if (store.businessHours) {
+          todayHours = store.businessHours[daysMap[currentDayIdx]];
+          prevDayHours = store.businessHours[daysMap[prevDayIdx]];
+      } else {
+          const defaultHours = { isOpen: true, openTime: store.openTime || "08:00", closeTime: store.closeTime || store.closingTime || "20:00" };
+          todayHours = defaultHours;
+          prevDayHours = defaultHours;
       }
-      if (openTimeStr && typeof openTimeStr === 'string' && openTimeStr.includes(':')) {
-          const [openH, openM] = openTimeStr.split(':').map(Number);
-          openDate.setHours(openH, openM, 0, 0);
-      } else openDate.setHours(0, 0, 0, 0);
 
-      if (now < openDate) return { text: `เปิด ${openTimeStr} น.`, color: "#ef4444", isOpen: false };
-      if (now > closeDate) return { text: "ปิดแล้ว", color: "#ef4444", isOpen: false };
+      const calculateStatusText = (oDate, cDate, n, oStr) => {
+          if (n < oDate) return { text: `เปิด ${oStr} น.`, color: "#ef4444", isOpen: false };
+          if (n > cDate) return { text: "ปิดแล้ว", color: "#ef4444", isOpen: false };
 
-      const diffMs = closeDate - now;
-      const totalMinutesLeft = Math.floor(diffMs / (1000 * 60));
-      if (totalMinutesLeft > 30) return { text: "เปิดอยู่", color: "#10b981", isOpen: true };
+          const diffMs = cDate - n;
+          const totalMinutesLeft = Math.floor(diffMs / (1000 * 60));
+          if (totalMinutesLeft > 30) return { text: "เปิดอยู่", color: "#10b981", isOpen: true };
 
-      const fmt = (n) => n < 10 ? `0${n}` : n;
-      const diffMins = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
-      const diffSecs = Math.floor((diffMs % (1000 * 60)) / 1000);
-      return { text: `ปิดใน ${fmt(diffMins)}:${fmt(diffSecs)}`, color: "#f59e0b", isOpen: true };
+          const fmt = (num) => num < 10 ? `0${num}` : num;
+          const diffMins = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+          const diffSecs = Math.floor((diffMs % (1000 * 60)) / 1000);
+          return { text: `ปิดใน ${fmt(diffMins)}:${fmt(diffSecs)}`, color: "#f59e0b", isOpen: true };
+      };
+
+      if (prevDayHours && prevDayHours.isOpen) {
+          const [poH, poM] = prevDayHours.openTime.split(':').map(Number);
+          const [pcH, pcM] = prevDayHours.closeTime.split(':').map(Number);
+          if (pcH < poH || (pcH === poH && pcM < poM)) {
+              const nowH = now.getHours();
+              const nowM = now.getMinutes();
+              if (nowH < pcH || (nowH === pcH && nowM < pcM)) {
+                  const oDate = new Date(); oDate.setDate(oDate.getDate() - 1); oDate.setHours(poH, poM, 0, 0);
+                  const cDate = new Date(); cDate.setHours(pcH, pcM, 0, 0);
+                  return calculateStatusText(oDate, cDate, now, prevDayHours.openTime);
+              }
+          }
+      }
+
+      if (todayHours && todayHours.isOpen) {
+          const [toH, toM] = todayHours.openTime.split(':').map(Number);
+          const [tcH, tcM] = todayHours.closeTime.split(':').map(Number);
+          const oDate = new Date(); oDate.setHours(toH, toM, 0, 0);
+          const cDate = new Date(); cDate.setHours(tcH, tcM, 0, 0);
+
+          if (tcH < toH || (tcH === toH && tcM < toM)) {
+              cDate.setDate(cDate.getDate() + 1);
+          }
+          return calculateStatusText(oDate, cDate, now, todayHours.openTime);
+      }
+
+      return { text: "ปิดวันนี้", color: "#ef4444", isOpen: false };
   };
+
+  const sortedFood = [...filteredFood].sort((a, b) => {
+    const statusA = getStoreStatus(a.storeId || a.userId);
+    const statusB = getStoreStatus(b.storeId || b.userId);
+
+    if (statusA.isOpen && !statusB.isOpen) return -1;
+    if (!statusA.isOpen && statusB.isOpen) return 1;
+
+    return 0;
+  });
 
   const handleScroll = (event) => {
     const offsetY = event.nativeEvent.contentOffset.y;
@@ -220,12 +342,28 @@ export default function HomeScreen({ navigation }) {
       const isFav = favoriteStoreIds.includes(realStoreId);
       const status = getStoreStatus(realStoreId);
 
+      let distanceDisplay = "กำลังหา...";
+      if (userLocation && storeInfo.latitude && storeInfo.longitude) {
+          const dist = calculateDistance(userLocation.latitude, userLocation.longitude, storeInfo.latitude, storeInfo.longitude);
+          distanceDisplay = `${dist} กม.`;
+      } else if (!userLocation) {
+          distanceDisplay = "รอ GPS";
+      } else {
+          distanceDisplay = "ไม่ระบุพิกัด";
+      }
+
       return (
         <TouchableOpacity
             key={item.id}
             style={[styles.cardContainer, !status.isOpen && { opacity: 0.6 }]}
-            // ✅ ส่งชื่อร้านที่ถูกต้องไปยังหน้า FoodDetail ด้วย
-            onPress={() => status.isOpen ? navigation.navigate('FoodDetail', { food: { ...item, storeName: displayStoreName } }) : Alert.alert("ร้านปิดแล้ว", "...") }
+            onPress={() => {
+              if (status.isOpen) {
+                navigation.navigate('FoodDetail', { food: { ...item, storeName: displayStoreName } });
+              } else {
+                setClosedStoreMessage(`ร้าน "${displayStoreName}" ปิดให้บริการในขณะนี้\nกรุณาทำรายการใหม่ในเวลาทำการครับ`);
+                setClosedStoreModalVisible(true);
+              }
+            }}
             activeOpacity={0.9}
           >
           <View style={styles.cardImageContainer}>
@@ -240,7 +378,7 @@ export default function HomeScreen({ navigation }) {
                {discountPercent > 0 && <View style={styles.discountTag}><Text style={styles.discountTagText}>-{discountPercent}%</Text></View>}
             </View>
             <View style={styles.cardMetaRow}>
-               <View style={styles.metaItem}><Ionicons name="location-outline" size={12} color="#6b7280" /><Text style={styles.cardMetaText}> 0.8 กม.</Text></View>
+               <View style={styles.metaItem}><Ionicons name="location-outline" size={12} color="#6b7280" /><Text style={styles.cardMetaText}> {distanceDisplay}</Text></View>
                <Text style={styles.separator}>•</Text>
                <View style={styles.metaItem}><Ionicons name="time-outline" size={12} color={status.color} /><Text style={[styles.cardMetaText, { color: status.color, fontWeight: 'bold' }]}> {status.text}</Text></View>
                <Text style={styles.separator}>•</Text>
@@ -292,6 +430,7 @@ export default function HomeScreen({ navigation }) {
   return (
     <View style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#fff" />
+
       <View style={styles.header}>
         <View style={styles.headerLeft}>
             <TouchableOpacity style={styles.menuButton} onPress={toggleDrawer}><Ionicons name="menu" size={30} color="#1f2937" /></TouchableOpacity>
@@ -318,6 +457,26 @@ export default function HomeScreen({ navigation }) {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
         showsVerticalScrollIndicator={false}
       >
+
+        {/* ✅ แถบแสดงที่อยู่ (ปรับปรุงใหม่ โชว์แค่ชื่อที่อยู่ให้เด่น) */}
+        <TouchableOpacity
+          style={styles.addressBar}
+          onPress={() => navigation.navigate('AddressBook')}
+          activeOpacity={0.7}
+        >
+          <View style={styles.addressIconBg}>
+            <Ionicons name="location" size={20} color="#ef4444" />
+          </View>
+          <View style={styles.addressTextContainer}>
+            <Text style={styles.addressLabel}>จัดส่งที่</Text>
+            {/* โชว์เฉพาะ "ชื่อที่อยู่" (addressTitle) เป็นตัวใหญ่ๆ */}
+            <Text style={[styles.addressText, !userData?.addressTitle && { color: '#ef4444', fontStyle: 'italic', fontSize: 13 }]} numberOfLines={1}>
+              {userData?.addressTitle ? userData.addressTitle : 'เพิ่มที่อยู่จัดส่ง (คลิก)'}
+            </Text>
+          </View>
+          <Ionicons name="chevron-forward" size={20} color="#9ca3af" />
+        </TouchableOpacity>
+
         <View style={styles.searchContainer}>
           <Ionicons name="search" size={20} color="#9ca3af" />
           <TextInput
@@ -327,13 +486,75 @@ export default function HomeScreen({ navigation }) {
             onChangeText={handleSearch}
           />
         </View>
+
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.categoriesWrapper}
+          contentContainerStyle={styles.categoriesContent}
+        >
+          {categories.map(cat => (
+            <TouchableOpacity
+              key={cat.id}
+              style={[
+                styles.categoryTag,
+                selectedCategory === cat.id && styles.categoryTagActive,
+                (cat.id === 'discount_50' || cat.id === 'under_50') && selectedCategory !== cat.id && { borderColor: '#ef4444', backgroundColor: '#fef2f2' },
+                (cat.id === 'discount_50' || cat.id === 'under_50') && selectedCategory === cat.id && { backgroundColor: '#ef4444', borderColor: '#ef4444' }
+              ]}
+              onPress={() => handleCategorySelect(cat.id)}
+            >
+              <Ionicons
+                name={cat.icon}
+                size={16}
+                color={
+                  selectedCategory === cat.id ? '#fff' :
+                  (cat.id === 'discount_50' || cat.id === 'under_50') ? '#ef4444' : '#6b7280'
+                }
+              />
+              <Text style={[
+                styles.categoryTagText,
+                selectedCategory === cat.id && styles.categoryTagTextActive,
+                (cat.id === 'discount_50' || cat.id === 'under_50') && selectedCategory !== cat.id && { color: '#ef4444' }
+              ]}>
+                {cat.name}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+
         <View style={styles.sectionHeader}><Text style={styles.sectionTitleMain}>สั่งอาหารของคุณ 🔥</Text></View>
-        {loading ? <ActivityIndicator size="large" color="#10b981" style={{marginTop: 20}} /> : <View style={styles.listContainer}>{filteredFood.map(renderFoodCard)}</View>}
-        {!loading && filteredFood.length === 0 && (<View style={styles.emptyState}><Ionicons name="basket-outline" size={60} color="#d1d5db" /><Text style={styles.emptyText}>ไม่พบรายการอาหาร</Text></View>)}
+
+        {loading ? <ActivityIndicator size="large" color="#10b981" style={{marginTop: 20}} /> : <View style={styles.listContainer}>{sortedFood.map(renderFoodCard)}</View>}
+
+        {!loading && sortedFood.length === 0 && (<View style={styles.emptyState}><Ionicons name="basket-outline" size={60} color="#d1d5db" /><Text style={styles.emptyText}>ไม่พบรายการอาหาร</Text></View>)}
         <View style={{height: 120}} />
       </ScrollView>
 
-      {/* ✅ ปุ่มเลื่อนขึ้นบนสุด: ทรงสี่เหลี่ยมผืนผ้า ตรงกลางล่าง */}
+      <Modal
+        animationType="fade"
+        transparent={true}
+        visible={closedStoreModalVisible}
+        onRequestClose={() => setClosedStoreModalVisible(false)}
+      >
+        <View style={styles.alertOverlay}>
+          <View style={styles.alertBox}>
+            <View style={styles.alertIconCircle}>
+              <Ionicons name="time" size={36} color="#ef4444" />
+            </View>
+            <Text style={styles.alertTitle}>ร้านปิดให้บริการ</Text>
+            <Text style={styles.alertMessage}>{closedStoreMessage}</Text>
+            <TouchableOpacity
+              style={styles.alertButton}
+              onPress={() => setClosedStoreModalVisible(false)}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.alertButtonText}>ตกลง</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
       {showScrollTop && (
         <TouchableOpacity style={styles.scrollTopButton} onPress={scrollToTop} activeOpacity={0.8}>
            <Ionicons name="arrow-up" size={18} color="#fff" />
@@ -361,7 +582,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 20,
-    paddingTop: Platform.OS === 'ios' ? 60 : 60, // ✅ เท่าหน้า Home
+    paddingTop: Platform.OS === 'ios' ? 60 : 60,
     paddingBottom: 15,
     backgroundColor: '#fff',
     borderBottomWidth: 1,
@@ -377,8 +598,39 @@ const styles = StyleSheet.create({
   cartHeaderButton: { padding: 5, position: 'relative' },
   cartBadgeSmall: { position: 'absolute', top: -2, right: -2, backgroundColor: '#ef4444', minWidth: 16, height: 16, borderRadius: 8, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#fff' },
   cartBadgeTextSmall: { color: '#fff', fontSize: 9, fontWeight: 'bold' },
-  searchContainer: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', paddingHorizontal: 15, paddingVertical: 12, borderRadius: 12, borderWidth: 1, borderColor: '#e5e7eb', marginBottom: 20 },
+
+  // ✅ สไตล์ของแถบที่อยู่
+  addressBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    paddingHorizontal: 15,
+    paddingVertical: 12,
+    borderRadius: 12,
+    marginBottom: 15,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.03,
+    shadowRadius: 3,
+    elevation: 1
+  },
+  addressIconBg: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#fef2f2', alignItems: 'center', justifyContent: 'center' },
+  addressTextContainer: { flex: 1, marginLeft: 12, marginRight: 10 },
+  addressLabel: { fontSize: 11, color: '#6b7280', marginBottom: 2 },
+  addressText: { fontSize: 16, fontWeight: 'bold', color: '#1f2937' }, // ปรับให้ชื่อที่อยู่ใหญ่และเด่นขึ้น
+
+  searchContainer: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', paddingHorizontal: 15, paddingVertical: 12, borderRadius: 12, borderWidth: 1, borderColor: '#e5e7eb', marginBottom: 15 },
   searchInput: { flex: 1, marginLeft: 10, fontSize: 15, color: '#374151' },
+
+  categoriesWrapper: { marginHorizontal: -20, marginBottom: 20 },
+  categoriesContent: { paddingHorizontal: 20, paddingRight: 30, alignItems: 'center' },
+  categoryTag: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, marginRight: 10, gap: 6, borderWidth: 1, borderColor: '#e5e7eb' },
+  categoryTagActive: { backgroundColor: '#10b981', borderColor: '#10b981' },
+  categoryTagText: { fontSize: 13, color: '#6b7280', fontWeight: '500' },
+  categoryTagTextActive: { color: '#fff', fontWeight: 'bold' },
+
   content: { flex: 1, paddingHorizontal: 20, paddingTop: 15 },
   sectionHeader: { marginBottom: 15 },
   sectionTitleMain: { fontSize: 18, fontWeight: 'bold', color: '#1f2937' },
@@ -412,9 +664,9 @@ const styles = StyleSheet.create({
   drawerOverlay: { flex: 1, flexDirection: 'row' },
   drawerBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)' },
   drawerContainer: { position: 'absolute', left: 0, top: 0, bottom: 0, width: width * 0.80, backgroundColor: '#fff', shadowColor: "#000", shadowOffset: { width: 2, height: 0 }, shadowOpacity: 0.25, shadowRadius: 3.84, elevation: 5 },
-  drawerWrapper: { flex: 1, paddingTop: Platform.OS === 'ios' ? 30 : 30 }, // ✅ ปรับให้สูงขึ้น
+  drawerWrapper: { flex: 1, paddingTop: Platform.OS === 'ios' ? 30 : 30 },
   drawerContent: { flex: 1, paddingHorizontal: 20 },
-  drawerTopHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15 }, // ✅ ลดระยะห่าง
+  drawerTopHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15 },
   logoContainer: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   logoCircle: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#f0fdf4', alignItems: 'center', justifyContent: 'center' },
   appName: { fontSize: 16, fontWeight: 'bold', color: '#1f2937' },
@@ -436,4 +688,12 @@ const styles = StyleSheet.create({
   drawerMenuText: { fontSize: 15, color: '#1f2937', fontWeight: '500' },
   drawerLogout: { flexDirection: 'row', alignItems: 'center', gap: 15, marginTop: 30, paddingHorizontal: 5, marginBottom: 30 },
   drawerLogoutText: { fontSize: 15, color: '#ef4444', fontWeight: 'bold' },
+
+  alertOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 20 },
+  alertBox: { backgroundColor: '#fff', borderRadius: 24, padding: 25, alignItems: 'center', width: '85%', shadowColor: '#000', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.1, shadowRadius: 10, elevation: 10 },
+  alertIconCircle: { width: 70, height: 70, borderRadius: 35, backgroundColor: '#fee2e2', justifyContent: 'center', alignItems: 'center', marginBottom: 15 },
+  alertTitle: { fontSize: 20, fontWeight: 'bold', color: '#1f2937', marginBottom: 10, textAlign: 'center' },
+  alertMessage: { fontSize: 14, color: '#6b7280', textAlign: 'center', marginBottom: 25, lineHeight: 22 },
+  alertButton: { backgroundColor: '#111827', paddingVertical: 14, borderRadius: 12, width: '100%', alignItems: 'center' },
+  alertButtonText: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
 });

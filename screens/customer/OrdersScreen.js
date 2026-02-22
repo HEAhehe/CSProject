@@ -17,7 +17,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { auth, db } from '../../firebase.config';
-import { collection, query, where, getDocs, orderBy, doc, onSnapshot } from 'firebase/firestore';
+import { collection, query, where, getDocs, doc, onSnapshot } from 'firebase/firestore';
 import { useFocusEffect } from '@react-navigation/native';
 
 const { width } = Dimensions.get('window');
@@ -50,12 +50,11 @@ export default function OrdersScreen({ navigation }) {
     }, [])
   );
 
-const fetchOrders = async () => {
+  const fetchOrders = async () => {
     try {
       const user = auth.currentUser;
       if (!user) return;
 
-      // ✅ 1. เอา orderBy ออก เพื่อไม่ให้ติด Error เรื่อง Index
       const q = query(
         collection(db, 'orders'),
         where('userId', '==', user.uid)
@@ -67,7 +66,7 @@ const fetchOrders = async () => {
         ...doc.data()
       }));
 
-      // ✅ 2. นำข้อมูลมาจัดเรียงเวลา (Sort) เองในแอป เรียงจากใหม่ล่าสุดไปเก่า
+      // จัดเรียงเวลา (Sort) จากใหม่ล่าสุดไปเก่า
       ordersData.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
       setOrders(ordersData);
@@ -97,6 +96,16 @@ const fetchOrders = async () => {
     await auth.signOut();
   };
 
+  // ✅ เพิ่มฟังก์ชันตรวจสอบสถานะร้านค้าก่อนสลับหน้า (เหมือนหน้า Home)
+  const handleSwitchToStore = () => {
+    toggleDrawer();
+    if (userData?.currentRole === 'store' || userData?.currentRole === 'admin') {
+      navigation.navigate('MyShop');
+    } else {
+      navigation.navigate('RegisterStoreStep1');
+    }
+  };
+
   const getStatusColor = (status) => {
     switch (status) {
       case 'completed': return '#10b981';
@@ -115,7 +124,6 @@ const fetchOrders = async () => {
     }
   };
 
-  // ✅ ฟังก์ชันจัดรูปแบบ ID สำหรับรายการ
   const getFormattedOrderId = (orderId, type) => {
     const shortId = orderId.slice(0, 6).toUpperCase();
     return type === 'delivery' ? `D-${shortId}` : `P-${shortId}`;
@@ -128,7 +136,6 @@ const fetchOrders = async () => {
     >
       <View style={styles.cardHeader}>
         <View style={styles.storeInfo}>
-          {/* ✅ แสดงรหัสย่อที่หัวมุม */}
           <View style={{backgroundColor: '#f3f4f6', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, marginRight: 8}}>
              <Text style={{fontWeight: 'bold', color: '#1f2937', fontSize: 12}}>
                {getFormattedOrderId(item.id, item.orderType)}
@@ -136,9 +143,19 @@ const fetchOrders = async () => {
           </View>
           <Text style={styles.storeName}>{item.storeName || 'ไม่ระบุร้าน'}</Text>
         </View>
-        <Text style={[styles.statusText, { color: getStatusColor(item.status) }]}>
-          {getStatusText(item.status || 'pending')}
-        </Text>
+
+        <View style={{alignItems: 'flex-end'}}>
+            <Text style={[styles.statusText, { color: getStatusColor(item.status) }]}>
+              {getStatusText(item.status || 'pending')}
+            </Text>
+
+            {item.status === 'completed' && !item.isReviewed && (
+               <View style={styles.pendingReviewBadge}>
+                  <Ionicons name="star" size={10} color="#d97706" style={{marginRight: 2}}/>
+                  <Text style={styles.pendingReviewText}>รอรีวิว</Text>
+               </View>
+            )}
+        </View>
       </View>
 
       <View style={styles.cardBody}>
@@ -173,8 +190,17 @@ const fetchOrders = async () => {
           <View><Text style={styles.drawerName}>{userData?.username || 'User'}</Text><Text style={styles.drawerRole}>ลูกค้า (Customer)</Text></View>
         </View>
         <View style={styles.modeContainer}>
-            <TouchableOpacity style={styles.modeButtonActive}><Ionicons name="cart" size={14} color="#fff" /><Text style={styles.modeTextActive}>ลูกค้า</Text></TouchableOpacity>
-            <TouchableOpacity style={styles.modeButtonInactive} onPress={() => { toggleDrawer(); navigation.navigate('RegisterStoreStep1'); }}><Ionicons name="storefront-outline" size={14} color="#6b7280" /><Text style={styles.modeTextInactive}>ร้านค้า</Text></TouchableOpacity>
+            <TouchableOpacity style={styles.modeButtonActive}>
+              <Ionicons name="cart" size={14} color="#fff" />
+              <Text style={styles.modeTextActive}>โหมดลูกค้า</Text>
+            </TouchableOpacity>
+            {/* ✅ ใช้ handleSwitchToStore และเปลี่ยนข้อความตาม Role */}
+            <TouchableOpacity style={styles.modeButtonInactive} onPress={handleSwitchToStore}>
+              <Ionicons name="storefront-outline" size={14} color="#6b7280" />
+              <Text style={styles.modeTextInactive}>
+                {userData?.currentRole === 'store' || userData?.currentRole === 'admin' ? 'โหมดร้านค้า' : 'สมัครร้านค้า'}
+              </Text>
+            </TouchableOpacity>
         </View>
       </View>
 
@@ -281,28 +307,19 @@ const fetchOrders = async () => {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f9fafb' },
-   header: {
-     flexDirection: 'row',
-     justifyContent: 'space-between',
-     alignItems: 'center',
-     paddingHorizontal: 20,
-     paddingTop: Platform.OS === 'ios' ? 60 : 60,
-     paddingBottom: 15, // ✅ ลดลงเพื่อให้กระชับเท่าหน้า Home
-     backgroundColor: '#fff',
-     borderBottomWidth: 1,
-     borderBottomColor: '#f3f4f6',
-     zIndex: 10
-   },
+  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingTop: Platform.OS === 'ios' ? 60 : 60, paddingBottom: 15, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#f3f4f6', zIndex: 10 },
   headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 15 },
   headerTitle: { fontSize: 20, fontWeight: 'bold', color: '#1f2937' },
   menuButton: { padding: 4 },
   avatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#f3f4f6', borderWidth: 1, borderColor: '#e5e7eb' },
   listContent: { padding: 20 },
   orderCard: { backgroundColor: '#fff', borderRadius: 12, padding: 15, marginBottom: 12, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, elevation: 2 },
-  cardHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 },
+  cardHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12, alignItems: 'flex-start' },
   storeInfo: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   storeName: { fontSize: 14, fontWeight: '600', color: '#4b5563' },
   statusText: { fontSize: 12, fontWeight: 'bold' },
+  pendingReviewBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fef3c7', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, marginTop: 4 },
+  pendingReviewText: { fontSize: 10, color: '#d97706', fontWeight: 'bold' },
   cardBody: { flexDirection: 'row', alignItems: 'center' },
   imagePlaceholder: { width: 50, height: 50, borderRadius: 8, backgroundColor: '#f3f4f6', alignItems: 'center', justifyContent: 'center', marginRight: 12 },
   orderInfo: { flex: 1 },

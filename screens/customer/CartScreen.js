@@ -8,9 +8,9 @@ import {
   TouchableOpacity,
   Image,
   StatusBar,
-  Alert,
   ActivityIndicator,
-  Pressable
+  Pressable,
+  Modal
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { db, auth } from '../../firebase.config';
@@ -22,7 +22,7 @@ import {
   doc,
   runTransaction,
   getDoc,
-  increment // เพิ่ม increment สำหรับอัปเดตยอดสะสม
+  increment
 } from 'firebase/firestore';
 
 export default function CartScreen({ navigation }) {
@@ -30,16 +30,44 @@ export default function CartScreen({ navigation }) {
   const [selectedItems, setSelectedItems] = useState(new Set());
   const [totalPrice, setTotalPrice] = useState(0);
   const [totalOriginalPrice, setTotalOriginalPrice] = useState(0);
-  const [totalWeight, setTotalWeight] = useState(0); // ✅ เพิ่ม state สำหรับน้ำหนักรวม
+  const [totalWeight, setTotalWeight] = useState(0);
   const [loading, setLoading] = useState(false);
   const [initializing, setInitializing] = useState(true);
 
-  // 1. Fetch Cart Items
+  const [userData, setUserData] = useState(null);
+
+  const [alertVisible, setAlertVisible] = useState(false);
+  const [alertConfig, setAlertConfig] = useState({
+    title: '',
+    message: '',
+    type: 'info',
+    onConfirm: null,
+    showCancel: false,
+    onCancel: null,
+    confirmText: 'ตกลง',
+    cancelText: 'ยกเลิก'
+  });
+
+  const showCustomAlert = (title, message, type = 'info', options = {}) => {
+      setAlertConfig({
+        title,
+        message,
+        type,
+        showCancel: false,
+        confirmText: 'ตกลง',
+        cancelText: 'ยกเลิก',
+        onConfirm: null,
+        onCancel: null,
+        ...options
+      });
+      setAlertVisible(true);
+  };
+
   useEffect(() => {
     const user = auth.currentUser;
     if (user) {
       const cartRef = collection(db, 'users', user.uid, 'cart');
-      const unsubscribe = onSnapshot(cartRef, (snapshot) => {
+      const unsubscribeCart = onSnapshot(cartRef, (snapshot) => {
         const items = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         setCartItems(items);
         setInitializing(false);
@@ -47,13 +75,23 @@ export default function CartScreen({ navigation }) {
         console.error(error);
         setInitializing(false);
       });
-      return () => unsubscribe();
+
+      const userRef = doc(db, 'users', user.uid);
+      const unsubscribeUser = onSnapshot(userRef, (docSnap) => {
+        if (docSnap.exists()) {
+          setUserData(docSnap.data());
+        }
+      });
+
+      return () => {
+        unsubscribeCart();
+        unsubscribeUser();
+      };
     } else {
       setInitializing(false);
     }
   }, []);
 
-  // 2. Group Items by Store
   const groupedItems = useMemo(() => {
     const groups = {};
     cartItems.forEach(item => {
@@ -70,14 +108,15 @@ export default function CartScreen({ navigation }) {
     return Object.values(groups);
   }, [cartItems]);
 
-  // 3. Calculate Price & Weight
   useEffect(() => {
     const selected = cartItems.filter(item => selectedItems.has(item.id));
     const netTotal = selected.reduce((sum, item) => sum + (item.price * item.quantity), 0);
     const originalTotal = selected.reduce((sum, item) => sum + ((item.originalPrice || item.price) * item.quantity), 0);
 
-    // ✅ คำนวณน้ำหนักรวม (ใช้ 0.4 kg ต่อชิ้นเป็นค่ามาตรฐาน)
-    const weightTotal = selected.reduce((sum, item) => sum + (0.4 * item.quantity), 0);
+    const weightTotal = selected.reduce((sum, item) => {
+      const itemWeight = Number(item.weight) || 0.4;
+      return sum + (itemWeight * item.quantity);
+    }, 0);
 
     setTotalPrice(netTotal);
     setTotalOriginalPrice(originalTotal);
@@ -108,7 +147,7 @@ export default function CartScreen({ navigation }) {
         if (change > 0) {
             const foodSnap = await getDoc(doc(db, 'food_items', foodId));
             if (foodSnap.exists() && newQty > (foodSnap.data().quantity || 0)) {
-                Alert.alert('เพิ่มจำนวนไม่ได้', `สินค้าเหลือเพียง ${foodSnap.data().quantity} ชิ้น`);
+                showCustomAlert('เพิ่มจำนวนไม่ได้', `สินค้าเหลือเพียง ${foodSnap.data().quantity} ชิ้น`, 'error');
                 return;
             }
         }
@@ -118,110 +157,144 @@ export default function CartScreen({ navigation }) {
   };
 
   const removeItem = async (id) => {
-    Alert.alert('ยืนยัน', 'ต้องการลบรายการนี้หรือไม่?', [
-      { text: 'ยกเลิก', style: 'cancel' },
-      { text: 'ลบ', style: 'destructive', onPress: async () => {
+    showCustomAlert('ยืนยันการลบ', 'ต้องการลบรายการนี้ออกจากตะกร้าหรือไม่?', 'warning', {
+      showCancel: true,
+      confirmText: 'ลบ',
+      cancelText: 'ยกเลิก',
+      onConfirm: async () => {
           const user = auth.currentUser;
           await deleteDoc(doc(db, 'users', user.uid, 'cart', id));
           const newSelected = new Set(selectedItems);
           newSelected.delete(id);
           setSelectedItems(newSelected);
-      }}
-    ]);
+      }
+    });
   };
 
   const handleCheckout = async () => {
     if (selectedItems.size === 0) {
-        Alert.alert('แจ้งเตือน', 'กรุณาเลือกสินค้าที่ต้องการสั่งซื้อ');
+        showCustomAlert('แจ้งเตือน', 'กรุณาเลือกสินค้าที่ต้องการสั่งซื้อ', 'warning');
         return;
     }
 
     const itemsToCheckout = cartItems.filter(item => selectedItems.has(item.id));
+    const requiresDelivery = itemsToCheckout.some(item => item.deliveryMethod === 'delivery');
 
-    Alert.alert('ยืนยันการสั่งซื้อ', `รวมทั้งหมด ${totalPrice} บาท (${itemsToCheckout.length} รายการ)`, [
-      { text: 'ยกเลิก', style: 'cancel' },
-      {
-        text: 'สั่งเลย',
-        onPress: async () => {
-          setLoading(true);
-          const user = auth.currentUser;
+    if (requiresDelivery && !userData?.address) {
+        showCustomAlert('แจ้งเตือน', 'คุณมีรายการที่ต้องจัดส่ง\nกรุณาระบุที่อยู่จัดส่งด้านบนก่อนครับ', 'warning');
+        return;
+    }
 
-          try {
-            const groupedByStore = itemsToCheckout.reduce((acc, item) => {
-              const sId = item.storeId || item.userId;
-              if (!acc[sId]) acc[sId] = [];
-              acc[sId].push(item);
-              return acc;
-            }, {});
+    showCustomAlert('ยืนยันการสั่งซื้อ', `รวมทั้งหมด ${totalPrice} บาท\nจำนวน ${itemsToCheckout.length} รายการ`, 'info', {
+      showCancel: true,
+      confirmText: 'สั่งเลย',
+      cancelText: 'ยกเลิก',
+      onConfirm: async () => {
+        setLoading(true);
+        const user = auth.currentUser;
+        let lastCreatedOrder = null;
 
-            for (const storeId in groupedByStore) {
-              const itemsInOrder = groupedByStore[storeId];
+        try {
+          const groupedByStore = itemsToCheckout.reduce((acc, item) => {
+            const sId = item.storeId || item.userId;
+            if (!acc[sId]) acc[sId] = [];
+            acc[sId].push(item);
+            return acc;
+          }, {});
 
-              await runTransaction(db, async (transaction) => {
-                const foodRefs = itemsInOrder.map(item => doc(db, 'food_items', item.foodId));
-                const foodSnaps = await Promise.all(foodRefs.map(ref => transaction.get(ref)));
+          for (const storeId in groupedByStore) {
+            const itemsInOrder = groupedByStore[storeId];
 
-                foodSnaps.forEach((snap, index) => {
-                  if (!snap.exists()) throw `สินค้า "${itemsInOrder[index].foodName}" ไม่มีในระบบ`;
-                  if (snap.data().quantity < itemsInOrder[index].quantity) {
-                    throw `สินค้า "${itemsInOrder[index].foodName}" เหลือไม่พอ`;
-                  }
-                });
+            await runTransaction(db, async (transaction) => {
+              const foodRefs = itemsInOrder.map(item => doc(db, 'food_items', item.foodId));
+              const foodSnaps = await Promise.all(foodRefs.map(ref => transaction.get(ref)));
 
-                let closingTime = '20:00';
-                const storeRef = doc(db, 'stores', storeId);
-                const storeSnap = await transaction.get(storeRef);
-                if (storeSnap.exists()) {
-                   closingTime = storeSnap.data().closeTime || storeSnap.data().closingTime || '20:00';
+              foodSnaps.forEach((snap, index) => {
+                if (!snap.exists()) throw `สินค้า "${itemsInOrder[index].foodName}" ไม่มีในระบบ`;
+                if (snap.data().quantity < itemsInOrder[index].quantity) {
+                  throw `สินค้า "${itemsInOrder[index].foodName}" เหลือไม่พอ`;
                 }
+              });
 
-                itemsInOrder.forEach((item, index) => {
-                  transaction.update(foodRefs[index], {
-                    quantity: foodSnaps[index].data().quantity - item.quantity
-                  });
-                });
+              let closingTime = '20:00';
+              const storeRef = doc(db, 'stores', storeId);
+              const storeSnap = await transaction.get(storeRef);
+              if (storeSnap.exists()) {
+                 closingTime = storeSnap.data().closeTime || storeSnap.data().closingTime || '20:00';
+              }
 
-                const orderType = itemsInOrder[0].deliveryMethod || 'pickup';
-                const newOrderRef = doc(collection(db, 'orders'));
-
-                transaction.set(newOrderRef, {
-                  userId: user.uid,
-                  storeId: storeId,
-                  storeName: itemsInOrder[0].storeName || 'ร้านค้า',
-                  items: itemsInOrder.map(i => ({
-                    foodId: i.foodId,
-                    foodName: i.foodName,
-                    quantity: i.quantity,
-                    price: i.price,
-                    imageUrl: i.imageUrl || null
-                  })),
-                  foodName: itemsInOrder.length > 1 ? `${itemsInOrder[0].foodName} และอื่นๆ` : itemsInOrder[0].foodName,
-                  totalPrice: itemsInOrder.reduce((sum, i) => sum + (i.price * i.quantity), 0),
-                  quantity: itemsInOrder.reduce((sum, i) => sum + i.quantity, 0),
-                  status: 'pending',
-                  orderType: orderType,
-                  closingTime: closingTime,
-                  createdAt: new Date().toISOString()
+              itemsInOrder.forEach((item, index) => {
+                transaction.update(foodRefs[index], {
+                  quantity: foodSnaps[index].data().quantity - item.quantity
                 });
               });
 
-              for (const item of itemsInOrder) {
-                await deleteDoc(doc(db, 'users', user.uid, 'cart', item.id));
-              }
+              const orderWeight = itemsInOrder.reduce((sum, i) => {
+                  const w = Number(i.weight) || 0.4;
+                  return sum + (w * i.quantity);
+              }, 0);
+
+              const orderType = itemsInOrder[0].deliveryMethod || 'pickup';
+              const newOrderRef = doc(collection(db, 'orders'));
+
+              // ✅ เพิ่มชื่อที่อยู่, รายละเอียด, และเบอร์โทร
+              const orderData = {
+                id: newOrderRef.id,
+                userId: user.uid,
+                storeId: storeId,
+                storeName: itemsInOrder[0].storeName || 'ร้านค้า',
+                items: itemsInOrder.map(i => ({
+                  foodId: i.foodId,
+                  foodName: i.foodName,
+                  quantity: i.quantity,
+                  price: i.price,
+                  weight: Number(i.weight) || 0.4,
+                  imageUrl: i.imageUrl || null
+                })),
+                foodName: itemsInOrder.length > 1 ? `${itemsInOrder[0].foodName} และอื่นๆ` : itemsInOrder[0].foodName,
+                totalPrice: itemsInOrder.reduce((sum, i) => sum + (i.price * i.quantity), 0),
+                quantity: itemsInOrder.reduce((sum, i) => sum + i.quantity, 0),
+                totalOrderWeight: orderWeight,
+                status: 'pending',
+                orderType: orderType,
+                customerAddressTitle: userData?.addressTitle || '',
+                customerAddress: userData?.address || '',
+                customerLat: userData?.latitude || null,
+                customerLng: userData?.longitude || null,
+                customerPhone: userData?.phone || 'ไม่ระบุเบอร์โทร',
+                closingTime: closingTime,
+                createdAt: new Date().toISOString()
+              };
+
+              lastCreatedOrder = orderData;
+              transaction.set(newOrderRef, orderData);
+            });
+
+            for (const item of itemsInOrder) {
+              await deleteDoc(doc(db, 'users', user.uid, 'cart', item.id));
             }
-
-            setLoading(false);
-            Alert.alert('สำเร็จ', `คุณช่วยโลกโดยการลดขยะอาหารไปได้ ${totalWeight.toFixed(1)} kg! 🥳`);
-            navigation.navigate('Orders');
-
-          } catch (error) {
-            console.error(error);
-            setLoading(false);
-            Alert.alert('ข้อผิดพลาด', typeof error === 'string' ? error : 'สั่งซื้อไม่สำเร็จ');
           }
+
+          const userRef = doc(db, 'users', user.uid);
+          await updateDoc(userRef, {
+             totalWeightSaved: increment(totalWeight)
+          });
+
+          setLoading(false);
+          showCustomAlert('สำเร็จ!', `สั่งอาหารเรียบร้อยแล้ว 🌍`, 'success', {
+             onConfirm: () => {
+                 setAlertVisible(false);
+                 navigation.replace('OrderDetail', { order: lastCreatedOrder });
+             }
+          });
+
+        } catch (error) {
+          console.error(error);
+          setLoading(false);
+          showCustomAlert('ข้อผิดพลาด', typeof error === 'string' ? error : 'สั่งซื้อไม่สำเร็จ', 'error');
         }
       }
-    ]);
+    });
   };
 
   const renderStoreCard = ({ item: group }) => {
@@ -231,11 +304,7 @@ export default function CartScreen({ navigation }) {
       <View style={styles.storeCardContainer}>
         <View style={styles.storeHeader}>
             <TouchableOpacity onPress={() => toggleStoreSelection(group.items)} style={styles.storeCheckbox}>
-                <Ionicons
-                    name={isStoreSelected ? "checkbox" : "square-outline"}
-                    size={24}
-                    color={isStoreSelected ? "#10b981" : "#9ca3af"}
-                />
+                <Ionicons name={isStoreSelected ? "checkbox" : "square-outline"} size={24} color={isStoreSelected ? "#10b981" : "#9ca3af"} />
             </TouchableOpacity>
             <Ionicons name="storefront" size={18} color="#374151" style={{marginRight: 6}} />
             <Text style={styles.storeNameText}>{group.storeName}</Text>
@@ -252,17 +321,10 @@ export default function CartScreen({ navigation }) {
                 <View key={item.id}>
                     <View style={styles.itemRowContainer}>
                         <TouchableOpacity style={styles.checkboxArea} onPress={() => toggleSelection(item.id)}>
-                            <Ionicons
-                                name={isSelected ? "checkbox" : "square-outline"}
-                                size={24}
-                                color={isSelected ? "#10b981" : "#d1d5db"}
-                            />
+                            <Ionicons name={isSelected ? "checkbox" : "square-outline"} size={24} color={isSelected ? "#10b981" : "#d1d5db"} />
                         </TouchableOpacity>
 
-                        <Pressable
-                            style={styles.itemContent}
-                            onPress={() => navigation.navigate('FoodDetail', { food: { ...item, id: item.foodId } })}
-                        >
+                        <Pressable style={styles.itemContent} onPress={() => navigation.navigate('FoodDetail', { food: { ...item, id: item.foodId } })}>
                             <Image source={item.imageUrl ? { uri: item.imageUrl } : { uri: 'https://via.placeholder.com/100' }} style={styles.itemImage} />
 
                             <View style={styles.itemInfo}>
@@ -275,11 +337,7 @@ export default function CartScreen({ navigation }) {
                                     </View>
 
                                     <View style={[styles.methodBadge, isDelivery ? styles.badgeDelivery : styles.badgePickup]}>
-                                        <Ionicons
-                                            name={isDelivery ? "bicycle" : "storefront"}
-                                            size={12}
-                                            color={isDelivery ? "#c2410c" : "#15803d"}
-                                        />
+                                        <Ionicons name={isDelivery ? "bicycle" : "storefront"} size={12} color={isDelivery ? "#c2410c" : "#15803d"} />
                                         <Text style={[styles.methodText, isDelivery ? styles.textDelivery : styles.textPickup]}>
                                             {isDelivery ? "จัดส่ง" : "รับเอง"}
                                         </Text>
@@ -329,11 +387,35 @@ export default function CartScreen({ navigation }) {
       </View>
 
       <FlatList
-        data={groupedItems} // ✅ แก้เป็นใช้ groupedItems เพื่อความสวยงาม
+        data={groupedItems}
         renderItem={renderStoreCard}
         keyExtractor={item => item.storeId}
         contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
+        ListHeaderComponent={
+          cartItems.length > 0 ? (
+            <TouchableOpacity
+              style={styles.addressBar}
+              onPress={() => navigation.navigate('AddressBook')}
+              activeOpacity={0.7}
+            >
+              <View style={styles.addressIconBg}>
+                <Ionicons name="location" size={20} color="#ef4444" />
+              </View>
+              <View style={styles.addressTextContainer}>
+                <Text style={[styles.addressTitleMain, !userData?.addressTitle && { color: '#ef4444', fontStyle: 'italic' }]} numberOfLines={1}>
+                  {userData?.addressTitle ? userData.addressTitle : 'เพิ่มที่อยู่จัดส่ง (คลิก)'}
+                </Text>
+                {userData?.address && (
+                  <Text style={styles.addressDetailSub} numberOfLines={1}>
+                    {userData.address}
+                  </Text>
+                )}
+              </View>
+              <Ionicons name="chevron-forward" size={20} color="#9ca3af" />
+            </TouchableOpacity>
+          ) : null
+        }
         ListEmptyComponent={
             <View style={styles.emptyState}>
                 <View style={styles.emptyIconBg}><Ionicons name="cart-outline" size={48} color="#9ca3af" /></View>
@@ -348,7 +430,6 @@ export default function CartScreen({ navigation }) {
               <View style={styles.totalRow}>
                   <View>
                     <Text style={styles.totalLabel}>รวม ({selectedItems.size} รายการ)</Text>
-                    {/* ✅ แสดงน้ำหนักที่จะลดได้ใน Footer */}
                     {totalWeight > 0 && (
                         <Text style={styles.weightSavingText}>ลด Food Waste ได้ {totalWeight.toFixed(1)} kg 🌍</Text>
                     )}
@@ -369,6 +450,57 @@ export default function CartScreen({ navigation }) {
               </TouchableOpacity>
           </View>
       )}
+
+      <Modal animationType="fade" transparent={true} visible={alertVisible} onRequestClose={() => setAlertVisible(false)}>
+        <View style={styles.alertOverlay}>
+          <View style={styles.alertBox}>
+            <View style={[
+              styles.alertIconCircle,
+              alertConfig.type === 'success' ? { backgroundColor: '#dcfce7' } :
+              alertConfig.type === 'warning' ? { backgroundColor: '#fef3c7' } :
+              alertConfig.type === 'info' ? { backgroundColor: '#e0e7ff' } : { backgroundColor: '#fee2e2' }
+            ]}>
+              <Ionicons
+                name={
+                  alertConfig.type === 'success' ? "checkmark" :
+                  alertConfig.type === 'warning' ? "warning" :
+                  alertConfig.type === 'info' ? "cart" : "close"
+                }
+                size={36}
+                color={
+                  alertConfig.type === 'success' ? '#10b981' :
+                  alertConfig.type === 'warning' ? '#f59e0b' :
+                  alertConfig.type === 'info' ? '#3b82f6' : '#ef4444'
+                }
+              />
+            </View>
+            <Text style={styles.alertTitle}>{alertConfig.title}</Text>
+            <Text style={styles.alertMessage}>{alertConfig.message}</Text>
+
+            <View style={styles.alertButtonGroup}>
+              {alertConfig.showCancel && (
+                <TouchableOpacity
+                  style={[styles.alertButton, { backgroundColor: '#f3f4f6', flex: 1, marginRight: 10 }]}
+                  onPress={() => { setAlertVisible(false); if (alertConfig.onCancel) alertConfig.onCancel(); }}
+                >
+                  <Text style={[styles.alertButtonText, { color: '#4b5563' }]}>{alertConfig.cancelText}</Text>
+                </TouchableOpacity>
+              )}
+              <TouchableOpacity
+                style={[
+                  styles.alertButton,
+                  alertConfig.type === 'success' ? { backgroundColor: '#10b981' } :
+                  alertConfig.type === 'error' ? { backgroundColor: '#ef4444' } : { backgroundColor: '#111827' },
+                  alertConfig.showCancel && { flex: 1 }
+                ]}
+                onPress={() => { setAlertVisible(false); if (alertConfig.onConfirm) alertConfig.onConfirm(); }}
+              >
+                <Text style={styles.alertButtonText}>{alertConfig.confirmText}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -379,7 +511,29 @@ const styles = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: Platform.OS === 'ios' ? 60 : 60, paddingBottom: 15, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#f3f4f6' },
   headerTitle: { fontSize: 18, fontWeight: 'bold', color: '#1f2937' },
   backButton: { padding: 4 },
-  listContent: { padding: 10, paddingBottom: 120 },
+  listContent: { padding: 15, paddingBottom: 120 },
+
+  addressBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    paddingHorizontal: 15,
+    paddingVertical: 12,
+    borderRadius: 12,
+    marginBottom: 15,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.03,
+    shadowRadius: 3,
+    elevation: 1
+  },
+  addressIconBg: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#fef2f2', alignItems: 'center', justifyContent: 'center' },
+  addressTextContainer: { flex: 1, marginLeft: 12, marginRight: 10, justifyContent: 'center' },
+  addressTitleMain: { fontSize: 16, fontWeight: 'bold', color: '#1f2937', marginBottom: 2 },
+  addressDetailSub: { fontSize: 12, color: '#6b7280' },
+
   storeCardContainer: { backgroundColor: '#fff', borderRadius: 16, padding: 15, marginBottom: 15, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 3 },
   storeHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
   storeCheckbox: { marginRight: 8 },
@@ -420,4 +574,13 @@ const styles = StyleSheet.create({
   totalOriginalValue: { fontSize: 12, color: '#9ca3af', textDecorationLine: 'line-through' },
   checkoutButton: { backgroundColor: '#10b981', paddingVertical: 16, borderRadius: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
   checkoutText: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
+
+  alertOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 20 },
+  alertBox: { backgroundColor: '#fff', borderRadius: 24, padding: 25, alignItems: 'center', width: '85%', shadowColor: '#000', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.1, shadowRadius: 10, elevation: 10 },
+  alertIconCircle: { width: 70, height: 70, borderRadius: 35, justifyContent: 'center', alignItems: 'center', marginBottom: 15 },
+  alertTitle: { fontSize: 20, fontWeight: 'bold', color: '#1f2937', marginBottom: 10, textAlign: 'center' },
+  alertMessage: { fontSize: 14, color: '#6b7280', textAlign: 'center', marginBottom: 25, lineHeight: 22 },
+  alertButtonGroup: { flexDirection: 'row', width: '100%', gap: 10 },
+  alertButton: { paddingVertical: 14, borderRadius: 12, width: '100%', alignItems: 'center', justifyContent: 'center' },
+  alertButtonText: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
 });

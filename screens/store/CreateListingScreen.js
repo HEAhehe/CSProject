@@ -8,14 +8,13 @@ import {
   StatusBar,
   Image,
   TextInput,
-  Alert,
   ActivityIndicator,
   KeyboardAvoidingView,
-  Platform
+  Platform,
+  Modal // ✅ นำเข้า Modal สำหรับทำป๊อปอัป
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
-import DateTimePicker from '@react-native-community/datetimepicker';
 import { auth, db } from '../../firebase.config';
 import { collection, addDoc, updateDoc, doc, getDoc, serverTimestamp } from 'firebase/firestore';
 
@@ -25,52 +24,81 @@ export default function CreateListingScreen({ navigation, route }) {
 
   const [formData, setFormData] = useState({
     name: '',
+    description: '',
     fullPrice: '',
     price: '',
     amount: '',
+    weightOrVolume: '',
   });
+
+  const [sellingUnit, setSellingUnit] = useState('ชิ้น');
+  const [measureUnit, setMeasureUnit] = useState('g');
 
   const [imageUri, setImageUri] = useState(null);
   const [loading, setLoading] = useState(false);
   const [storeName, setStoreName] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState('ของคาว');
-  
-  // Date/Time Picker states
-  const [closedForSaleDate, setClosedForSaleDate] = useState(new Date());
-  const [showDatePicker, setShowDatePicker] = useState(false);
-  const [showTimePicker, setShowTimePicker] = useState(false);
 
-  // หมวดหมู่อาหาร
+  const [selectedCategory, setSelectedCategory] = useState('เบเกอรี่ / ขนมปัง');
+
+  // ✅ State สำหรับควบคุม Custom Alert
+  const [alertVisible, setAlertVisible] = useState(false);
+  const [alertConfig, setAlertConfig] = useState({
+    title: '',
+    message: '',
+    type: 'error', // 'success' | 'error'
+    onConfirm: null
+  });
+
   const foodCategories = [
-    { id: 'savory', label: 'ของคาว', icon: 'restaurant' },
-    { id: 'sweet', label: 'ของหวาน', icon: 'ice-cream' },
-    { id: 'beverage', label: 'เครื่องดื่ม', icon: 'cafe' },
-    { id: 'snack', label: 'ของว่าง', icon: 'fast-food' },
+    { id: 'bakery', label: 'เบเกอรี่ / ขนมปัง', icon: 'pie-chart' },
+    { id: 'box', label: 'อาหารกล่อง / ข้าวกล่อง', icon: 'restaurant' },
+    { id: 'drink', label: 'เครื่องดื่ม/น้ำ', icon: 'cafe' },
+    { id: 'fresh', label: 'อาหารสด/วัตถุดิบ', icon: 'leaf' },
+    { id: 'set', label: 'อาหารชุด / Box set', icon: 'gift' },
+    { id: 'snack', label: 'ของหวาน / ทานเล่น', icon: 'ice-cream' },
   ];
+
+  const isDrinkCategory = selectedCategory === 'เครื่องดื่ม/น้ำ';
+  const isSetCategory = selectedCategory === 'อาหารชุด / Box set';
+
+  let availableSellingUnits = ['กล่อง', 'ชิ้น', 'แพ็ค', 'ถุง'];
+  if (isDrinkCategory) {
+    availableSellingUnits = ['แก้ว', 'ขวด', 'แพ็ค', 'ถุง'];
+  } else if (isSetCategory) {
+    availableSellingUnits = ['ชุด', 'กล่อง'];
+  }
+
+  const availableMeasureUnits = isDrinkCategory
+    ? [
+        { id: 'ml', label: 'มล. (ml)' },
+        { id: 'L', label: 'ลิตร (L)' }
+      ]
+    : [
+        { id: 'g', label: 'กรัม (g)' },
+        { id: 'kg', label: 'กิโลกรัม (kg)' }
+      ];
+
+  // ✅ ฟังก์ชันเรียกโชว์ป๊อปอัป
+  const showCustomAlert = (title, message, type = 'error', onConfirm = null) => {
+    setAlertConfig({ title, message, type, onConfirm });
+    setAlertVisible(true);
+  };
 
   useEffect(() => {
     loadStoreName();
     if (editItem) {
       setFormData({
         name: editItem.name || '',
+        description: editItem.description || '',
         fullPrice: String(editItem.originalPrice || ''),
         price: String(editItem.discountPrice || ''),
         amount: String(editItem.quantity || ''),
+        weightOrVolume: String(editItem.measureValue || editItem.weight || editItem.volume || ''),
       });
       setImageUri(editItem.imageUrl);
-      setSelectedCategory(editItem.category || 'ของคาว');
-      
-      // Parse existing date if available
-      if (editItem.expiryDate) {
-        try {
-          const parsedDate = new Date(editItem.expiryDate);
-          if (!isNaN(parsedDate.getTime())) {
-            setClosedForSaleDate(parsedDate);
-          }
-        } catch (error) {
-          console.log('Could not parse existing date');
-        }
-      }
+      setSelectedCategory(editItem.category || 'เบเกอรี่ / ขนมปัง');
+      setSellingUnit(editItem.sellingUnit || editItem.unit || 'ชิ้น');
+      setMeasureUnit(editItem.measureUnit || 'g');
     }
   }, [editItem]);
 
@@ -88,12 +116,12 @@ export default function CreateListingScreen({ navigation, route }) {
   const pickImage = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') {
-      Alert.alert('สิทธิ์ถูกปฏิเสธ', 'กรุณาอนุญาตให้เข้าถึงรูปภาพเพื่ออัปโหลดรูปอาหาร');
+      showCustomAlert('สิทธิ์ถูกปฏิเสธ', 'กรุณาอนุญาตให้เข้าถึงรูปภาพเพื่ออัปโหลดรูปอาหาร', 'error');
       return;
     }
 
     let result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsEditing: true,
       aspect: [4, 3],
       quality: 0.15,
@@ -105,36 +133,30 @@ export default function CreateListingScreen({ navigation, route }) {
     }
   };
 
+  const handleCategorySelect = (catLabel) => {
+    setSelectedCategory(catLabel);
+
+    if (catLabel === 'เบเกอรี่ / ขนมปัง') {
+        setSellingUnit('ชิ้น'); setMeasureUnit('g');
+    } else if (catLabel === 'อาหารกล่อง / ข้าวกล่อง') {
+        setSellingUnit('กล่อง'); setMeasureUnit('g');
+    } else if (catLabel === 'เครื่องดื่ม/น้ำ') {
+        setSellingUnit('แก้ว'); setMeasureUnit('ml');
+    } else if (catLabel === 'อาหารสด/วัตถุดิบ') {
+        setSellingUnit('แพ็ค'); setMeasureUnit('kg');
+    } else if (catLabel === 'อาหารชุด / Box set') {
+        setSellingUnit('ชุด'); setMeasureUnit('g');
+    } else if (catLabel === 'ของหวาน / ทานเล่น') {
+        setSellingUnit('ชิ้น'); setMeasureUnit('g');
+    }
+  };
+
   const validateForm = () => {
-    if (!formData.name || !formData.fullPrice || !formData.price || !formData.amount) {
-      Alert.alert('ข้อมูลไม่ครบ', 'กรุณากรอกข้อมูลที่มีเครื่องหมาย * ให้ครบถ้วน');
+    if (!formData.name || !formData.fullPrice || !formData.price || !formData.amount || !formData.weightOrVolume) {
+      showCustomAlert('ข้อมูลไม่ครบ', 'กรุณากรอกข้อมูลที่มีเครื่องหมาย * ให้ครบถ้วนครับ', 'error');
       return false;
     }
     return true;
-  };
-
-  const formatDateTime = (date) => {
-    const day = date.getDate().toString().padStart(2, '0');
-    const month = (date.getMonth() + 1).toString().padStart(2, '0');
-    const year = date.getFullYear();
-    const hours = date.getHours().toString().padStart(2, '0');
-    const minutes = date.getMinutes().toString().padStart(2, '0');
-    
-    return `${day}/${month}/${year} ${hours}:${minutes}`;
-  };
-
-  const onDateChange = (event, selectedDate) => {
-    setShowDatePicker(false);
-    if (selectedDate) {
-      setClosedForSaleDate(selectedDate);
-    }
-  };
-
-  const onTimeChange = (event, selectedTime) => {
-    setShowTimePicker(false);
-    if (selectedTime) {
-      setClosedForSaleDate(selectedTime);
-    }
   };
 
   const handleSubmit = async () => {
@@ -148,22 +170,25 @@ export default function CreateListingScreen({ navigation, route }) {
         userId: user.uid,
         storeName: storeName,
         name: formData.name.trim(),
+        description: formData.description.trim(),
         category: selectedCategory,
         originalPrice: Number(formData.fullPrice),
         discountPrice: Number(formData.price),
         price: Number(formData.price),
         quantity: Number(formData.amount),
-        unit: 'ชุด',
-        expiryDate: closedForSaleDate.toISOString(), // Save as ISO string
+
+        sellingUnit: sellingUnit,
+        measureValue: Number(formData.weightOrVolume),
+        measureUnit: measureUnit,
+        unit: sellingUnit,
+
         imageUrl: imageUri,
         updatedAt: serverTimestamp(),
       };
 
       if (isEditing) {
         await updateDoc(doc(db, 'food_items', editItem.id), itemData);
-        Alert.alert('สำเร็จ', 'อัปเดตรายการเรียบร้อย', [
-          { text: 'ตกลง', onPress: () => navigation.goBack() }
-        ]);
+        showCustomAlert('สำเร็จ!', 'อัปเดตรายการเรียบร้อยแล้ว', 'success', () => navigation.goBack());
       } else {
         const newItemData = {
           ...itemData,
@@ -172,24 +197,25 @@ export default function CreateListingScreen({ navigation, route }) {
           soldCount: 0
         };
         await addDoc(collection(db, 'food_items'), newItemData);
-        Alert.alert('สำเร็จ', 'เพิ่มรายการเรียบร้อย', [
-          { text: 'ตกลง', onPress: () => navigation.goBack() }
-        ]);
+        showCustomAlert('สำเร็จ!', 'เพิ่มรายการอาหารเรียบร้อยแล้ว', 'success', () => navigation.goBack());
       }
     } catch (error) {
       console.error('Error saving item:', error);
-      Alert.alert('ผิดพลาด', 'ไม่สามารถบันทึกข้อมูลได้ เนื่องจากขนาดรูปภาพอาจใหญ่เกินไป');
+      showCustomAlert('ผิดพลาด', 'ไม่สามารถบันทึกข้อมูลได้ เนื่องจากขนาดรูปภาพอาจใหญ่เกินไป', 'error');
     } finally {
       setLoading(false);
     }
   };
 
+  const measureLabelText = isDrinkCategory ? `ปริมาตร ต่อ 1 ${sellingUnit} *` : `น้ำหนักรวม ต่อ 1 ${sellingUnit} *`;
+  const measurePlaceholder = isDrinkCategory ? 'เช่น 250' : (measureUnit === 'kg' ? 'เช่น 1.5' : 'เช่น 350');
+
   return (
-    <KeyboardAvoidingView 
+    <KeyboardAvoidingView
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       style={styles.container}
     >
-      <StatusBar barStyle="dark-content" />
+      <StatusBar barStyle="dark-content" backgroundColor="#fff" />
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
           <Ionicons name="arrow-back" size={24} color="#1f2937" />
@@ -226,17 +252,20 @@ export default function CreateListingScreen({ navigation, route }) {
                     styles.categoryButton,
                     selectedCategory === category.label && styles.categoryButtonActive
                   ]}
-                  onPress={() => setSelectedCategory(category.label)}
+                  onPress={() => handleCategorySelect(category.label)}
                 >
-                  <Ionicons 
-                    name={category.icon} 
-                    size={20} 
-                    color={selectedCategory === category.label ? '#fff' : '#10b981'} 
+                  <Ionicons
+                    name={selectedCategory === category.label ? "checkmark-circle" : category.icon}
+                    size={20}
+                    color={selectedCategory === category.label ? '#fff' : '#10b981'}
                   />
-                  <Text style={[
-                    styles.categoryButtonText,
-                    selectedCategory === category.label && styles.categoryButtonTextActive
-                  ]}>
+                  <Text
+                    style={[
+                      styles.categoryButtonText,
+                      selectedCategory === category.label && styles.categoryButtonTextActive
+                    ]}
+                    textAlign="center"
+                  >
                     {category.label}
                   </Text>
                 </TouchableOpacity>
@@ -248,9 +277,23 @@ export default function CreateListingScreen({ navigation, route }) {
             <Text style={styles.label}>ชื่ออาหาร *</Text>
             <TextInput
               style={styles.input}
-              placeholder="เช่น ข้าวกล่องกะเพราไข่ดาว"
+              placeholder={isSetCategory ? "เช่น เซ็ตข้าวปลาแกะ+ชาไทย" : "เช่น ข้าวกล่องกะเพราไข่ดาว"}
               value={formData.name}
               onChangeText={(text) => setFormData({...formData, name: text})}
+            />
+          </View>
+
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>รายละเอียดสินค้า (ไม่บังคับ)</Text>
+            <TextInput
+              style={[styles.input, styles.textArea]}
+              placeholder="ระบุส่วนผสม, วิธีอุ่น, หรือข้อควรระวังสำหรับผู้แพ้อาหาร..."
+              value={formData.description}
+              onChangeText={(text) => setFormData({...formData, description: text})}
+              multiline={true}
+              numberOfLines={3}
+              textAlignVertical="top"
+              placeholderTextColor="#9ca3af"
             />
           </View>
 
@@ -278,75 +321,104 @@ export default function CreateListingScreen({ navigation, route }) {
           </View>
 
           <View style={styles.inputGroup}>
-            <Text style={styles.label}>จำนวนที่มี (ชุด) *</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="0"
-              keyboardType="numeric"
-              value={formData.amount}
-              onChangeText={(text) => setFormData({...formData, amount: text})}
-            />
+            <Text style={styles.label}>จำนวนที่ต้องการขาย *</Text>
+            <View style={styles.measureRow}>
+              <View style={styles.measureInputWrap}>
+                <TextInput
+                  style={styles.measureInput}
+                  placeholder="0"
+                  keyboardType="numeric"
+                  value={formData.amount}
+                  onChangeText={(text) => setFormData({...formData, amount: text})}
+                />
+              </View>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipContainer}>
+                {availableSellingUnits.map((u) => (
+                  <TouchableOpacity
+                    key={u}
+                    style={[styles.unitChip, sellingUnit === u && styles.unitChipActive]}
+                    onPress={() => setSellingUnit(u)}
+                  >
+                    <Text style={[styles.unitChipText, sellingUnit === u && styles.unitChipTextActive]}>{u}</Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
           </View>
 
           <View style={styles.inputGroup}>
-            <Text style={styles.label}>ปิดรับออเดอร์เวลา</Text>
-            
-            <View style={styles.dateTimeContainer}>
-              <TouchableOpacity 
-                style={styles.dateTimeButton}
-                onPress={() => setShowDatePicker(true)}
-              >
-                <Ionicons name="calendar-outline" size={20} color="#10b981" />
-                <Text style={styles.dateTimeText}>
-                  {closedForSaleDate.toLocaleDateString('th-TH', {
-                    day: '2-digit',
-                    month: '2-digit',
-                    year: 'numeric'
-                  })}
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity 
-                style={styles.dateTimeButton}
-                onPress={() => setShowTimePicker(true)}
-              >
-                <Ionicons name="time-outline" size={20} color="#10b981" />
-                <Text style={styles.dateTimeText}>
-                  {closedForSaleDate.toLocaleTimeString('th-TH', {
-                    hour: '2-digit',
-                    minute: '2-digit',
-                    hour12: false
-                  })}
-                </Text>
-              </TouchableOpacity>
+            <Text style={styles.label}>{measureLabelText}</Text>
+            <View style={styles.measureRow}>
+              <View style={styles.measureInputWrap}>
+                <TextInput
+                  style={styles.measureInput}
+                  placeholder={measurePlaceholder}
+                  keyboardType="numeric"
+                  value={formData.weightOrVolume}
+                  onChangeText={(text) => setFormData({...formData, weightOrVolume: text})}
+                />
+              </View>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipContainer}>
+                {availableMeasureUnits.map((u) => (
+                  <TouchableOpacity
+                    key={u.id}
+                    style={[styles.unitChip, measureUnit === u.id && styles.unitChipActive]}
+                    onPress={() => setMeasureUnit(u.id)}
+                  >
+                    <Text style={[styles.unitChipText, measureUnit === u.id && styles.unitChipTextActive]}>{u.label}</Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
             </View>
-
-            {showDatePicker && (
-              <DateTimePicker
-                value={closedForSaleDate}
-                mode="date"
-                display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-                onChange={onDateChange}
-                minimumDate={new Date()}
-              />
-            )}
-
-            {showTimePicker && (
-              <DateTimePicker
-                value={closedForSaleDate}
-                mode="time"
-                display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-                onChange={onTimeChange}
-                is24Hour={true}
-              />
-            )}
           </View>
+          <Text style={styles.weightHintText}>
+            <Ionicons name="leaf" size={12} color="#10b981" /> ข้อมูลน้ำหนักจะนำไปใช้คำนวณการลด Food Waste
+          </Text>
+
         </View>
         <View style={{ height: 40 }} />
       </ScrollView>
 
+      {/* ✅ ส่วน Custom Alert Modal */}
+      <Modal
+        animationType="fade"
+        transparent={true}
+        visible={alertVisible}
+        onRequestClose={() => setAlertVisible(false)}
+      >
+        <View style={styles.alertOverlay}>
+          <View style={styles.alertBox}>
+            <View style={[
+              styles.alertIconCircle,
+              alertConfig.type === 'success' ? { backgroundColor: '#dcfce7' } : { backgroundColor: '#fee2e2' }
+            ]}>
+              <Ionicons
+                name={alertConfig.type === 'success' ? "checkmark" : "close"}
+                size={36}
+                color={alertConfig.type === 'success' ? '#10b981' : '#ef4444'}
+              />
+            </View>
+            <Text style={styles.alertTitle}>{alertConfig.title}</Text>
+            <Text style={styles.alertMessage}>{alertConfig.message}</Text>
+            <TouchableOpacity
+              style={[
+                styles.alertButton,
+                alertConfig.type === 'success' ? { backgroundColor: '#10b981' } : { backgroundColor: '#ef4444' }
+              ]}
+              onPress={() => {
+                setAlertVisible(false);
+                if (alertConfig.onConfirm) alertConfig.onConfirm();
+              }}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.alertButtonText}>ตกลง</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
       <View style={styles.footer}>
-        <TouchableOpacity 
+        <TouchableOpacity
           style={[styles.submitButton, loading && styles.disabledButton]}
           onPress={handleSubmit}
           disabled={loading}
@@ -371,10 +443,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
-    paddingTop: Platform.OS === 'ios' ? 50 : 20,
+    paddingTop: Platform.OS === 'ios' ? 50 : 40,
     paddingBottom: 15,
     borderBottomWidth: 1,
     borderBottomColor: '#f3f4f6',
+    backgroundColor: '#fff',
   },
   headerTitle: { fontSize: 18, fontWeight: 'bold', color: '#1f2937' },
   backButton: { padding: 8 },
@@ -411,26 +484,29 @@ const styles = StyleSheet.create({
   categoryContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 10,
+    justifyContent: 'space-between',
   },
   categoryButton: {
-    flexDirection: 'row',
+    width: '48%',
+    flexDirection: 'column',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 20,
-    borderWidth: 2,
+    justifyContent: 'center',
+    paddingHorizontal: 2,
+    paddingVertical: 12,
+    borderRadius: 15,
+    borderWidth: 1.5,
     borderColor: '#10b981',
     backgroundColor: '#fff',
-    gap: 6,
+    marginBottom: 10,
+    gap: 5,
   },
   categoryButtonActive: {
     backgroundColor: '#10b981',
     borderColor: '#10b981',
   },
   categoryButtonText: {
-    fontSize: 14,
-    fontWeight: '600',
+    fontSize: 12,
+    fontWeight: 'bold',
     color: '#10b981',
   },
   categoryButtonTextActive: {
@@ -443,25 +519,65 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#1f2937',
   },
+  textArea: {
+    height: 80,
+    paddingTop: 15,
+  },
   row: { flexDirection: 'row' },
   inputGroup: { marginBottom: 5 },
-  dateTimeContainer: {
-    flexDirection: 'row',
-    gap: 10,
-  },
-  dateTimeButton: {
-    flex: 1,
+  measureRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#f3f4f6',
-    borderRadius: 12,
-    padding: 15,
-    gap: 10,
+    gap: 10
   },
-  dateTimeText: {
-    fontSize: 16,
+  measureInputWrap: {
+    width: 90,
+    backgroundColor: '#f9fafb',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    justifyContent: 'center'
+  },
+  measureInput: {
+    paddingVertical: 12,
+    paddingHorizontal: 15,
+    fontSize: 15,
     color: '#1f2937',
-    fontWeight: '500',
+    textAlign: 'center'
+  },
+  chipContainer: {
+    gap: 8,
+    alignItems: 'center',
+    paddingRight: 20
+  },
+  unitChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 20,
+    backgroundColor: '#f9fafb',
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+  },
+  unitChipActive: {
+    backgroundColor: '#10b981',
+    borderColor: '#10b981',
+  },
+  unitChipText: {
+    fontSize: 13,
+    color: '#6b7280',
+    fontWeight: '600'
+  },
+  unitChipTextActive: {
+    color: '#fff',
+    fontWeight: 'bold'
+  },
+  weightHintText: {
+    fontSize: 12,
+    color: '#10b981',
+    marginTop: -5,
+    marginBottom: 10,
+    marginLeft: 5,
+    fontStyle: 'italic'
   },
   footer: {
     padding: 20,
@@ -477,4 +593,13 @@ const styles = StyleSheet.create({
   },
   disabledButton: { backgroundColor: '#a7f3d0' },
   submitButtonText: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
+
+  // ✅ สไตล์สำหรับ Custom Alert Modal
+  alertOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 20 },
+  alertBox: { backgroundColor: '#fff', borderRadius: 24, padding: 25, alignItems: 'center', width: '85%', shadowColor: '#000', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.1, shadowRadius: 10, elevation: 10 },
+  alertIconCircle: { width: 70, height: 70, borderRadius: 35, justifyContent: 'center', alignItems: 'center', marginBottom: 15 },
+  alertTitle: { fontSize: 20, fontWeight: 'bold', color: '#1f2937', marginBottom: 10 },
+  alertMessage: { fontSize: 14, color: '#6b7280', textAlign: 'center', marginBottom: 25, lineHeight: 22 },
+  alertButton: { paddingVertical: 14, borderRadius: 12, width: '100%', alignItems: 'center' },
+  alertButtonText: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
 });

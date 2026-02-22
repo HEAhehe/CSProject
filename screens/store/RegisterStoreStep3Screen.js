@@ -16,6 +16,17 @@ import * as ImagePicker from 'expo-image-picker';
 import { db, auth } from '../../firebase.config';
 import { doc, setDoc, addDoc, collection } from 'firebase/firestore';
 
+// เพิ่มข้อมูลวันสำหรับสรุปเวลาทำการ
+const daysOfWeek = [
+  { id: 'mon', label: 'จันทร์' },
+  { id: 'tue', label: 'อังคาร' },
+  { id: 'wed', label: 'พุธ' },
+  { id: 'thu', label: 'พฤหัสบดี' },
+  { id: 'fri', label: 'ศุกร์' },
+  { id: 'sat', label: 'เสาร์' },
+  { id: 'sun', label: 'อาทิตย์' },
+];
+
 export default function RegisterStoreStep3Screen({ navigation, route }) {
   const { step1Data, step2Data } = route.params || {};
   const [selectedImage, setSelectedImage] = useState(null);
@@ -62,15 +73,12 @@ export default function RegisterStoreStep3Screen({ navigation, route }) {
   };
 
   const handleSubmit = async () => {
-    // Validate image
     if (!selectedImage) {
       setErrorMessage('กรุณาเลือกรูปภาพร้านค้าอย่างน้อย 1 รูป');
       return;
     }
 
     setLoading(true);
-    setErrorMessage('');
-
     try {
       const user = auth.currentUser;
       if (!user) {
@@ -79,36 +87,41 @@ export default function RegisterStoreStep3Screen({ navigation, route }) {
         return;
       }
 
+      // 🕒 สรุปเวลาทำการเพื่อใช้แสดงผลในเมนูสรุปของ Admin
+      const bh = step1Data?.businessHours || {};
+      const formattedHoursSummary = Object.keys(bh)
+        .filter(day => bh[day].isOpen)
+        .map(day => {
+          const dayLabel = daysOfWeek.find(d => d.id === day)?.label || day;
+          return `${dayLabel}: ${bh[day].openTime}-${bh[day].closeTime}`;
+        })
+        .join('\n');
+
       // ======== 1. สร้างข้อมูลร้านค้าใน stores collection ========
       const storeData = {
         userId: user.uid,
-        // Step 1 data
         storeName: step1Data?.storeName || '',
         storeOwner: step1Data?.storeOwner || '',
         phoneNumber: step1Data?.phoneNumber || '',
-        openDateTime: step1Data?.openDateTime || '',
-        closeDateTime: step1Data?.closeDateTime || '',
+        // ✅ บันทึกข้อมูลเวลาที่เป็น Object แยกรายวันลงไปตรงๆ
+        businessHours: step1Data?.businessHours || {},
         storeDetails: step1Data?.storeDetails || '',
         deliveryMethod: step1Data?.deliveryMethod || 'pickup',
-        // Step 2 data
         location: step2Data?.location || '',
         address: step2Data?.address || '',
-        latitude: step2Data?.latitude || null,
-        longitude: step2Data?.longitude || null,
-        // Step 3 data
+        latitude: step2Data?.coordinates?.latitude || null,
+        longitude: step2Data?.coordinates?.longitude || null,
         storeImage: selectedImage,
-        // Additional data
-        status: 'pending', // pending, approved, rejected
+        status: 'pending',
         createdAt: new Date().toISOString(),
         rating: 0,
         totalOrders: 0,
-        isActive: false, // จะเปิดเป็น true หลัง Admin อนุมัติ
+        isActive: false, // บันทึกเป็น false ก่อนรอ Admin อนุมัติ
       };
 
       await setDoc(doc(db, 'stores', user.uid), storeData);
 
       // ======== 2. สร้างคำขออนุมัติใน approval_requests collection ========
-      // 🔥 นี่คือส่วนที่เพิ่มเข้ามาใหม่!
       const approvalRequest = {
         type: 'store_registration',
         userId: user.uid,
@@ -121,51 +134,32 @@ export default function RegisterStoreStep3Screen({ navigation, route }) {
           'ชื่อร้าน': step1Data?.storeName || '',
           'เจ้าของร้าน': step1Data?.storeOwner || '',
           'เบอร์โทร': step1Data?.phoneNumber || '',
-          'เวลาเปิด': step1Data?.openDateTime ? new Date(step1Data.openDateTime).toLocaleString('th-TH') : '',
-          'เวลาปิด': step1Data?.closeDateTime ? new Date(step1Data.closeDateTime).toLocaleString('th-TH') : '',
-          'การจัดส่ง': step1Data?.deliveryMethod === 'pickup' ? 'รับที่ร้าน' : 
+          'เวลาทำการ': formattedHoursSummary, // ✅ แสดงผลเป็นสรุปรายวัน
+          'การจัดส่ง': step1Data?.deliveryMethod === 'pickup' ? 'รับที่ร้าน' :
                        step1Data?.deliveryMethod === 'delivery' ? 'เดลิเวอรี่' : 'ทั้งสองแบบ',
-          'ที่อยู่': step2Data?.address || '',
-          'พิกัด': step2Data?.latitude && step2Data?.longitude ? 
-                  `${step2Data.latitude}, ${step2Data.longitude}` : 'ไม่ระบุ',
+          'ที่อยู่': step2Data?.location || '',
+          'พิกัด': step2Data?.coordinates ?
+                  `${step2Data.coordinates.latitude}, ${step2Data.coordinates.longitude}` : 'ไม่ระบุ',
         }
       };
 
       await addDoc(collection(db, 'approval_requests'), approvalRequest);
 
-      // ======== 3. อัปเดต user profile (ยังไม่เปลี่ยน role เป็น store ก่อนอนุมัติ) ========
+      // ======== 3. อัปเดต user profile ========
       await setDoc(doc(db, 'users', user.uid), {
-        hasStorePending: true, // flag บอกว่ามีคำขอรออนุมัติ
+        hasStorePending: true,
         storeId: user.uid,
       }, { merge: true });
 
       setLoading(false);
-
-      // Show success message
-      Alert.alert(
-        'สำเร็จ!',
-        'ส่งคำขอสมัครร้านค้าเรียบร้อยแล้ว\nทีมงานจะตรวจสอบและแจ้งผลภายใน 1-2 วันทำการ',
-        [
-          {
-            text: 'ตกลง',
-            onPress: () => {
-              // Navigate to home or store management screen
-              navigation.reset({
-                index: 0,
-                routes: [{ name: 'Home' }],
-              });
-            }
-          }
-        ]
-      );
+      Alert.alert('สำเร็จ!', 'ส่งคำขอสมัครร้านค้าเรียบร้อยแล้ว', [
+        { text: 'ตกลง', onPress: () => navigation.reset({ index: 0, routes: [{ name: 'Home' }] }) }
+      ]);
 
     } catch (error) {
       console.error('Error submitting store:', error);
       setLoading(false);
-      Alert.alert(
-        'เกิดข้อผิดพลาด',
-        'ไม่สามารถส่งคำขอสมัครได้ กรุณาลองใหม่อีกครั้ง'
-      );
+      Alert.alert('เกิดข้อผิดพลาด', 'ไม่สามารถส่งคำขอได้ กรุณาลองใหม่อีกครั้ง');
     }
   };
 

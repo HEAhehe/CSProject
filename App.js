@@ -21,6 +21,9 @@ import OrdersScreen from './screens/customer/OrdersScreen';
 import OrderDetailScreen from './screens/customer/OrderDetailScreen';
 import FavoriteStoresScreen from './screens/customer/FavoriteStoresScreen';
 import CartScreen from './screens/customer/CartScreen';
+import StoreDetailScreen from './screens/customer/StoreDetailScreen';
+import WriteReviewScreen from './screens/customer/WriteReviewScreen';
+import AddressBookScreen from './screens/customer/AddressBookScreen';
 
 // --- 📂 STORE Screens (เพิ่มใหม่) ---
 import AddFoodScreen from './screens/store/AddFoodScreen';
@@ -73,9 +76,12 @@ export default function App() {
             <Stack.Screen name="Home" component={HomeScreen} />
             <Stack.Screen name="Profile" component={ProfileScreen} />
             <Stack.Screen name="EditProfile" component={EditProfileScreen} />
+            <Stack.Screen name="AddressBook" component={AddressBookScreen} />
 
             <Stack.Screen name="FoodList" component={FoodListScreen} />
             <Stack.Screen name="FoodDetail" component={FoodDetailScreen} />
+            <Stack.Screen name="StoreDetail" component={StoreDetailScreen} options={{ headerShown: false }} />
+            <Stack.Screen name="WriteReview" component={WriteReviewScreen} />
 
             <Stack.Screen name="Cart" component={CartScreen} />
 
