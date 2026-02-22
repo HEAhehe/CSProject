@@ -47,9 +47,24 @@ export default function StoreDashboardScreen({ navigation }) {
     return d.getMonth() === reportMonth && d.getFullYear() === reportYear;
   });
 
-  const tableRevenue = filteredTableOrders
-    .filter(o => o.status === 'completed' || o.status === 'confirmed')
+  // เฉพาะ completed orders ของเดือนที่เลือก
+  const completedTableOrders = filteredTableOrders.filter(o => o.status === 'completed');
+
+  const tableRevenue = completedTableOrders
     .reduce((sum, o) => sum + (Number(o.totalPrice) || 0), 0);
+
+  // รวมยอดขายและรายได้แยกตามเมนู
+  const tableMenuMap = {};
+  completedTableOrders.forEach(order => {
+    const items = order.items || [];
+    items.forEach(item => {
+      const name = item.foodName || 'ไม่ระบุ';
+      if (!tableMenuMap[name]) tableMenuMap[name] = { qty: 0, revenue: 0, price: item.price || item.discountPrice || 0 };
+      tableMenuMap[name].qty += (item.quantity || 1);
+      tableMenuMap[name].revenue += (item.quantity || 1) * (item.price || item.discountPrice || 0);
+    });
+  });
+  const tableMenuRows = Object.entries(tableMenuMap).map(([name, v]) => ({ name, qty: v.qty, revenue: v.revenue }));
 
   const periodOptions = [
     { key: 'today', label: 'วันนี้' },
@@ -73,6 +88,7 @@ export default function StoreDashboardScreen({ navigation }) {
   // Data
   const [topProducts, setTopProducts] = useState([]);
   const [recentOrders, setRecentOrders] = useState([]);
+  const [reviews, setReviews] = useState([]);
 
   // Drawer states
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
@@ -123,6 +139,9 @@ export default function StoreDashboardScreen({ navigation }) {
       // Load recent orders
       await loadRecentOrders(user.uid);
 
+      // Load reviews
+      await loadReviews(user.uid);
+
     } catch (error) {
       console.error('Error loading dashboard:', error);
       Alert.alert('ข้อผิดพลาด', 'ไม่สามารถโหลดข้อมูลได้');
@@ -149,23 +168,20 @@ export default function StoreDashboardScreen({ navigation }) {
     });
   };
 
-  const calculateStats = (orders, period = selectedPeriod) => {
+  const calculateStats = (orders, period = selectedPeriod, reviewsList = []) => {
     const filtered = filterOrdersByPeriod(orders, period);
     const totalOrders = filtered.length;
     const completedOrders = filtered.filter(o => o.status === 'completed').length;
-    // รายได้จาก completed + confirmed (ยืนยันแล้วรอรับ)
+    // รายได้เฉพาะออเดอร์ที่ลูกค้ารับของแล้ว (completed) เท่านั้น
     const totalRevenue = filtered
-      .filter(o => o.status === 'completed' || o.status === 'confirmed')
-      .reduce((sum, o) => sum + (Number(o.totalPrice) || 0), 0);
-    const confirmedRevenue = filtered
-      .filter(o => o.status === 'confirmed')
+      .filter(o => o.status === 'completed')
       .reduce((sum, o) => sum + (Number(o.totalPrice) || 0), 0);
     const completionRate = totalOrders > 0 ? Math.round((completedOrders / totalOrders) * 100) : 0;
-    const ordersWithRating = filtered.filter(o => o.rating && o.rating > 0);
-    const averageRating = ordersWithRating.length > 0
-      ? (ordersWithRating.reduce((sum, o) => sum + o.rating, 0) / ordersWithRating.length).toFixed(1)
+    // คะแนนเฉลี่ยจาก reviews จริง
+    const averageRating = reviewsList.length > 0
+      ? parseFloat((reviewsList.reduce((sum, r) => sum + (r.rating || 0), 0) / reviewsList.length).toFixed(1))
       : 0;
-    setStats({ totalRevenue, confirmedRevenue, totalOrders, completedOrders, completionRate, averageRating: parseFloat(averageRating) });
+    setStats({ totalRevenue, totalOrders, completedOrders, completionRate, averageRating });
   };
 
   const loadOrderStats = async (userId) => {
@@ -174,7 +190,7 @@ export default function StoreDashboardScreen({ navigation }) {
       const ordersSnapshot = await getDocs(ordersQuery);
       const orders = ordersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setAllOrders(orders);
-      calculateStats(orders, selectedPeriod); // pass period explicitly to avoid stale closure
+      calculateStats(orders, selectedPeriod, reviews); // pass period explicitly to avoid stale closure
     } catch (error) {
       console.error('Error loading order stats:', error);
     }
@@ -182,25 +198,61 @@ export default function StoreDashboardScreen({ navigation }) {
 
   const loadTopProducts = async (userId) => {
     try {
-      const productsQuery = query(
-        collection(db, 'food_items'),
-        where('userId', '==', userId)
+      // ดึง completed orders มานับยอดขายจริงของแต่ละสินค้า
+      const ordersQuery = query(
+        collection(db, 'orders'),
+        where('storeId', '==', userId),
+        where('status', '==', 'completed')
       );
-      const productsSnapshot = await getDocs(productsQuery);
-      const products = productsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      const ordersSnapshot = await getDocs(ordersQuery);
+      const orders = ordersSnapshot.docs.map(doc => doc.data());
 
-      // Sort by quantity sold (assuming we track this)
-      const sortedProducts = products
-        .map(p => ({
-          ...p,
-          soldCount: p.initialQuantity ? (p.initialQuantity - p.quantity) : 0
-        }))
+      // รวมจำนวนที่ขายได้แยกตามชื่อสินค้า
+      const soldMap = {};
+      orders.forEach(order => {
+        const items = order.items || [];
+        items.forEach(item => {
+          const name = item.foodName || 'ไม่ระบุ';
+          soldMap[name] = (soldMap[name] || 0) + (item.quantity || 1);
+        });
+      });
+
+      // แปลงเป็น array แล้ว sort ตามยอดขาย
+      const sortedProducts = Object.entries(soldMap)
+        .map(([name, soldCount]) => ({ name, soldCount }))
         .sort((a, b) => b.soldCount - a.soldCount)
         .slice(0, 4);
 
       setTopProducts(sortedProducts);
     } catch (error) {
       console.error('Error loading top products:', error);
+    }
+  };
+
+  const loadReviews = async (userId) => {
+    try {
+      const reviewsQuery = query(
+        collection(db, 'reviews'),
+        where('storeId', '==', userId)
+      );
+      const reviewsSnapshot = await getDocs(reviewsQuery);
+      const reviewsList = reviewsSnapshot.docs
+        .map(doc => ({ id: doc.id, ...doc.data() }))
+        .sort((a, b) => {
+          const aTime = a.createdAt?.toDate?.() ?? new Date(a.createdAt ?? 0);
+          const bTime = b.createdAt?.toDate?.() ?? new Date(b.createdAt ?? 0);
+          return bTime - aTime;
+        });
+      setReviews(reviewsList);
+      // อัปเดตคะแนนเฉลี่ยใน stats
+      setStats(prev => ({
+        ...prev,
+        averageRating: reviewsList.length > 0
+          ? parseFloat((reviewsList.reduce((sum, r) => sum + (r.rating || 0), 0) / reviewsList.length).toFixed(1))
+          : 0
+      }));
+    } catch (error) {
+      console.error('Error loading reviews:', error);
     }
   };
 
@@ -666,7 +718,7 @@ export default function StoreDashboardScreen({ navigation }) {
                 <Text style={rStyles.monthRevValue}>฿{tableRevenue.toLocaleString()}</Text>
               </View>
               <View style={rStyles.monthRevRight}>
-                <Text style={rStyles.monthRevCount}>{filteredTableOrders.length} ออเดอร์</Text>
+                <Text style={rStyles.monthRevCount}>{completedTableOrders.length} ออเดอร์</Text>
               </View>
             </View>
 
@@ -730,7 +782,7 @@ export default function StoreDashboardScreen({ navigation }) {
                 <Text style={[rStyles.tableHeadCell, { flex: 1, textAlign: 'right' }]}>รายได้</Text>
               </View>
 
-              {filteredTableOrders.length === 0 ? (
+              {tableMenuRows.length === 0 ? (
                 <View style={rStyles.emptyState}>
                   <View style={rStyles.emptyIcon}>
                     <Ionicons name="receipt-outline" size={32} color="#10b981" />
@@ -739,31 +791,114 @@ export default function StoreDashboardScreen({ navigation }) {
                   <Text style={rStyles.emptySubtitle}>ไม่พบข้อมูลใน{monthNames[reportMonth]} {reportYear}</Text>
                 </View>
               ) : (
-                filteredTableOrders.map((order, index) => (
-                  <View key={order.id} style={[rStyles.tableRow, index % 2 === 0 && rStyles.tableRowAlt]}>
+                tableMenuRows.map((row, index) => (
+                  <View key={row.name} style={[rStyles.tableRow, index % 2 === 0 && rStyles.tableRowAlt]}>
                     <View style={{ flex: 2, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                       <View style={rStyles.rowDot} />
-                      <Text style={rStyles.tableCell} numberOfLines={1}>{order.foodName || 'ไม่ระบุ'}</Text>
+                      <Text style={rStyles.tableCell} numberOfLines={1}>{row.name}</Text>
                     </View>
                     <View style={{ flex: 1, alignItems: 'center' }}>
                       <View style={rStyles.qtyBadge}>
-                        <Text style={rStyles.qtyText}>{order.quantity || 0}</Text>
+                        <Text style={rStyles.qtyText}>{row.qty}</Text>
                       </View>
                     </View>
                     <Text style={[rStyles.tableCell, rStyles.priceCell, { flex: 1, textAlign: 'right' }]}>
-                      ฿{(order.totalPrice || 0).toLocaleString()}
+                      ฿{row.revenue.toLocaleString()}
                     </Text>
                   </View>
                 ))
               )}
 
-              {filteredTableOrders.length > 0 && (
+              {tableMenuRows.length > 0 && (
                 <View style={rStyles.tableFoot}>
                   <Text style={rStyles.tableFootLabel}>รวมทั้งหมด</Text>
                   <Text style={rStyles.tableFootValue}>฿{tableRevenue.toLocaleString()}</Text>
                 </View>
               )}
             </View>
+          </>
+        )}
+
+        {activeTab === 'reviews' && (
+          <>
+            {/* Summary Card */}
+            <View style={rvStyles.summaryCard}>
+              <View style={rvStyles.summaryLeft}>
+                <Text style={rvStyles.summaryScore}>{stats.averageRating.toFixed(1)}</Text>
+                <View style={rvStyles.summaryStars}>
+                  {[1,2,3,4,5].map(s => (
+                    <Ionicons key={s} name={s <= Math.round(stats.averageRating) ? 'star' : 'star-outline'} size={16} color="#f59e0b" />
+                  ))}
+                </View>
+                <Text style={rvStyles.summaryCount}>{reviews.length} รีวิว</Text>
+              </View>
+              <View style={rvStyles.summaryBars}>
+                {[5,4,3,2,1].map(star => {
+                  const count = reviews.filter(r => r.rating === star).length;
+                  const pct = reviews.length > 0 ? count / reviews.length : 0;
+                  return (
+                    <View key={star} style={rvStyles.barRow}>
+                      <Text style={rvStyles.barLabel}>{star}</Text>
+                      <Ionicons name="star" size={10} color="#f59e0b" style={{ marginRight: 6 }} />
+                      <View style={rvStyles.barTrack}>
+                        <View style={[rvStyles.barFill, { width: `${pct * 100}%` }]} />
+                      </View>
+                      <Text style={rvStyles.barCount}>{count}</Text>
+                    </View>
+                  );
+                })}
+              </View>
+            </View>
+
+            {/* Review List */}
+            {reviews.length === 0 ? (
+              <View style={rvStyles.emptyState}>
+                <View style={rvStyles.emptyIcon}>
+                  <Ionicons name="star-outline" size={32} color="#10b981" />
+                </View>
+                <Text style={rvStyles.emptyTitle}>ยังไม่มีรีวิว</Text>
+                <Text style={rvStyles.emptySubtitle}>รีวิวจะแสดงเมื่อลูกค้าให้คะแนนร้านของคุณ</Text>
+              </View>
+            ) : (
+              reviews.map(review => {
+                const date = review.createdAt?.toDate ? review.createdAt.toDate() : new Date(review.createdAt ?? 0);
+                const dateStr = date.toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: 'numeric' });
+                const displayName = review.isAnonymous ? 'ไม่ประสงค์ออกนาม' : (review.userName || 'ลูกค้า');
+                return (
+                  <View key={review.id} style={rvStyles.reviewCard}>
+                    <View style={rvStyles.reviewHeader}>
+                      <View style={rvStyles.avatarCircle}>
+                        {review.isAnonymous || !review.userProfileImage ? (
+                          <Ionicons name="person" size={20} color="#6b7280" />
+                        ) : (
+                          <Image source={{ uri: review.userProfileImage }} style={rvStyles.avatarImg} />
+                        )}
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={rvStyles.reviewerName}>{displayName}</Text>
+                        <Text style={rvStyles.reviewDate}>{dateStr}</Text>
+                      </View>
+                      <View style={rvStyles.starsBadge}>
+                        <Ionicons name="star" size={13} color="#f59e0b" />
+                        <Text style={rvStyles.starsText}>{review.rating}</Text>
+                      </View>
+                    </View>
+                    {review.tags && review.tags.length > 0 && (
+                      <View style={rvStyles.tagsRow}>
+                        {review.tags.map(tag => (
+                          <View key={tag} style={rvStyles.tagChip}>
+                            <Text style={rvStyles.tagText}>{tag}</Text>
+                          </View>
+                        ))}
+                      </View>
+                    )}
+                    {!!review.comment && (
+                      <Text style={rvStyles.reviewComment}>{review.comment}</Text>
+                    )}
+                  </View>
+                );
+              })
+            )}
           </>
         )}
 
@@ -1605,4 +1740,62 @@ const styles = StyleSheet.create({
     color: '#ef4444',
     fontWeight: 'bold',
   },
+});
+const rvStyles = StyleSheet.create({
+  summaryCard: {
+    flexDirection: 'row',
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#f3f4f6',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+    gap: 20,
+    alignItems: 'center',
+  },
+  summaryLeft: { alignItems: 'center', minWidth: 70 },
+  summaryScore: { fontSize: 44, fontWeight: '800', color: '#1f2937', lineHeight: 50 },
+  summaryStars: { flexDirection: 'row', gap: 2, marginTop: 4 },
+  summaryCount: { fontSize: 12, color: '#6b7280', marginTop: 6 },
+  summaryBars: { flex: 1, gap: 6 },
+  barRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  barLabel: { fontSize: 11, color: '#6b7280', width: 10, textAlign: 'right' },
+  barTrack: { flex: 1, height: 6, backgroundColor: '#f3f4f6', borderRadius: 3, overflow: 'hidden' },
+  barFill: { height: '100%', backgroundColor: '#f59e0b', borderRadius: 3 },
+  barCount: { fontSize: 11, color: '#6b7280', width: 18, textAlign: 'right' },
+
+  emptyState: { alignItems: 'center', paddingVertical: 60, gap: 10 },
+  emptyIcon: { width: 72, height: 72, borderRadius: 36, backgroundColor: '#f0fdf4', alignItems: 'center', justifyContent: 'center', marginBottom: 4 },
+  emptyTitle: { fontSize: 16, fontWeight: '700', color: '#1f2937' },
+  emptySubtitle: { fontSize: 13, color: '#9ca3af', textAlign: 'center' },
+
+  reviewCard: {
+    backgroundColor: '#fff',
+    borderRadius: 14,
+    padding: 16,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#f3f4f6',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 3,
+    elevation: 1,
+  },
+  reviewHeader: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 10 },
+  avatarCircle: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#f3f4f6', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  avatarImg: { width: 40, height: 40, borderRadius: 20 },
+  reviewerName: { fontSize: 14, fontWeight: '700', color: '#1f2937' },
+  reviewDate: { fontSize: 11, color: '#9ca3af', marginTop: 2 },
+  starsBadge: { flexDirection: 'row', alignItems: 'center', gap: 3, backgroundColor: '#fef9c3', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 20 },
+  starsText: { fontSize: 13, fontWeight: '700', color: '#d97706' },
+  tagsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 8 },
+  tagChip: { backgroundColor: '#f0fdf4', borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4, borderWidth: 1, borderColor: '#a7f3d0' },
+  tagText: { fontSize: 11, color: '#059669', fontWeight: '600' },
+  reviewComment: { fontSize: 14, color: '#374151', lineHeight: 20 },
 });
