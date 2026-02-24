@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -9,14 +9,30 @@ import {
   Dimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { db } from '../../firebase.config';
+import { doc, onSnapshot } from 'firebase/firestore';
 
 const { width } = Dimensions.get('window');
 
 export default function OrderDetailScreen({ navigation, route }) {
-  const { order } = route.params || {};
+  const initialOrder = route.params?.order || {};
+
+  const [currentOrder, setCurrentOrder] = useState(initialOrder);
   const [isItemsExpanded, setIsItemsExpanded] = useState(false);
 
-  if (!order) {
+  useEffect(() => {
+    if (!currentOrder?.id) return;
+
+    const unsub = onSnapshot(doc(db, 'orders', currentOrder.id), (docSnap) => {
+      if (docSnap.exists()) {
+        setCurrentOrder({ id: docSnap.id, ...docSnap.data() });
+      }
+    });
+
+    return () => unsub();
+  }, [currentOrder?.id]);
+
+  if (!currentOrder || !currentOrder.id) {
     return (
       <View style={styles.container}>
         <View style={styles.errorContainer}>
@@ -37,7 +53,23 @@ export default function OrderDetailScreen({ navigation, route }) {
     return `${prefix}-${shortId}`;
   };
 
-  const formattedId = getFormattedOrderId(order.id, order.orderType);
+  const formattedId = getFormattedOrderId(currentOrder.id, currentOrder.orderType);
+
+  const getStatusDisplay = (status) => {
+    switch (status) {
+      case 'completed':
+        return { color: '#059669', icon: 'checkmark-circle', title: 'รับอาหารแล้ว!', subtitle: 'ขอบคุณที่ช่วยโลกไปกับเรา 🌍' };
+      case 'confirmed':
+        return { color: '#3b82f6', icon: 'restaurant', title: 'ร้านค้ายืนยันแล้ว!', subtitle: 'ร้านค้ากำลังเตรียมอาหาร หรือรอคุณไปรับ' };
+      case 'cancelled':
+        return { color: '#ef4444', icon: 'close-circle', title: 'ออเดอร์ถูกยกเลิก', subtitle: 'ขออภัยในความไม่สะดวก' };
+      case 'pending':
+      default:
+        return { color: '#f59e0b', icon: 'time', title: 'รอดำเนินการ...', subtitle: 'กำลังรอร้านค้ายืนยันออเดอร์ของคุณ' };
+    }
+  };
+
+  const statusInfo = getStatusDisplay(currentOrder.status);
 
   return (
     <View style={styles.container}>
@@ -54,18 +86,30 @@ export default function OrderDetailScreen({ navigation, route }) {
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
 
         <View style={styles.successSection}>
-            <View style={[styles.successIconCircle, { backgroundColor: order.status === 'completed' ? '#10b981' : '#f59e0b' }]}>
-                <Ionicons name={order.status === 'completed' ? "checkmark" : "time"} size={40} color="#fff" />
+            <View style={[styles.successIconCircle, { backgroundColor: statusInfo.color }]}>
+                <Ionicons name={statusInfo.icon} size={40} color="#fff" />
             </View>
-            <Text style={styles.successTitle}>
-              {order.status === 'completed' ? 'สั่งซื้อสำเร็จแล้ว!' : 'รอรับอาหาร...'}
+            <Text style={[styles.successTitle, { color: statusInfo.color }]}>
+              {statusInfo.title}
             </Text>
-            <Text style={styles.successSubtitle}>ขอบคุณที่ช่วยลดขยะอาหารกับเรา</Text>
+            <Text style={styles.successSubtitle}>{statusInfo.subtitle}</Text>
         </View>
+
+        {currentOrder.status === 'cancelled' && currentOrder.cancelReason && (
+            <View style={styles.cancelAlertBox}>
+                <View style={styles.cancelAlertIcon}>
+                    <Ionicons name="warning" size={28} color="#ef4444" />
+                </View>
+                <View style={styles.cancelAlertContent}>
+                    <Text style={styles.cancelAlertLabel}>สาเหตุการยกเลิก:</Text>
+                    <Text style={styles.cancelAlertText}>{currentOrder.cancelReason}</Text>
+                </View>
+            </View>
+        )}
 
         <View style={styles.orderIdCard}>
             <Text style={styles.orderIdLabel}>
-              Order ID ({order.orderType === 'delivery' ? 'จัดส่ง' : 'รับเอง'})
+              Order ID ({currentOrder.orderType === 'delivery' ? 'จัดส่ง' : 'รับเอง'})
             </Text>
             <View style={styles.orderIdRow}>
                 <Text style={styles.orderIdText}>{formattedId}</Text>
@@ -83,15 +127,15 @@ export default function OrderDetailScreen({ navigation, route }) {
                     <Ionicons name="restaurant-outline" size={20} color="#10b981" />
                 </View>
                 <View style={styles.detailTextContainer}>
-                    <Text style={styles.detailMainText}>{order.foodName}</Text>
-                    <Text style={styles.detailSubText}>{order.quantity} รายการ (แตะเพื่อดูรายละเอียด)</Text>
+                    <Text style={styles.detailMainText}>{currentOrder.foodName}</Text>
+                    <Text style={styles.detailSubText}>{currentOrder.quantity} รายการ (แตะเพื่อดูรายละเอียด)</Text>
                 </View>
                 <Ionicons name={isItemsExpanded ? "chevron-up" : "chevron-down"} size={20} color="#9ca3af" />
             </TouchableOpacity>
 
-            {isItemsExpanded && order.items && (
+            {isItemsExpanded && currentOrder.items && (
                 <View style={styles.expandedItemsBox}>
-                    {order.items.map((item, index) => (
+                    {currentOrder.items.map((item, index) => (
                         <View key={index} style={styles.itemSmallRow}>
                             <Text style={styles.itemSmallName}>• {item.foodName}</Text>
                             <Text style={styles.itemSmallQty}>x{item.quantity}</Text>
@@ -104,7 +148,7 @@ export default function OrderDetailScreen({ navigation, route }) {
             <View style={styles.detailRow}>
                 <View style={styles.iconBox}><Ionicons name="cash-outline" size={20} color="#555" /></View>
                 <View style={styles.detailTextContainer}>
-                    <Text style={styles.detailMainText}>ยอดชำระรวม : {order.totalPrice} ฿</Text>
+                    <Text style={styles.detailMainText}>ยอดชำระรวม : {currentOrder.totalPrice} ฿</Text>
                     <Text style={styles.detailSubText}>ชำระเงินปลายทาง / ที่หน้าร้าน</Text>
                 </View>
             </View>
@@ -112,28 +156,28 @@ export default function OrderDetailScreen({ navigation, route }) {
             <View style={styles.detailRow}>
                 <View style={styles.iconBox}><Ionicons name="storefront-outline" size={20} color="#555" /></View>
                 <View style={styles.detailTextContainer}>
-                    <Text style={styles.detailMainText}>{order.storeName}</Text>
-                    <Text style={[styles.detailSubText, {color: order.orderType === 'delivery' ? '#ef4444' : '#10b981', fontWeight: 'bold'}]}>
-                        {order.orderType === 'delivery' ? '🚚 บริการจัดส่ง (Delivery)' : '🛍️ รับเองที่ร้าน (Pickup)'}
+                    <Text style={styles.detailMainText}>{currentOrder.storeName}</Text>
+                    <Text style={[styles.detailSubText, {color: currentOrder.orderType === 'delivery' ? '#ef4444' : '#10b981', fontWeight: 'bold'}]}>
+                        {currentOrder.orderType === 'delivery' ? '🚚 บริการจัดส่ง (Delivery)' : '🛍️ รับเองที่ร้าน (Pickup)'}
                     </Text>
                 </View>
             </View>
         </View>
 
-        {/* ✅ แสดงปุ่มรีวิวเมื่อร้านค้ายืนยันจนสถานะเป็น completed แล้วเท่านั้น (เอาปุ่มยืนยันของลูกค้าออก) */}
-        {order.status === 'completed' && (
-          !order.isReviewed ? (
+        {/* ✅ ปรับคำพูดบนปุ่มให้ตรงกับจุดประสงค์ */}
+        {currentOrder.status === 'completed' && (
+          !currentOrder.isReviewed ? (
             <TouchableOpacity
               style={styles.reviewButton}
-              onPress={() => navigation.navigate('WriteReview', { order: order })}
+              onPress={() => navigation.navigate('WriteReview', { order: currentOrder })}
             >
               <Ionicons name="star" size={20} color="#fff" />
-              <Text style={styles.reviewButtonText}>ให้คะแนนรีวิวร้านค้านี้</Text>
+              <Text style={styles.reviewButtonText}>รีวิวสินค้าในออเดอร์นี้</Text>
             </TouchableOpacity>
           ) : (
             <View style={styles.reviewedBadge}>
               <Ionicons name="checkmark-circle" size={20} color="#10b981" />
-              <Text style={styles.reviewedText}>คุณได้รีวิวออเดอร์นี้แล้ว ขอบคุณครับ!</Text>
+              <Text style={styles.reviewedText}>คุณได้รีวิวสินค้านี้แล้ว ขอบคุณครับ!</Text>
             </View>
           )
         )}
@@ -155,14 +199,32 @@ const styles = StyleSheet.create({
   headerTitle: { fontSize: 18, fontWeight: 'bold', color: '#1f2937' },
   backButton: { padding: 5 },
   content: { flex: 1, paddingHorizontal: 20 },
-  successSection: { alignItems: 'center', marginVertical: 20 },
-  successIconCircle: { width: 70, height: 70, borderRadius: 35, alignItems: 'center', justifyContent: 'center', marginBottom: 10 },
-  successTitle: { fontSize: 22, fontWeight: 'bold', color: '#1f2937' },
-  successSubtitle: { fontSize: 14, color: '#6b7280' },
+
+  successSection: { alignItems: 'center', marginTop: 25, marginBottom: 15 },
+  successIconCircle: { width: 75, height: 75, borderRadius: 40, alignItems: 'center', justifyContent: 'center', marginBottom: 12, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4, elevation: 3 },
+  successTitle: { fontSize: 22, fontWeight: 'bold', marginBottom: 4 },
+  successSubtitle: { fontSize: 14, color: '#6b7280', textAlign: 'center', paddingHorizontal: 20 },
+
+  cancelAlertBox: {
+    flexDirection: 'row',
+    backgroundColor: '#fef2f2',
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: '#fecaca',
+    alignItems: 'flex-start'
+  },
+  cancelAlertIcon: { marginRight: 12, marginTop: 2 },
+  cancelAlertContent: { flex: 1 },
+  cancelAlertLabel: { fontSize: 16, color: '#ef4444', fontWeight: 'bold', marginBottom: 4 },
+  cancelAlertText: { fontSize: 16, color: '#7f1d1d', lineHeight: 24, fontWeight: '500' },
+
   orderIdCard: { backgroundColor: '#fff', borderRadius: 16, padding: 20, alignItems: 'center', marginBottom: 20, borderWidth: 1, borderColor: '#e5e7eb' },
   orderIdLabel: { fontSize: 14, color: '#6b7280', marginBottom: 8 },
   orderIdRow: { backgroundColor: '#f3f4f6', paddingHorizontal: 20, paddingVertical: 10, borderRadius: 10 },
-  orderIdText: { fontSize: 20, fontWeight: 'bold', color: '#1f2937' },
+  orderIdText: { fontSize: 20, fontWeight: 'bold', color: '#1f2937', letterSpacing: 1 },
+
   detailsSection: { marginBottom: 20 },
   sectionHeader: { fontSize: 16, fontWeight: 'bold', color: '#374151', marginBottom: 12 },
   detailRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', padding: 15, borderRadius: 12, marginBottom: 10, borderWidth: 1, borderColor: '#f3f4f6' },
@@ -170,12 +232,13 @@ const styles = StyleSheet.create({
   iconBox: { width: 40, alignItems: 'center', marginRight: 10 },
   detailTextContainer: { flex: 1 },
   detailMainText: { fontSize: 15, fontWeight: 'bold', color: '#1f2937' },
-  detailSubText: { fontSize: 13, color: '#6b7280' },
-  expandedItemsBox: { backgroundColor: '#fafafa', padding: 15, marginBottom: 10, borderBottomLeftRadius: 12, borderBottomRightRadius: 12, borderWidth: 1, borderColor: '#f3f4f6' },
+  detailSubText: { fontSize: 13, color: '#6b7280', marginTop: 2 },
+  expandedItemsBox: { backgroundColor: '#fafafa', padding: 15, marginBottom: 10, borderBottomLeftRadius: 12, borderBottomRightRadius: 12, borderWidth: 1, borderColor: '#f3f4f6', borderTopWidth: 0 },
   itemSmallRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 6 },
   itemSmallName: { fontSize: 14, color: '#374151', flex: 1 },
   itemSmallQty: { fontSize: 14, color: '#6b7280', marginHorizontal: 10 },
   itemSmallPrice: { fontSize: 14, fontWeight: '600', color: '#10b981' },
+
   errorContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   errorText: { fontSize: 18, color: '#6b7280', marginTop: 15, marginBottom: 20 },
   backLink: { fontSize: 16, color: '#10b981', fontWeight: 'bold' },

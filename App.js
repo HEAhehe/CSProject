@@ -24,6 +24,7 @@ import CartScreen from './screens/customer/CartScreen';
 import StoreDetailScreen from './screens/customer/StoreDetailScreen';
 import WriteReviewScreen from './screens/customer/WriteReviewScreen';
 import AddressBookScreen from './screens/customer/AddressBookScreen';
+import ImpactHistoryScreen from './screens/customer/ImpactHistoryScreen';
 
 // --- 📂 STORE Screens (เพิ่มใหม่) ---
 import AddFoodScreen from './screens/store/AddFoodScreen';
@@ -90,6 +91,7 @@ export default function App() {
 
             <Stack.Screen name="Notifications" component={NotificationsScreen} />
             <Stack.Screen name="FavoriteStores" component={FavoriteStoresScreen} />
+            <Stack.Screen name="ImpactHistory" component={ImpactHistoryScreen} />
 
 
             {/* --- Store Flow (Registration & Management) --- */}

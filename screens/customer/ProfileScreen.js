@@ -78,11 +78,23 @@ export default function ProfileScreen({ navigation }) {
             )}
             <View style={[styles.statusDot, { backgroundColor: userData?.currentRole === 'store' ? '#f59e0b' : '#10b981' }]} />
           </View>
+
           <Text style={styles.profileName}>{userData?.username || 'User'}</Text>
 
-          {/* Impact Dashboard - ปรับขนาดให้เท่ากัน */}
+          <View style={styles.phoneBadge}>
+            <Ionicons name="call" size={14} color="#10b981" />
+            <Text style={styles.profilePhone}>
+              {userData?.phoneNumber || userData?.phone || userData?.tel || 'ไม่ได้ระบุเบอร์โทรศัพท์'}
+            </Text>
+          </View>
+
+          {/* ✅ Impact Dashboard (กดได้ทั้ง 2 อันและส่งพารามิเตอร์) */}
           <View style={styles.impactContainer}>
-            <View style={styles.impactCard}>
+            <TouchableOpacity
+              style={styles.impactCard}
+              activeOpacity={0.7}
+              onPress={() => navigation.navigate('ImpactHistory', { initialTab: 'food' })}
+            >
               <View style={styles.impactIconBg}>
                 <Ionicons name="leaf" size={20} color="#10b981" />
               </View>
@@ -91,9 +103,13 @@ export default function ProfileScreen({ navigation }) {
                 <Text style={styles.unitText}> kg</Text>
               </View>
               <Text style={styles.impactLabel}>ลดขยะอาหาร</Text>
-            </View>
+            </TouchableOpacity>
 
-            <View style={[styles.impactCard, { borderColor: '#dbeafe', backgroundColor: '#eff6ff' }]}>
+            <TouchableOpacity
+              style={[styles.impactCard, { borderColor: '#dbeafe', backgroundColor: '#eff6ff' }]}
+              activeOpacity={0.7}
+              onPress={() => navigation.navigate('ImpactHistory', { initialTab: 'co2' })}
+            >
               <View style={[styles.impactIconBg, { backgroundColor: '#dbeafe' }]}>
                 <Ionicons name="cloud-done" size={20} color="#3b82f6" />
               </View>
@@ -102,7 +118,7 @@ export default function ProfileScreen({ navigation }) {
                 <Text style={[styles.unitText, { color: '#3b82f6' }]}> kg</Text>
               </View>
               <Text style={styles.impactLabel}>ลด CO2 สะสม</Text>
-            </View>
+            </TouchableOpacity>
           </View>
         </View>
 
@@ -136,69 +152,26 @@ export default function ProfileScreen({ navigation }) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f9fafb' },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingTop: Platform.OS === 'ios' ? 60 : 60,
-    paddingBottom: 15,
-    backgroundColor: '#fff',
-    borderBottomWidth: 1,
-    borderBottomColor: '#f3f4f6'
-  },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: Platform.OS === 'ios' ? 60 : 60, paddingBottom: 15, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#f3f4f6' },
   backButton: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#f3f4f6', alignItems: 'center', justifyContent: 'center' },
   headerTitle: { fontSize: 18, fontWeight: '600', color: '#1f2937' },
   placeholder: { width: 40 },
   content: { flex: 1 },
   profileSection: { backgroundColor: '#fff', alignItems: 'center', paddingVertical: 30, marginBottom: 15 },
-  profileImageContainer: { position: 'relative', marginBottom: 15 },
+  profileImageContainer: { position: 'relative', marginBottom: 12 },
   profileImage: { width: 100, height: 100, borderRadius: 50, borderWidth: 3, borderColor: '#10b981' },
   profilePlaceholder: { width: 100, height: 100, borderRadius: 50, backgroundColor: '#f0fdf4', alignItems: 'center', justifyContent: 'center', borderWidth: 3, borderColor: '#10b981' },
   statusDot: { position: 'absolute', bottom: 5, right: 5, width: 20, height: 20, borderRadius: 10, borderWidth: 3, borderColor: '#fff' },
-  profileName: { fontSize: 24, fontWeight: 'bold', color: '#1f2937', marginBottom: 5 },
-  profileEmail: { fontSize: 14, color: '#6b7280', marginBottom: 25 },
-
-  impactContainer: {
-    flexDirection: 'row',
-    paddingHorizontal: 20,
-    width: '100%',
-    justifyContent: 'center',
-    gap: 15
-  },
-  impactCard: {
-    flex: 1, // ทำให้การ์ดสองใบขยายเท่ากัน
-    maxWidth: 170, // ป้องกันไม่ให้การ์ดกว้างเกินไปในหน้าจอใหญ่
-    backgroundColor: '#f0fdf4',
-    borderRadius: 20,
-    paddingVertical: 20,
-    paddingHorizontal: 10,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#dcfce7',
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-  },
-  impactIconBg: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#dcfce7',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 10
-  },
-  valueRow: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-  },
+  profileName: { fontSize: 22, fontWeight: 'bold', color: '#1f2937', marginBottom: 6 },
+  phoneBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#ecfdf5', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, marginBottom: 25, gap: 6, borderWidth: 1, borderColor: '#dcfce7' },
+  profilePhone: { fontSize: 14, color: '#10b981', fontWeight: '600', letterSpacing: 0.5 },
+  impactContainer: { flexDirection: 'row', paddingHorizontal: 20, width: '100%', justifyContent: 'center', gap: 15 },
+  impactCard: { flex: 1, maxWidth: 170, backgroundColor: '#f0fdf4', borderRadius: 20, paddingVertical: 20, paddingHorizontal: 10, alignItems: 'center', borderWidth: 1, borderColor: '#dcfce7', elevation: 2, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 4 },
+  impactIconBg: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#dcfce7', alignItems: 'center', justifyContent: 'center', marginBottom: 10 },
+  valueRow: { flexDirection: 'row', alignItems: 'baseline' },
   impactValue: { fontSize: 22, fontWeight: 'bold', color: '#10b981' },
   unitText: { fontSize: 14, fontWeight: '600', color: '#10b981' },
   impactLabel: { fontSize: 12, color: '#6b7280', marginTop: 4, fontWeight: '500' },
-
   menuSection: { backgroundColor: '#fff', paddingVertical: 10, marginBottom: 15 },
   menuItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 15, paddingHorizontal: 20 },
   menuIcon: { width: 45, height: 45, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginRight: 15 },

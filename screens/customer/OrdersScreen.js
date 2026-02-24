@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -17,8 +17,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { auth, db } from '../../firebase.config';
-import { collection, query, where, getDocs, doc, onSnapshot } from 'firebase/firestore';
-import { useFocusEffect } from '@react-navigation/native';
+import { collection, query, where, doc, onSnapshot } from 'firebase/firestore';
 
 const { width } = Dimensions.get('window');
 
@@ -32,35 +31,28 @@ export default function OrdersScreen({ navigation }) {
 
   const defaultAvatar = Image.resolveAssetSource(require('../../assets/icon.png')).uri;
 
+  // ✅ ใช้ onSnapshot ทั้งโปรไฟล์และออเดอร์ เพื่อให้ข้อมูลซิงค์แบบ Real-time 100%
   useEffect(() => {
     const user = auth.currentUser;
-    if (user) {
-      const unsubscribe = onSnapshot(doc(db, 'users', user.uid), (doc) => {
-        if (doc.exists()) {
-          setUserData(doc.data());
-        }
-      });
-      return () => unsubscribe();
+    if (!user) {
+      setLoading(false);
+      return;
     }
-  }, []);
 
-  useFocusEffect(
-    useCallback(() => {
-      fetchOrders();
-    }, [])
-  );
+    // 1. ดักจับการเปลี่ยนแปลงของข้อมูลผู้ใช้ (Role, รูปโปรไฟล์)
+    const unsubUser = onSnapshot(doc(db, 'users', user.uid), (docSnap) => {
+      if (docSnap.exists()) {
+        setUserData(docSnap.data());
+      }
+    });
 
-  const fetchOrders = async () => {
-    try {
-      const user = auth.currentUser;
-      if (!user) return;
+    // 2. ดักจับการเปลี่ยนแปลงของออเดอร์ (สถานะต่างๆ จะซิงค์ทันทีเมื่อร้านค้ายกเลิก/ยืนยัน)
+    const q = query(
+      collection(db, 'orders'),
+      where('userId', '==', user.uid)
+    );
 
-      const q = query(
-        collection(db, 'orders'),
-        where('userId', '==', user.uid)
-      );
-
-      const snapshot = await getDocs(q);
+    const unsubOrders = onSnapshot(q, (snapshot) => {
       const ordersData = snapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
@@ -70,17 +62,28 @@ export default function OrdersScreen({ navigation }) {
       ordersData.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
       setOrders(ordersData);
-    } catch (error) {
-      console.error('Error fetching orders:', error);
-    } finally {
       setLoading(false);
       setRefreshing(false);
-    }
-  };
+    }, (error) => {
+      console.error('Error fetching orders in real-time:', error);
+      setLoading(false);
+      setRefreshing(false);
+    });
+
+    // คืนค่าฟังก์ชันยกเลิกการดักจับเมื่อปิดหน้านี้
+    return () => {
+      unsubUser();
+      unsubOrders();
+    };
+  }, []);
 
   const onRefresh = () => {
     setRefreshing(true);
-    fetchOrders();
+    // เนื่องจากเราใช้ระบบ Real-time (onSnapshot) ข้อมูลจะใหม่อยู่เสมอ
+    // จึงทำแค่หน่วงเวลา Animation รีเฟรชหลอกๆ เพื่อ UX ที่ดีให้ผู้ใช้ทราบว่าระบบทำงานอยู่
+    setTimeout(() => {
+      setRefreshing(false);
+    }, 800);
   };
 
   const toggleDrawer = () => {
@@ -96,7 +99,6 @@ export default function OrdersScreen({ navigation }) {
     await auth.signOut();
   };
 
-  // ✅ เพิ่มฟังก์ชันตรวจสอบสถานะร้านค้าก่อนสลับหน้า (เหมือนหน้า Home)
   const handleSwitchToStore = () => {
     toggleDrawer();
     if (userData?.currentRole === 'store' || userData?.currentRole === 'admin') {
@@ -108,71 +110,112 @@ export default function OrdersScreen({ navigation }) {
 
   const getStatusColor = (status) => {
     switch (status) {
-      case 'completed': return '#10b981';
-      case 'cancelled': return '#ef4444';
-      case 'pending': return '#f59e0b';
+      case 'completed': return '#059669';
+      case 'cancelled': return '#dc2626';
+      case 'pending': return '#d97706';
+      case 'confirmed': return '#2563eb'; // สีน้ำเงินสำหรับร้านกดยืนยันแล้วแต่ลูกค้ายังไม่รับของ
       default: return '#6b7280';
+    }
+  };
+
+  const getStatusBgColor = (status) => {
+    switch (status) {
+      case 'completed': return '#d1fae5';
+      case 'cancelled': return '#fee2e2';
+      case 'pending': return '#fef3c7';
+      case 'confirmed': return '#dbeafe';
+      default: return '#f3f4f6';
     }
   };
 
   const getStatusText = (status) => {
     switch (status) {
-      case 'completed': return 'สำเร็จ';
-      case 'cancelled': return 'ยกเลิก';
-      case 'pending': return 'รอรับสินค้า';
+      case 'completed': return 'รับของแล้ว';
+      case 'cancelled': return 'ยกเลิกแล้ว';
+      case 'pending': return 'รอดำเนินการ';
+      case 'confirmed': return 'ร้านกำลังเตรียม / จองสำเร็จ'; // เพิ่มสถานะใหม่ให้ชัดเจนขึ้น
       default: return status;
     }
   };
 
-  const getFormattedOrderId = (orderId, type) => {
-    const shortId = orderId.slice(0, 6).toUpperCase();
-    return type === 'delivery' ? `D-${shortId}` : `P-${shortId}`;
+  const formatDate = (dateString) => {
+    if (!dateString) return '-';
+    const date = new Date(dateString);
+    return date.toLocaleDateString('th-TH', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
   };
 
-  const renderOrder = ({ item }) => (
-    <TouchableOpacity
-      style={styles.orderCard}
-      onPress={() => navigation.navigate('OrderDetail', { order: item })}
-    >
-      <View style={styles.cardHeader}>
-        <View style={styles.storeInfo}>
-          <View style={{backgroundColor: '#f3f4f6', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, marginRight: 8}}>
-             <Text style={{fontWeight: 'bold', color: '#1f2937', fontSize: 12}}>
-               {getFormattedOrderId(item.id, item.orderType)}
-             </Text>
+  const renderOrder = ({ item }) => {
+    const statusColor = getStatusColor(item.status);
+    const statusBgColor = getStatusBgColor(item.status);
+
+    let displayImage = null;
+    if (item.items && item.items.length > 0 && item.items[0].imageUrl) {
+      displayImage = item.items[0].imageUrl;
+    } else if (item.imageUrl) {
+      displayImage = item.imageUrl;
+    }
+
+    // ตัวย่อเลขบิล P=Pickup, D=Delivery
+    const shortId = item.id.slice(0, 6).toUpperCase();
+    const prefix = item.orderType === 'delivery' ? 'D' : 'P';
+    const formattedId = `${prefix}-${shortId}`;
+
+    return (
+      <TouchableOpacity
+        style={styles.orderCard}
+        activeOpacity={0.8}
+        onPress={() => navigation.navigate('OrderDetail', { order: item })}
+      >
+        <View style={styles.cardHeader}>
+          <View style={styles.storeInfo}>
+            <Ionicons name="storefront-outline" size={18} color="#4b5563" style={{ marginRight: 6 }} />
+            <Text style={styles.storeName} numberOfLines={1}>{item.storeName || 'ไม่ระบุร้านค้า'}</Text>
+            <Ionicons name="chevron-forward" size={14} color="#9ca3af" />
           </View>
-          <Text style={styles.storeName}>{item.storeName || 'ไม่ระบุร้าน'}</Text>
+          <View style={[styles.statusBadge, { backgroundColor: statusBgColor }]}>
+            <Text style={[styles.statusText, { color: statusColor }]}>{getStatusText(item.status)}</Text>
+          </View>
         </View>
 
-        <View style={{alignItems: 'flex-end'}}>
-            <Text style={[styles.statusText, { color: getStatusColor(item.status) }]}>
-              {getStatusText(item.status || 'pending')}
-            </Text>
+        <View style={styles.divider} />
 
-            {item.status === 'completed' && !item.isReviewed && (
-               <View style={styles.pendingReviewBadge}>
-                  <Ionicons name="star" size={10} color="#d97706" style={{marginRight: 2}}/>
-                  <Text style={styles.pendingReviewText}>รอรีวิว</Text>
-               </View>
-            )}
-        </View>
-      </View>
+        <View style={styles.cardBody}>
+          {displayImage ? (
+             <Image source={{ uri: displayImage }} style={styles.foodImage} />
+          ) : (
+             <View style={styles.imagePlaceholder}>
+                <Ionicons name="fast-food" size={24} color="#d1d5db" />
+             </View>
+          )}
 
-      <View style={styles.cardBody}>
-        <View style={styles.imagePlaceholder}>
-           <Ionicons name="fast-food" size={24} color="#d1d5db" />
+          <View style={styles.orderInfo}>
+            <Text style={styles.foodName} numberOfLines={2}>{item.foodName || 'รายการอาหาร'}</Text>
+            <Text style={styles.quantityText}>{item.quantity} รายการ</Text>
+            <Text style={styles.dateText}>{formatDate(item.createdAt)}</Text>
+            <Text style={styles.orderIdText}>#{formattedId}</Text>
+          </View>
+
+          <View style={styles.priceContainer}>
+             <Text style={styles.totalLabel}>ราคาสุทธิ</Text>
+             <Text style={styles.price}>฿{item.totalPrice}</Text>
+          </View>
         </View>
-        <View style={styles.orderInfo}>
-          <Text style={styles.foodName}>{item.foodName || 'รายการอาหาร'}</Text>
-          <Text style={styles.quantity}>จำนวน: {item.quantity} ชิ้น</Text>
-          <Text style={styles.date}>
-            {item.createdAt ? new Date(item.createdAt).toLocaleDateString('th-TH') : '-'}
-          </Text>
-        </View>
-        <Text style={styles.price}>฿{item.totalPrice}</Text>
-      </View>
-    </TouchableOpacity>
-  );
+
+        {item.status === 'completed' && !item.isReviewed && (
+          <View style={styles.pendingReviewBadge}>
+            <Ionicons name="star" size={14} color="#d97706" style={{ marginRight: 6 }} />
+            <Text style={styles.pendingReviewText}>รอคุณให้คะแนนรีวิวร้านค้านี้</Text>
+          </View>
+        )}
+      </TouchableOpacity>
+    );
+  };
 
   const DrawerContent = () => (
     <View style={styles.drawerContent}>
@@ -194,7 +237,6 @@ export default function OrdersScreen({ navigation }) {
               <Ionicons name="cart" size={14} color="#fff" />
               <Text style={styles.modeTextActive}>โหมดลูกค้า</Text>
             </TouchableOpacity>
-            {/* ✅ ใช้ handleSwitchToStore และเปลี่ยนข้อความตาม Role */}
             <TouchableOpacity style={styles.modeButtonInactive} onPress={handleSwitchToStore}>
               <Ionicons name="storefront-outline" size={14} color="#6b7280" />
               <Text style={styles.modeTextInactive}>
@@ -261,9 +303,9 @@ export default function OrdersScreen({ navigation }) {
         />
       ) : (
         <View style={styles.emptyState}>
-          <Ionicons name="receipt-outline" size={64} color="#d1d5db" />
+          <Ionicons name="receipt-outline" size={80} color="#e5e7eb" />
           <Text style={styles.emptyText}>ยังไม่มีคำสั่งซื้อ</Text>
-          <Text style={styles.emptySubText}>สั่งอาหารอร่อยๆ ช่วยโลกกันเถอะ!</Text>
+          <Text style={styles.emptySubText}>คุณสามารถเลือกซื้ออาหารราคาพิเศษเพื่อช่วยลดขยะอาหารได้เลย!</Text>
         </View>
       )}
 
@@ -310,33 +352,59 @@ const styles = StyleSheet.create({
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingTop: Platform.OS === 'ios' ? 60 : 60, paddingBottom: 15, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#f3f4f6', zIndex: 10 },
   headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 15 },
   headerTitle: { fontSize: 20, fontWeight: 'bold', color: '#1f2937' },
-  menuButton: { padding: 4 },
+  menuButton: { padding: 4, marginLeft: -4 },
   avatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#f3f4f6', borderWidth: 1, borderColor: '#e5e7eb' },
-  listContent: { padding: 20 },
-  orderCard: { backgroundColor: '#fff', borderRadius: 12, padding: 15, marginBottom: 12, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, elevation: 2 },
-  cardHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12, alignItems: 'flex-start' },
-  storeInfo: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  storeName: { fontSize: 14, fontWeight: '600', color: '#4b5563' },
+
+  listContent: { padding: 15, paddingBottom: 100 },
+
+  orderCard: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 15,
+    borderWidth: 1,
+    borderColor: '#f3f4f6',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 5,
+    elevation: 2
+  },
+  cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
+  storeInfo: { flexDirection: 'row', alignItems: 'center', flex: 1, paddingRight: 10 },
+  storeName: { fontSize: 15, fontWeight: 'bold', color: '#1f2937' },
+  statusBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
   statusText: { fontSize: 12, fontWeight: 'bold' },
-  pendingReviewBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fef3c7', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, marginTop: 4 },
-  pendingReviewText: { fontSize: 10, color: '#d97706', fontWeight: 'bold' },
+  divider: { height: 1, backgroundColor: '#f3f4f6', marginBottom: 12 },
+
   cardBody: { flexDirection: 'row', alignItems: 'center' },
-  imagePlaceholder: { width: 50, height: 50, borderRadius: 8, backgroundColor: '#f3f4f6', alignItems: 'center', justifyContent: 'center', marginRight: 12 },
-  orderInfo: { flex: 1 },
-  foodName: { fontSize: 16, fontWeight: 'bold', color: '#1f2937' },
-  quantity: { fontSize: 12, color: '#6b7280', marginTop: 2 },
-  date: { fontSize: 10, color: '#9ca3af', marginTop: 4 },
+  foodImage: { width: 60, height: 60, borderRadius: 10, backgroundColor: '#f3f4f6', marginRight: 15 },
+  imagePlaceholder: { width: 60, height: 60, borderRadius: 10, backgroundColor: '#f3f4f6', alignItems: 'center', justifyContent: 'center', marginRight: 15 },
+  orderInfo: { flex: 1, justifyContent: 'center' },
+  foodName: { fontSize: 14, fontWeight: '600', color: '#374151', marginBottom: 4 },
+  quantityText: { fontSize: 12, color: '#6b7280', marginBottom: 4 },
+  dateText: { fontSize: 11, color: '#9ca3af', marginBottom: 2 },
+  orderIdText: { fontSize: 10, color: '#d1d5db' },
+
+  priceContainer: { alignItems: 'flex-end', justifyContent: 'center', paddingLeft: 10 },
+  totalLabel: { fontSize: 11, color: '#6b7280', marginBottom: 2 },
   price: { fontSize: 16, fontWeight: 'bold', color: '#10b981' },
-  emptyState: { flex: 1, alignItems: 'center', justifyContent: 'center', marginTop: 50 },
-  emptyText: { fontSize: 16, fontWeight: 'bold', color: '#6b7280', marginTop: 10 },
-  emptySubText: { fontSize: 13, color: '#9ca3af', marginTop: 5 },
+
+  pendingReviewBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fffbeb', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, marginTop: 15, borderWidth: 1, borderColor: '#fef3c7' },
+  pendingReviewText: { fontSize: 12, color: '#d97706', fontWeight: '600' },
+
+  emptyState: { flex: 1, alignItems: 'center', justifyContent: 'center', marginTop: 80, paddingHorizontal: 40 },
+  emptyText: { fontSize: 18, fontWeight: 'bold', color: '#4b5563', marginTop: 15, marginBottom: 8 },
+  emptySubText: { fontSize: 14, color: '#9ca3af', textAlign: 'center', lineHeight: 20 },
+
   bottomNav: { flexDirection: 'row', backgroundColor: '#fff', paddingVertical: 10, paddingHorizontal: 20, borderTopWidth: 1, borderTopColor: '#f3f4f6', position: 'absolute', bottom: 0, left: 0, right: 0 },
   navItem: { flex: 1, alignItems: 'center' },
   navLabel: { fontSize: 10, color: '#9ca3af', marginTop: 4 },
   navLabelActive: { fontSize: 10, color: '#10b981', fontWeight: 'bold', marginTop: 4 },
+
   drawerOverlay: { flex: 1, flexDirection: 'row' },
   drawerBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)' },
-  drawerContainer: { position: 'absolute', left: 0, top: 0, bottom: 0, width: width * 0.85, backgroundColor: '#fff', paddingTop: 50, shadowColor: "#000", shadowOffset: { width: 2, height: 0 }, shadowOpacity: 0.25, shadowRadius: 3.84, elevation: 5 },
+  drawerContainer: { position: 'absolute', left: 0, top: 0, bottom: 0, width: width * 0.80, backgroundColor: '#fff', paddingTop: Platform.OS === 'ios' ? 50 : 30, shadowColor: "#000", shadowOffset: { width: 2, height: 0 }, shadowOpacity: 0.25, shadowRadius: 3.84, elevation: 5 },
   drawerContent: { flex: 1, paddingHorizontal: 20 },
   drawerTopHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
   logoContainer: { flexDirection: 'row', alignItems: 'center', gap: 10 },
