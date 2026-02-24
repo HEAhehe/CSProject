@@ -236,6 +236,7 @@ export default function MyShopScreen({ navigation }) {
       const user = auth.currentUser;
       if (!user) return;
 
+      // ดึงสินค้าของร้าน
       const q = query(collection(db, 'food_items'), where('userId', '==', user.uid));
       const snapshot = await getDocs(q);
       const items = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -246,13 +247,29 @@ export default function MyShopScreen({ navigation }) {
       setActiveListings(active);
       setSoldListings(sold);
 
-      const totalRevenue = sold.reduce((sum, item) => {
-        return sum + (Number(item.discountPrice) || Number(item.price) || 0);
+      // ดึงออเดอร์ที่ "สำเร็จ" (ลูกค้ารับของแล้ว) เพื่อคำนวณยอดขายและรายได้จริง
+      const ordersQuery = query(
+        collection(db, 'orders'),
+        where('storeId', '==', user.uid),
+        where('status', '==', 'completed')
+      );
+      const ordersSnapshot = await getDocs(ordersQuery);
+      const completedOrders = ordersSnapshot.docs.map(doc => doc.data());
+
+      // รวมจำนวนสินค้าที่ขายได้ (นับจาก items ในแต่ละออเดอร์)
+      const totalSoldCount = completedOrders.reduce((sum, order) => {
+        const itemsCount = (order.items || []).reduce((s, item) => s + (item.quantity || 1), 0);
+        return sum + itemsCount;
+      }, 0);
+
+      // รวมรายได้จากออเดอร์ที่สำเร็จ
+      const totalRevenue = completedOrders.reduce((sum, order) => {
+        return sum + (Number(order.totalPrice) || 0);
       }, 0);
 
       setStats({
         posted: active.length,
-        sold: sold.length,
+        sold: totalSoldCount,
         revenue: totalRevenue,
       });
     } catch (error) {
@@ -340,42 +357,66 @@ export default function MyShopScreen({ navigation }) {
 
     return (
       <View key={item.id} style={styles.listingCard}>
-        <View style={styles.cardContent}>
-          <View style={styles.listingImageContainer}>
-            {item.imageUrl ? (
-              <Image source={{ uri: item.imageUrl }} style={styles.listingImage} />
-            ) : (
-              <View style={styles.placeholderImage}>
-                <Ionicons name="image-outline" size={40} color="#d1d5db" />
-              </View>
+        {/* Image Section */}
+        <View style={styles.listingImageContainer}>
+          {item.imageUrl ? (
+            <Image source={{ uri: item.imageUrl }} style={styles.listingImage} />
+          ) : (
+            <View style={styles.placeholderImage}>
+              <Ionicons name="image-outline" size={36} color="#2d4a3e" />
+            </View>
+          )}
+          {discountPercent > 0 && (
+            <View style={styles.discountBadge}>
+              <Text style={styles.discountBadgeText}>-{discountPercent}%</Text>
+            </View>
+          )}
+        </View>
+
+        {/* Info Section */}
+        <View style={styles.cardBody}>
+          <Text style={styles.listingName} numberOfLines={1}>{item.name}</Text>
+
+          <View style={styles.priceRow}>
+            {originalPrice > 0 && (
+              <Text style={styles.originalPrice}>{originalPrice} ฿</Text>
             )}
+            <Text style={styles.finalPrice}>{discountPrice} ฿</Text>
           </View>
 
-          <View style={styles.listingInfo}>
-            <Text style={styles.listingName} numberOfLines={1}>{item.name}</Text>
-            <Text style={styles.listingPrice}>ราคาเต็ม : {originalPrice} ฿</Text>
-            <View style={styles.discountRow}>
-              <Text style={styles.discountLabel}>ลด {discountPercent}%</Text>
-              <Ionicons name="arrow-forward" size={14} color="#6b7280" />
-              <Text style={styles.discountedPrice}> {discountPrice} ฿</Text>
+          <View style={styles.cardMeta}>
+            <View style={styles.metaChip}>
+              <Ionicons name="layers-outline" size={12} color="#10b981" />
+              <Text style={styles.metaText}>{item.quantity} {item.unit}</Text>
             </View>
-            <Text style={styles.quantityInfo}>คงเหลือ : {item.quantity}/{item.quantity + (item.soldCount || 0)} {item.unit}</Text>
-            <Text style={styles.closedTime}>ปิดขาย : {formatExpiryDate(item.expiryDate)}</Text>
+{item.expiryDate ? (
+              <View style={[styles.metaChip, { backgroundColor: '#1a2030' }]}>
+                <Ionicons name="time-outline" size={12} color="#60a5fa" />
+                <Text style={[styles.metaText, { color: '#60a5fa' }]}>
+                  {formatExpiryDate(item.expiryDate)?.split(' ')[0]}
+                </Text>
+              </View>
+            ) : null}
           </View>
         </View>
 
+        {/* Action Buttons */}
         <View style={styles.cardButtons}>
-          <TouchableOpacity 
+          <TouchableOpacity
             style={styles.editBtn}
             onPress={() => navigation.navigate('CreateListing', { editItem: item })}
+            activeOpacity={0.75}
           >
-            <Text style={styles.editBtnText}>EDIT</Text>
+            <Ionicons name="pencil-outline" size={15} color="#10b981" />
+            <Text style={styles.editBtnText}>แก้ไข</Text>
           </TouchableOpacity>
-          <TouchableOpacity 
+          <TouchableOpacity
             style={styles.deleteBtn}
             onPress={() => handleDeleteListing(item.id)}
+            activeOpacity={0.75}
           >
-            <Text style={styles.deleteBtnText}>DELETE</Text>
+            <Ionicons name="trash-outline" size={15} color="#f87171" />
+            <Text style={styles.deleteBtnText}>ลบ</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -556,70 +597,79 @@ export default function MyShopScreen({ navigation }) {
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="dark-content" backgroundColor="#fff" />
+      <StatusBar barStyle="light-content" backgroundColor="#10b981" />
 
-      {/* Header with Hamburger */}
+      {/* Header */}
       <View style={styles.header}>
-        <View style={styles.headerLeft}>
-          <TouchableOpacity onPress={toggleDrawer} style={styles.menuButton}>
-            <Ionicons name="menu" size={28} color="#1f2937" />
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.profileTextButton} activeOpacity={0.6}>
-            <Text style={styles.greeting}>
-              สวัสดี, {storeData?.storeName?.substring(0, 10) || 'ร้านค้า'}
-            </Text>
-          </TouchableOpacity>
+        <TouchableOpacity onPress={toggleDrawer} style={styles.menuButton}>
+          <View style={styles.menuIconWrapper}>
+            <View style={styles.menuLine} />
+            <View style={[styles.menuLine, { width: 16 }]} />
+          </View>
+        </TouchableOpacity>
+
+        <View style={styles.headerCenter}>
+          <View style={styles.logoLeafWrap}>
+            <Ionicons name="leaf" size={14} color="#10b981" />
+          </View>
+          <Text style={styles.headerTitle}>MY SHOP</Text>
         </View>
-        <View style={styles.headerRight}>
-          <TouchableOpacity onPress={() => navigation.navigate('StoreProfile')}>
-            <Image 
-              source={storeData?.storeImage ? { uri: storeData.storeImage } : { uri: defaultAvatar }} 
-              style={styles.avatar} 
-            />
-          </TouchableOpacity>
+
+        <TouchableOpacity onPress={() => navigation.navigate('StoreProfile')} style={styles.avatarWrap}>
+          <Image
+            source={storeData?.storeImage ? { uri: storeData.storeImage } : { uri: defaultAvatar }}
+            style={styles.avatar}
+          />
+          <View style={styles.avatarOnline} />
+        </TouchableOpacity>
+      </View>
+
+      {/* Store Name Banner */}
+      <View style={styles.bannerRow}>
+        <View>
+          <Text style={styles.bannerGreet}>สวัสดี 👋</Text>
+          <Text style={styles.bannerName}>{storeData?.storeName || 'ร้านค้าของคุณ'}</Text>
+        </View>
+        <View style={styles.statusBadge}>
+          <View style={styles.statusDot} />
+          <Text style={styles.statusText}>เปิดอยู่</Text>
         </View>
       </View>
 
-      {/* Greeting */}
-      <View style={styles.greetingContainer}>
-        <Text style={styles.greetingText}>
-          Hello, {storeData?.storeName || storeData?.storeOwner || 'ผู้ใช้'}
-        </Text>
-      </View>
-
-      {/* Today's Stats */}
-      <View style={styles.statsCard}>
-        <View style={styles.statsHeader}>
-          <Ionicons name="bar-chart-outline" size={20} color="#1f2937" />
-          <Text style={styles.statsTitle}>Today's Stats</Text>
+      {/* Stats Row */}
+      <View style={styles.statsRow}>
+        <View style={[styles.statCard]}>
+          <Ionicons name="cube-outline" size={18} color="#10b981" />
+          <Text style={styles.statNumber}>{stats.posted}</Text>
+          <Text style={styles.statLabel}>โพสต์</Text>
         </View>
-        <View style={styles.statsRow}>
-          <View style={styles.statBox}>
-            <Text style={styles.statNumber}>{stats.posted}</Text>
-            <Text style={styles.statLabel}>Posted</Text>
-          </View>
-          <View style={styles.statBox}>
-            <Text style={styles.statNumber}>{stats.sold}</Text>
-            <Text style={styles.statLabel}>Sold</Text>
-          </View>
-          <View style={styles.statBox}>
-            <Text style={styles.statNumber}>{stats.revenue} ฿</Text>
-            <Text style={styles.statLabel}>Revenue</Text>
-          </View>
+        <View style={[styles.statCard]}>
+          <Ionicons name="checkmark-circle-outline" size={18} color="#10b981" />
+          <Text style={[styles.statNumber]}>{stats.sold}</Text>
+          <Text style={styles.statLabel}>ขายแล้ว</Text>
+        </View>
+        <View style={[styles.statCard]}>
+          <Ionicons name="cash-outline" size={18} color="#10b981" />
+          <Text style={[styles.statNumber]}>{stats.revenue}฿</Text>
+          <Text style={styles.statLabel}>รายได้</Text>
         </View>
       </View>
 
-      {/* Active Listings Header */}
-      <View style={styles.listingsHeader}>
-        <Text style={styles.listingsTitle}>Active Listings</Text>
+      {/* Section Header */}
+      <View style={styles.sectionHeader}>
+        <View style={styles.sectionAccent} />
+        <Text style={styles.sectionTitle}>สินค้าที่ขายอยู่</Text>
+        <Text style={styles.sectionCount}>{activeListings.length} รายการ</Text>
       </View>
 
       {/* Listings */}
-      <ScrollView 
+      <ScrollView
         style={styles.content}
+        contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 20 }}
+        showsVerticalScrollIndicator={false}
         refreshControl={
-          <RefreshControl 
-            refreshing={refreshing} 
+          <RefreshControl
+            refreshing={refreshing}
             onRefresh={handleRefresh}
             colors={['#10b981']}
             tintColor="#10b981"
@@ -627,31 +677,35 @@ export default function MyShopScreen({ navigation }) {
         }
       >
         {loading ? (
-          <ActivityIndicator size="large" color="#10b981" style={{ marginTop: 40 }} />
+          <View style={{ alignItems: 'center', marginTop: 60 }}>
+            <ActivityIndicator size="large" color="#10b981" />
+            <Text style={{ color: '#6b7280', marginTop: 12, fontSize: 13 }}>กำลังโหลด...</Text>
+          </View>
+        ) : activeListings.length > 0 ? (
+          activeListings.map(renderListingCard)
         ) : (
-          <View style={styles.listingsContainer}>
-            {activeListings.length > 0 ? (
-              activeListings.map(renderListingCard)
-            ) : (
-              <View style={styles.emptyState}>
-                <Ionicons name="basket-outline" size={60} color="#d1d5db" />
-                <Text style={styles.emptyStateText}>ยังไม่มีสินค้า</Text>
-                <Text style={styles.emptyStateSubtext}>กดปุ่ม + NEW POST เพื่อเพิ่มสินค้า</Text>
-              </View>
-            )}
+          <View style={styles.emptyState}>
+            <View style={styles.emptyIconWrap}>
+              <Ionicons name="basket-outline" size={44} color="#10b981" />
+            </View>
+            <Text style={styles.emptyStateText}>ยังไม่มีสินค้า</Text>
+            <Text style={styles.emptyStateSubtext}>กดปุ่ม + NEW POST เพื่อเพิ่มสินค้า</Text>
           </View>
         )}
         <View style={{ height: 100 }} />
       </ScrollView>
 
-      {/* NEW POST Button - แสดงเฉพาะเมื่อ approved */}
+      {/* NEW POST Button */}
       {storeData?.status === 'approved' && (
-        <TouchableOpacity 
+        <TouchableOpacity
           style={styles.newPostButton}
           onPress={() => navigation.navigate('CreateListing')}
+          activeOpacity={0.85}
         >
-          <Ionicons name="add" size={24} color="#1f2937" />
-          <Text style={styles.newPostButtonText}>NEW POST</Text>
+          <View style={styles.newPostInner}>
+            <Ionicons name="add" size={22} color="#fff" />
+            <Text style={styles.newPostButtonText}>โพสต์</Text>
+          </View>
         </TouchableOpacity>
       )}
 
@@ -660,7 +714,7 @@ export default function MyShopScreen({ navigation }) {
         <Modal transparent visible={isDrawerOpen} animationType="none">
           <View style={styles.drawerOverlay}>
             <TouchableWithoutFeedback onPress={toggleDrawer}>
-              <View style={styles.drawerBackdrop} />
+              <Animated.View style={[styles.drawerBackdrop, { opacity: fadeAnim }]} />
             </TouchableWithoutFeedback>
             <Animated.View style={[styles.drawerContainer, { transform: [{ translateX: slideAnim }] }]}>
               <DrawerContent />
@@ -673,412 +727,388 @@ export default function MyShopScreen({ navigation }) {
 }
 
 const styles = StyleSheet.create({
+  // ─── Layout ────────────────────────────────────────────────────
   container: {
     flex: 1,
-    backgroundColor: '#ffffff',
+    backgroundColor: '#f0fdf8',
   },
+
+  // ─── Header ────────────────────────────────────────────────────
   header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingTop: Platform.OS === 'ios' ? 58 : 50,
+    paddingBottom: 14,
+    backgroundColor: '#10b981',
+    zIndex: 10,
+  },
+  menuButton: {
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    borderRadius: 12,
+  },
+  menuIconWrapper: { gap: 5, alignItems: 'flex-start' },
+  menuLine: { width: 20, height: 2, backgroundColor: '#fff', borderRadius: 2 },
+  headerCenter: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  logoLeafWrap: {
+    width: 28,
+    height: 28,
+    backgroundColor: 'rgba(255,255,255,0.25)',
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#fff',
+    letterSpacing: 3,
+  },
+  avatarWrap: { position: 'relative' },
+  avatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    borderWidth: 2,
+    borderColor: '#fff',
+    backgroundColor: '#d1fae5',
+  },
+  avatarOnline: {
+    position: 'absolute',
+    bottom: 1,
+    right: 1,
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: '#fff',
+    borderWidth: 2,
+    borderColor: '#10b981',
+  },
+
+  // ─── Banner ────────────────────────────────────────────────────
+  bannerRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 20,
-    paddingTop: Platform.OS === 'ios' ? 60 : 60,
-    paddingBottom: 15,
-    backgroundColor: '#fff',
-    borderBottomWidth: 1,
-    borderBottomColor: '#f3f4f6',
-    zIndex: 10
-  },
-  headerLeft: { 
-    flexDirection: 'row', 
-    alignItems: 'center', 
-    gap: 12, 
-    flex: 1 
-  },
-  headerRight: { 
-    flexDirection: 'row', 
-    alignItems: 'center', 
-    gap: 15 
-  },
-  menuButton: { 
-    padding: 4 
-  },
-  profileTextButton: { 
-    paddingVertical: 4 
-  },
-  greeting: { 
-    fontSize: 20, 
-    fontWeight: 'bold', 
-    color: '#1f2937' 
-  },
-  avatar: { 
-    width: 38, 
-    height: 38, 
-    borderRadius: 19, 
-    backgroundColor: '#f3f4f6', 
-    borderWidth: 1, 
-    borderColor: '#e5e7eb' 
-  },
-  greetingContainer: {
-    padding: 20,
-    paddingTop: 10,
-  },
-  greetingText: {
-    fontSize: 18,
-    color: '#1f2937',
-  },
-  statsCard: {
-    margin: 20,
-    marginTop: 10,
-  },
-  statsHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 15,
-    gap: 8,
-  },
-  statsTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#1f2937',
-  },
-  statsRow: {
-    flexDirection: 'row',
-    gap: 15,
-  },
-  statBox: {
-    flex: 1,
-    backgroundColor: '#f3f4f6',
-    padding: 20,
-    borderRadius: 12,
-    alignItems: 'center',
-  },
-  statNumber: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#1f2937',
+    paddingTop: 18,
+    paddingBottom: 14,
+    backgroundColor: '#10b981',
+    borderBottomLeftRadius: 24,
+    borderBottomRightRadius: 24,
     marginBottom: 4,
   },
-  statLabel: {
-    fontSize: 12,
-    color: '#6b7280',
-  },
-  listingsHeader: {
-    paddingHorizontal: 20,
-    marginBottom: 15,
-  },
-  listingsTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#1f2937',
-  },
-  content: {
-    flex: 1,
-  },
-  listingsContainer: {
-    padding: 20,
-    paddingTop: 0,
-  },
-  listingCard: {
-    backgroundColor: '#f3f4f6',
-    borderRadius: 12,
-    marginBottom: 15,
-    overflow: 'hidden',
-  },
-  cardContent: {
+  bannerGreet: { fontSize: 13, color: 'rgba(255,255,255,0.75)', marginBottom: 2 },
+  bannerName: { fontSize: 22, fontWeight: '800', color: '#fff', letterSpacing: -0.5 },
+  statusBadge: {
     flexDirection: 'row',
-    padding: 15,
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    borderRadius: 20,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+  },
+  statusDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: '#fff' },
+  statusText: { fontSize: 12, color: '#fff', fontWeight: '700' },
+
+  // ─── Stats ─────────────────────────────────────────────────────
+  statsRow: {
+    flexDirection: 'row',
+    gap: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+  },
+  statCard: {
+    flex: 1,
+    borderRadius: 16,
+    paddingVertical: 16,
+    paddingHorizontal: 10,
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#fff',
+    shadowColor: '#10b981',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  statNumber: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#10b981',
+    marginTop: 2,
+  },
+  statLabel: { fontSize: 11, color: '#6b7280', fontWeight: '500' },
+
+  // ─── Section Header ────────────────────────────────────────────
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingBottom: 10,
+    gap: 10,
+  },
+  sectionAccent: {
+    width: 4,
+    height: 18,
+    backgroundColor: '#10b981',
+    borderRadius: 2,
+  },
+  sectionTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#1f2937',
+    flex: 1,
+    letterSpacing: 0.3,
+  },
+  sectionCount: {
+    fontSize: 12,
+    color: '#fff',
+    backgroundColor: '#10b981',
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+    borderRadius: 20,
+    fontWeight: '700',
+  },
+
+  // ─── Content ───────────────────────────────────────────────────
+  content: { flex: 1 },
+
+  // ─── Listing Card ──────────────────────────────────────────────
+  listingCard: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    marginBottom: 12,
+    overflow: 'hidden',
+    shadowColor: '#10b981',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 3,
   },
   listingImageContainer: {
-    width: 100,
-    height: 100,
-    borderRadius: 8,
-    backgroundColor: '#fff',
-    overflow: 'hidden',
-    marginRight: 15,
-  },
-  listingImage: {
     width: '100%',
-    height: '100%',
+    height: 160,
+    backgroundColor: '#d1fae5',
+    position: 'relative',
   },
+  listingImage: { width: '100%', height: '100%' },
   placeholderImage: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#fff',
+    backgroundColor: '#d1fae5',
   },
-  listingInfo: {
-    flex: 1,
-    justifyContent: 'center',
+  discountBadge: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    backgroundColor: '#10b981',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
   },
-  listingName: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#1f2937',
-    marginBottom: 4,
+  discountBadgeText: { fontSize: 12, fontWeight: '800', color: '#fff' },
+
+  cardBody: { padding: 14, gap: 8 },
+  listingName: { fontSize: 16, fontWeight: '700', color: '#1f2937', letterSpacing: -0.2 },
+
+  priceRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  originalPrice: {
+    fontSize: 13,
+    color: '#9ca3af',
+    textDecorationLine: 'line-through',
   },
-  listingPrice: {
-    fontSize: 12,
-    color: '#6b7280',
-    marginBottom: 2,
-  },
-  discountRow: {
+  finalPrice: { fontSize: 18, fontWeight: '800', color: '#10b981' },
+
+  cardMeta: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
+  metaChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 2,
+    gap: 5,
+    backgroundColor: '#ecfdf5',
+    borderRadius: 20,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderWidth: 1,
+    borderColor: '#a7f3d0',
   },
-  discountLabel: {
-    fontSize: 12,
-    color: '#6b7280',
-  },
-  discountedPrice: {
-    fontSize: 12,
-    color: '#6b7280',
-    marginLeft: 4,
-  },
-  quantityInfo: {
-    fontSize: 12,
-    color: '#6b7280',
-    marginBottom: 2,
-  },
-  closedTime: {
-    fontSize: 12,
-    color: '#6b7280',
-  },
+  metaText: { fontSize: 11, color: '#059669', fontWeight: '600' },
+
   cardButtons: {
     flexDirection: 'row',
     borderTopWidth: 1,
-    borderTopColor: '#e5e7eb',
+    borderTopColor: '#f3f4f6',
   },
   editBtn: {
     flex: 1,
-    padding: 12,
-    alignItems: 'center',
-    borderRightWidth: 1,
-    borderRightColor: '#e5e7eb',
-  },
-  editBtnText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#6b7280',
-  },
-  deleteBtn: {
-    flex: 1,
-    padding: 12,
-    alignItems: 'center',
-  },
-  deleteBtnText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#6b7280',
-  },
-  newPostButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#f3f4f6',
-    marginHorizontal: 60,
+    gap: 6,
+    paddingVertical: 13,
+    borderRightWidth: 1,
+    borderRightColor: '#f3f4f6',
+    backgroundColor: '#f9fafb',
+  },
+  editBtnText: { fontSize: 13, fontWeight: '700', color: '#10b981' },
+  deleteBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 13,
+    backgroundColor: '#f9fafb',
+  },
+  deleteBtnText: { fontSize: 13, fontWeight: '700', color: '#ef4444' },
+
+  // ─── New Post Button ───────────────────────────────────────────
+  newPostButton: {
+    marginHorizontal: 16,
     marginBottom: 20,
-    padding: 12,
-    borderRadius: 12,
+    borderRadius: 16,
+    overflow: 'hidden',
+    backgroundColor: '#10b981',
+    shadowColor: '#10b981',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.35,
+    shadowRadius: 16,
+    elevation: 8,
+  },
+  newPostInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
     gap: 8,
+    paddingVertical: 15,
   },
-  newPostButtonText: {
-    color: '#1f2937',
-    fontSize: 14,
-    fontWeight: '600',
-  },
+  newPostButtonText: { fontSize: 15, fontWeight: '800', color: '#fff', letterSpacing: 1.5 },
+
+  // ─── Empty State ───────────────────────────────────────────────
   emptyState: {
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 60,
+    gap: 10,
   },
-  emptyStateText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#6b7280',
-    marginTop: 12,
+  emptyIconWrap: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: '#d1fae5',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: '#10b981',
+    marginBottom: 8,
   },
-  emptyStateSubtext: {
-    fontSize: 14,
-    color: '#9ca3af',
-    marginTop: 4,
+  emptyStateText: { fontSize: 16, fontWeight: '700', color: '#1f2937' },
+  emptyStateSubtext: { fontSize: 13, color: '#6b7280' },
+
+  // ─── Drawer ────────────────────────────────────────────────────
+  drawerOverlay: { flex: 1, flexDirection: 'row' },
+  drawerBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)' },
+  drawerContainer: {
+    position: 'absolute',
+    left: 0, top: 0, bottom: 0,
+    width: width * 0.80,
+    backgroundColor: '#fff',
+    shadowColor: '#10b981',
+    shadowOffset: { width: 4, height: 0 },
+    shadowOpacity: 0.15,
+    shadowRadius: 20,
+    elevation: 20,
+    borderRightWidth: 1,
+    borderRightColor: '#d1fae5',
   },
-  // Drawer styles
-  drawerOverlay: { 
-    flex: 1, 
-    flexDirection: 'row' 
+  drawerWrapper: {
+    flex: 1,
+    paddingTop: Platform.OS === 'ios' ? 55 : 40,
   },
-  drawerBackdrop: { 
-    flex: 1, 
-    backgroundColor: 'rgba(0,0,0,0.5)' 
+  drawerContent: { flex: 1, paddingHorizontal: 20 },
+  drawerTopHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
   },
-  drawerContainer: { 
-    position: 'absolute', 
-    left: 0, 
-    top: 0, 
-    bottom: 0, 
-    width: width * 0.80, 
-    backgroundColor: '#fff', 
-    shadowColor: "#000", 
-    shadowOffset: { width: 2, height: 0 }, 
-    shadowOpacity: 0.25, 
-    shadowRadius: 3.84, 
-    elevation: 5 
+  logoContainer: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  logoCircle: {
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    backgroundColor: '#10b981',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  drawerWrapper: { 
-    flex: 1, 
-    paddingTop: Platform.OS === 'ios' ? 30 : 30 
+  appName: { fontSize: 16, fontWeight: '800', color: '#1f2937' },
+  appSlogan: { fontSize: 12, color: '#6b7280' },
+  closeButton: {
+    width: 36, height: 36, borderRadius: 12,
+    backgroundColor: '#f3f4f6',
+    alignItems: 'center', justifyContent: 'center',
   },
-  drawerContent: { 
-    flex: 1, 
-    paddingHorizontal: 20 
+  profileCard: {
+    backgroundColor: '#10b981',
+    borderRadius: 16,
+    padding: 15,
+    marginBottom: 20,
   },
-  drawerTopHeader: { 
-    flexDirection: 'row', 
-    justifyContent: 'space-between', 
-    alignItems: 'center', 
-    marginBottom: 15 
+  profileHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    marginBottom: 14,
   },
-  logoContainer: { 
-    flexDirection: 'row', 
-    alignItems: 'center', 
-    gap: 10 
+  modeContainer: { flexDirection: 'row', gap: 8 },
+  modeButtonActive: {
+    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 5, paddingVertical: 9, backgroundColor: '#fff', borderRadius: 10,
   },
-  logoCircle: { 
-    width: 40, 
-    height: 40, 
-    borderRadius: 20, 
-    backgroundColor: '#f0fdf4', 
-    alignItems: 'center', 
-    justifyContent: 'center' 
+  modeButtonInactive: {
+    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 5, paddingVertical: 9, backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: 10,
   },
-  appName: { 
-    fontSize: 16, 
-    fontWeight: 'bold', 
-    color: '#1f2937' 
+  modeTextActive: { fontSize: 11, fontWeight: '700', color: '#10b981' },
+  modeTextInactive: { fontSize: 11, color: 'rgba(255,255,255,0.85)', fontWeight: '600' },
+  drawerAvatar: {
+    width: 52, height: 52, borderRadius: 26,
+    borderWidth: 2, borderColor: '#fff',
+    backgroundColor: '#d1fae5',
   },
-  appSlogan: { 
-    fontSize: 12, 
-    color: '#6b7280' 
+  drawerName: { fontSize: 16, fontWeight: '700', color: '#fff' },
+  drawerRole: { fontSize: 12, color: 'rgba(255,255,255,0.8)', marginTop: 2 },
+  sectionTitle: {
+    fontSize: 11, color: '#9ca3af', fontWeight: '700',
+    letterSpacing: 1.5, textTransform: 'uppercase',
+    marginBottom: 8, marginLeft: 4, marginTop: 8,
   },
-  closeButton: { 
-    width: 36, 
-    height: 36, 
-    borderRadius: 18, 
-    backgroundColor: '#f3f4f6', 
-    alignItems: 'center', 
-    justifyContent: 'center' 
+  drawerMenuItem: {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: '#f9fafb',
+    paddingVertical: 12, paddingHorizontal: 12,
+    marginBottom: 6, borderRadius: 12,
+    borderWidth: 1, borderColor: '#f3f4f6',
   },
-  profileCard: { 
-    backgroundColor: '#fff', 
-    borderRadius: 16, 
-    padding: 15, 
-    borderWidth: 1, 
-    borderColor: '#f3f4f6', 
-    shadowColor: '#000', 
-    shadowOffset: { width: 0, height: 2 }, 
-    shadowOpacity: 0.05, 
-    shadowRadius: 3, 
-    elevation: 2, 
-    marginBottom: 20 
+  menuIconBox: {
+    width: 36, height: 36, borderRadius: 10,
+    backgroundColor: '#ecfdf5',
+    alignItems: 'center', justifyContent: 'center', marginRight: 14,
   },
-  profileHeader: { 
-    flexDirection: 'row', 
-    alignItems: 'center', 
-    gap: 15,
-    marginBottom: 15 
+  drawerMenuText: { fontSize: 14, color: '#1f2937', fontWeight: '600', flex: 1 },
+  drawerLogout: {
+    flexDirection: 'row', alignItems: 'center',
+    gap: 14, marginTop: 16, marginBottom: 30,
+    paddingHorizontal: 12, paddingVertical: 12,
+    backgroundColor: '#fff1f2', borderRadius: 12,
+    borderWidth: 1, borderColor: '#fecdd3',
   },
-  modeContainer: { 
-    flexDirection: 'row', 
-    gap: 10 
-  },
-  modeButtonActive: { 
-    flex: 1, 
-    flexDirection: 'row', 
-    alignItems: 'center', 
-    justifyContent: 'center', 
-    gap: 5, 
-    paddingVertical: 8, 
-    backgroundColor: '#10b981', 
-    borderRadius: 8 
-  },
-  modeButtonInactive: { 
-    flex: 1, 
-    flexDirection: 'row', 
-    alignItems: 'center', 
-    justifyContent: 'center', 
-    gap: 5, 
-    paddingVertical: 8, 
-    backgroundColor: '#f3f4f6', 
-    borderRadius: 8 
-  },
-  modeTextActive: { 
-    fontSize: 11, 
-    fontWeight: 'bold', 
-    color: '#fff' 
-  },
-  modeTextInactive: { 
-    fontSize: 11, 
-    color: '#6b7280' 
-  },
-  drawerAvatar: { 
-    width: 50, 
-    height: 50, 
-    borderRadius: 25, 
-    borderWidth: 1, 
-    borderColor: '#10b981', 
-    backgroundColor: '#f3f4f6' 
-  },
-  drawerName: { 
-    fontSize: 16, 
-    fontWeight: 'bold', 
-    color: '#1f2937' 
-  },
-  drawerRole: { 
-    fontSize: 13, 
-    color: '#6b7280' 
-  },
-  sectionTitle: { 
-    fontSize: 14, 
-    color: '#9ca3af', 
-    marginBottom: 10, 
-    marginLeft: 5, 
-    marginTop: 5 
-  },
-  drawerMenuItem: { 
-    flexDirection: 'row', 
-    alignItems: 'center', 
-    backgroundColor: '#fff', 
-    paddingVertical: 12, 
-    paddingHorizontal: 5, 
-    marginBottom: 5 
-  },
-  menuIconBox: { 
-    width: 36, 
-    height: 36, 
-    borderRadius: 18, 
-    backgroundColor: '#f9fafb', 
-    alignItems: 'center', 
-    justifyContent: 'center', 
-    marginRight: 15 
-  },
-  drawerMenuText: { 
-    fontSize: 15, 
-    color: '#1f2937', 
-    fontWeight: '500' 
-  },
-  drawerLogout: { 
-    flexDirection: 'row', 
-    alignItems: 'center', 
-    gap: 15, 
-    marginTop: 30, 
-    paddingHorizontal: 5, 
-    marginBottom: 30 
-  },
-  drawerLogoutText: { 
-    fontSize: 15, 
-    color: '#ef4444', 
-    fontWeight: 'bold' 
-  },
+  drawerLogoutText: { fontSize: 14, color: '#ef4444', fontWeight: '700' },
 });
