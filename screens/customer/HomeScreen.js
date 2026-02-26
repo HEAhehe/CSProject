@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
   View,
   Text,
@@ -8,14 +8,14 @@ import {
   StatusBar,
   Image,
   TextInput,
-  RefreshControl,
   ActivityIndicator,
   Animated,
   Dimensions,
   Modal,
   TouchableWithoutFeedback,
   Alert,
-  Platform
+  Platform,
+  FlatList
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { auth, db } from '../../firebase.config';
@@ -131,8 +131,9 @@ export default function HomeScreen({ navigation }) {
     };
   }, []);
 
+  // 1. แก้ไขให้เช็คเวลาทุกๆ 1 นาทีแทน 1 วินาที เพื่อลดภาระการ Re-render
   useEffect(() => {
-    const timer = setInterval(() => setCurrentTime(new Date()), 1000);
+    const timer = setInterval(() => setCurrentTime(new Date()), 60000);
     return () => clearInterval(timer);
   }, []);
 
@@ -143,83 +144,98 @@ export default function HomeScreen({ navigation }) {
   );
 
   const fetchFoodItems = async () => {
-    try {
-        const q = query(collection(db, 'food_items'), where('quantity', '>', 0));
-        const snapshot = await getDocs(q);
-        const items = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        setFoodItems(items);
+      try {
+          const q = query(collection(db, 'food_items'), where('quantity', '>', 0));
+          const snapshot = await getDocs(q);
+          const items = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+          setFoodItems(items);
 
-        filterItems(items, searchQuery, selectedCategory);
+          // เรียก filter เบื้องต้นก่อน
+          filterItems(items, searchQuery, selectedCategory, storesData);
 
-        const uniqueStoreIds = [...new Set(items.map(item => item.storeId || item.userId).filter(id => id))];
-        const storesInfo = {};
+          const uniqueStoreIds = [...new Set(items.map(item => item.storeId || item.userId).filter(id => id))];
+          const storesInfo = {};
 
-        await Promise.all(uniqueStoreIds.map(async (targetId) => {
-            try {
-                let storeDoc = await getDoc(doc(db, 'stores', targetId));
-                if (storeDoc.exists()) {
-                    storesInfo[targetId] = storeDoc.data();
-                } else {
-                    storeDoc = await getDoc(doc(db, 'users', targetId));
-                    if (storeDoc.exists()) {
-                        storesInfo[targetId] = storeDoc.data();
-                    }
-                }
-            } catch (e) { console.error("Store fetch error:", e); }
-        }));
-        setStoresData(storesInfo);
-    } catch (error) {
-        console.error('Error fetching foods:', error);
-    } finally {
-        setLoading(false);
-        setRefreshing(false);
-    }
-  };
+          await Promise.all(uniqueStoreIds.map(async (targetId) => {
+              try {
+                  let storeDoc = await getDoc(doc(db, 'stores', targetId));
+                  if (storeDoc.exists()) {
+                      storesInfo[targetId] = storeDoc.data();
+                  } else {
+                      storeDoc = await getDoc(doc(db, 'users', targetId));
+                      if (storeDoc.exists()) {
+                          storesInfo[targetId] = storeDoc.data();
+                      }
+                  }
+              } catch (e) { console.error("Store fetch error:", e); }
+          }));
+
+          setStoresData(storesInfo);
+
+          // **สำคัญ**: เรียก filter อีกครั้งหลังจากได้ข้อมูลชื่อร้านครบแล้ว เพื่อให้อัปเดตผลการค้นหา
+          filterItems(items, searchQuery, selectedCategory, storesInfo);
+
+      } catch (error) {
+          console.error('Error fetching foods:', error);
+      } finally {
+          setLoading(false);
+          setRefreshing(false);
+      }
+    };
 
   const onRefresh = () => { setRefreshing(true); fetchFoodItems(); };
 
-  const filterItems = (itemsList, text, categoryId) => {
-    let filtered = itemsList;
+  const filterItems = (itemsList, text, categoryId, currentStoresData = storesData) => {
+      let filtered = itemsList;
 
-    if (text) {
-      const lower = text.toLowerCase();
-      filtered = filtered.filter(i =>
-        (i.name || '').toLowerCase().includes(lower) ||
-        (i.storeName || '').toLowerCase().includes(lower)
-      );
-    }
+      if (text) {
+        const lower = text.toLowerCase();
+        filtered = filtered.filter(i => {
+          // 1. ตรวจสอบจากชื่อเมนูอาหาร
+          const matchFoodName = (i.name || '').toLowerCase().includes(lower);
 
-    if (categoryId !== 'all') {
-      if (categoryId === 'discount_50') {
-        filtered = filtered.filter(i => {
-          const originalPrice = Number(i.originalPrice) || 0;
-          const discountPrice = Number(i.discountPrice) || Number(i.price) || 0;
-          if (originalPrice === 0) return false;
-          const percent = ((originalPrice - discountPrice) / originalPrice) * 100;
-          return percent >= 50;
+          // 2. ตรวจสอบจากชื่อร้านค้า (ดึงจากข้อมูลร้านที่โหลดมาแล้ว)
+          const realStoreId = i.storeId || i.userId;
+          const storeInfo = currentStoresData[realStoreId] || {};
+          const displayStoreName = (storeInfo.storeName || i.storeName || storeInfo.username || '').toLowerCase();
+          const matchStoreName = displayStoreName.includes(lower);
+
+          // คืนค่า true ถ้าคำค้นหาตรงกับ ชื่อเมนู หรือ ชื่อร้านค้า
+          return matchFoodName || matchStoreName;
         });
-      } else if (categoryId === 'under_50') {
-        filtered = filtered.filter(i => {
-          const discountPrice = Number(i.discountPrice) || Number(i.price) || 0;
-          return discountPrice > 0 && discountPrice <= 50;
-        });
-      } else {
-        filtered = filtered.filter(i => i.category === categoryId);
       }
-    }
 
-    setFilteredFood(filtered);
-  };
+      if (categoryId !== 'all') {
+        if (categoryId === 'discount_50') {
+          filtered = filtered.filter(i => {
+            const originalPrice = Number(i.originalPrice) || 0;
+            const discountPrice = Number(i.discountPrice) || Number(i.price) || 0;
+            if (originalPrice === 0) return false;
+            const percent = ((originalPrice - discountPrice) / originalPrice) * 100;
+            return percent >= 50;
+          });
+        } else if (categoryId === 'under_50') {
+          filtered = filtered.filter(i => {
+            const discountPrice = Number(i.discountPrice) || Number(i.price) || 0;
+            return discountPrice > 0 && discountPrice <= 50;
+          });
+        } else {
+          filtered = filtered.filter(i => i.category === categoryId);
+        }
+      }
+
+      setFilteredFood(filtered);
+    };
 
   const handleSearch = (text) => {
-    setSearchQuery(text);
-    filterItems(foodItems, text, selectedCategory);
-  };
+      setSearchQuery(text);
+      filterItems(foodItems, text, selectedCategory, storesData);
+    };
 
-  const handleCategorySelect = (categoryId) => {
-    setSelectedCategory(categoryId);
-    filterItems(foodItems, searchQuery, categoryId);
-  };
+    const handleCategorySelect = (categoryId) => {
+      setSelectedCategory(categoryId);
+      filterItems(foodItems, searchQuery, categoryId, storesData);
+    };
 
   const handleToggleFavorite = async (targetStoreId, targetStoreName) => {
     const user = auth.currentUser;
@@ -231,7 +247,7 @@ export default function HomeScreen({ navigation }) {
     } catch (error) { console.error("Error:", error); }
   };
 
-  const getStoreStatus = (storeId) => {
+  const getStoreStatus = useCallback((storeId) => {
       const store = storesData[storeId];
       if (!store) return { text: "ไม่มีข้อมูล", color: "#9ca3af", isOpen: false };
 
@@ -292,17 +308,20 @@ export default function HomeScreen({ navigation }) {
       }
 
       return { text: "ปิดวันนี้", color: "#ef4444", isOpen: false };
-  };
+  }, [storesData, currentTime]);
 
-  const sortedFood = [...filteredFood].sort((a, b) => {
-    const statusA = getStoreStatus(a.storeId || a.userId);
-    const statusB = getStoreStatus(b.storeId || b.userId);
+  // 2. ใช้ useMemo เพื่อป้องกันการจัดเรียงข้อมูลใหม่เมื่อไม่ได้จำเป็น
+  const sortedFood = useMemo(() => {
+    return [...filteredFood].sort((a, b) => {
+      const statusA = getStoreStatus(a.storeId || a.userId);
+      const statusB = getStoreStatus(b.storeId || b.userId);
 
-    if (statusA.isOpen && !statusB.isOpen) return -1;
-    if (!statusA.isOpen && statusB.isOpen) return 1;
+      if (statusA.isOpen && !statusB.isOpen) return -1;
+      if (!statusA.isOpen && statusB.isOpen) return 1;
 
-    return 0;
-  });
+      return 0;
+    });
+  }, [filteredFood, getStoreStatus]);
 
   const handleScroll = (event) => {
     const offsetY = event.nativeEvent.contentOffset.y;
@@ -311,7 +330,7 @@ export default function HomeScreen({ navigation }) {
   };
 
   const scrollToTop = () => {
-    scrollRef.current?.scrollTo({ y: 0, animated: true });
+    scrollRef.current?.scrollToOffset({ offset: 0, animated: true }); // เปลี่ยนตามรูปแบบของ FlatList
   };
 
   const toggleDrawer = () => {
@@ -332,7 +351,8 @@ export default function HomeScreen({ navigation }) {
   const handleLogout = async () => { await auth.signOut(); };
   const handleSwitchToStore = () => { toggleDrawer(); if (userData?.currentRole === 'store' || userData?.currentRole === 'admin') navigation.navigate('MyShop'); else navigation.navigate('RegisterStoreStep1'); };
 
-  const renderFoodCard = (item) => {
+  // 3. ปรับ renderFoodCard เพื่อใช้กับ FlatList ({item})
+  const renderFoodCard = ({ item }) => {
       const originalPrice = Number(item.originalPrice) || 0;
       const discountPrice = Number(item.discountPrice) || Number(item.price) || 0;
       const discountPercent = originalPrice > 0 ? Math.round(((originalPrice - discountPrice) / originalPrice) * 100) : 0;
@@ -354,7 +374,6 @@ export default function HomeScreen({ navigation }) {
 
       return (
         <TouchableOpacity
-            key={item.id}
             style={[styles.cardContainer, !status.isOpen && { opacity: 0.6 }]}
             onPress={() => {
               if (status.isOpen) {
@@ -425,6 +444,87 @@ export default function HomeScreen({ navigation }) {
     </View>
   );
 
+  // ส่วนประกอบด้านบนของ FlatList (ย้ายจาก ScrollView มาไว้ที่นี่)
+  const ListHeader = () => (
+    <>
+      <TouchableOpacity
+        style={styles.addressBar}
+        onPress={() => navigation.navigate('AddressBook')}
+        activeOpacity={0.7}
+      >
+        <View style={styles.addressIconBg}>
+          <Ionicons name="location" size={20} color="#ef4444" />
+        </View>
+        <View style={styles.addressTextContainer}>
+          <Text style={styles.addressLabel}>จัดส่งที่</Text>
+          <Text style={[styles.addressText, !userData?.addressTitle && { color: '#ef4444', fontStyle: 'italic', fontSize: 13 }]} numberOfLines={1}>
+            {userData?.addressTitle ? userData.addressTitle : 'เพิ่มที่อยู่จัดส่ง (คลิก)'}
+          </Text>
+        </View>
+        <Ionicons name="chevron-forward" size={20} color="#9ca3af" />
+      </TouchableOpacity>
+
+      <View style={styles.searchContainer}>
+        <Ionicons name="search" size={20} color="#9ca3af" />
+        <TextInput
+          style={styles.searchInput}
+          placeholder="ค้นหาร้านอาหารหรือเมนู"
+          value={searchQuery}
+          onChangeText={handleSearch}
+        />
+      </View>
+
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={styles.categoriesWrapper}
+        contentContainerStyle={styles.categoriesContent}
+      >
+        {categories.map(cat => (
+          <TouchableOpacity
+            key={cat.id}
+            style={[
+              styles.categoryTag,
+              selectedCategory === cat.id && styles.categoryTagActive,
+              (cat.id === 'discount_50' || cat.id === 'under_50') && selectedCategory !== cat.id && { borderColor: '#ef4444', backgroundColor: '#fef2f2' },
+              (cat.id === 'discount_50' || cat.id === 'under_50') && selectedCategory === cat.id && { backgroundColor: '#ef4444', borderColor: '#ef4444' }
+            ]}
+            onPress={() => handleCategorySelect(cat.id)}
+          >
+            <Ionicons
+              name={cat.icon}
+              size={16}
+              color={
+                selectedCategory === cat.id ? '#fff' :
+                (cat.id === 'discount_50' || cat.id === 'under_50') ? '#ef4444' : '#6b7280'
+              }
+            />
+            <Text style={[
+              styles.categoryTagText,
+              selectedCategory === cat.id && styles.categoryTagTextActive,
+              (cat.id === 'discount_50' || cat.id === 'under_50') && selectedCategory !== cat.id && { color: '#ef4444' }
+            ]}>
+              {cat.name}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </ScrollView>
+
+      <View style={styles.sectionHeader}><Text style={styles.sectionTitleMain}>สั่งอาหารของคุณ 🔥</Text></View>
+
+      {loading && <ActivityIndicator size="large" color="#10b981" style={{marginTop: 20}} />}
+    </>
+  );
+
+  const EmptyState = () => (
+    !loading && sortedFood.length === 0 ? (
+      <View style={styles.emptyState}>
+        <Ionicons name="basket-outline" size={60} color="#d1d5db" />
+        <Text style={styles.emptyText}>ไม่พบรายการอาหาร</Text>
+      </View>
+    ) : null
+  );
+
   if (isCheckingRole) return (<View style={styles.center}><ActivityIndicator size="large" color="#10b981" /></View>);
 
   return (
@@ -449,87 +549,22 @@ export default function HomeScreen({ navigation }) {
         </View>
       </View>
 
-      <ScrollView
+      {/* 4. เปลี่ยนจากการใช้ ScrollView คู่กับ map() มาใช้ FlatList */}
+      <FlatList
         ref={scrollRef}
+        data={!loading ? sortedFood : []}
+        keyExtractor={(item) => item.id}
+        renderItem={renderFoodCard}
         onScroll={handleScroll}
         scrollEventThrottle={16}
         style={styles.content}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
         showsVerticalScrollIndicator={false}
-      >
-
-        {/* ✅ แถบแสดงที่อยู่ (ปรับปรุงใหม่ โชว์แค่ชื่อที่อยู่ให้เด่น) */}
-        <TouchableOpacity
-          style={styles.addressBar}
-          onPress={() => navigation.navigate('AddressBook')}
-          activeOpacity={0.7}
-        >
-          <View style={styles.addressIconBg}>
-            <Ionicons name="location" size={20} color="#ef4444" />
-          </View>
-          <View style={styles.addressTextContainer}>
-            <Text style={styles.addressLabel}>จัดส่งที่</Text>
-            {/* โชว์เฉพาะ "ชื่อที่อยู่" (addressTitle) เป็นตัวใหญ่ๆ */}
-            <Text style={[styles.addressText, !userData?.addressTitle && { color: '#ef4444', fontStyle: 'italic', fontSize: 13 }]} numberOfLines={1}>
-              {userData?.addressTitle ? userData.addressTitle : 'เพิ่มที่อยู่จัดส่ง (คลิก)'}
-            </Text>
-          </View>
-          <Ionicons name="chevron-forward" size={20} color="#9ca3af" />
-        </TouchableOpacity>
-
-        <View style={styles.searchContainer}>
-          <Ionicons name="search" size={20} color="#9ca3af" />
-          <TextInput
-            style={styles.searchInput}
-            placeholder="ค้นหาร้านอาหารหรือเมนู"
-            value={searchQuery}
-            onChangeText={handleSearch}
-          />
-        </View>
-
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          style={styles.categoriesWrapper}
-          contentContainerStyle={styles.categoriesContent}
-        >
-          {categories.map(cat => (
-            <TouchableOpacity
-              key={cat.id}
-              style={[
-                styles.categoryTag,
-                selectedCategory === cat.id && styles.categoryTagActive,
-                (cat.id === 'discount_50' || cat.id === 'under_50') && selectedCategory !== cat.id && { borderColor: '#ef4444', backgroundColor: '#fef2f2' },
-                (cat.id === 'discount_50' || cat.id === 'under_50') && selectedCategory === cat.id && { backgroundColor: '#ef4444', borderColor: '#ef4444' }
-              ]}
-              onPress={() => handleCategorySelect(cat.id)}
-            >
-              <Ionicons
-                name={cat.icon}
-                size={16}
-                color={
-                  selectedCategory === cat.id ? '#fff' :
-                  (cat.id === 'discount_50' || cat.id === 'under_50') ? '#ef4444' : '#6b7280'
-                }
-              />
-              <Text style={[
-                styles.categoryTagText,
-                selectedCategory === cat.id && styles.categoryTagTextActive,
-                (cat.id === 'discount_50' || cat.id === 'under_50') && selectedCategory !== cat.id && { color: '#ef4444' }
-              ]}>
-                {cat.name}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
-
-        <View style={styles.sectionHeader}><Text style={styles.sectionTitleMain}>สั่งอาหารของคุณ 🔥</Text></View>
-
-        {loading ? <ActivityIndicator size="large" color="#10b981" style={{marginTop: 20}} /> : <View style={styles.listContainer}>{sortedFood.map(renderFoodCard)}</View>}
-
-        {!loading && sortedFood.length === 0 && (<View style={styles.emptyState}><Ionicons name="basket-outline" size={60} color="#d1d5db" /><Text style={styles.emptyText}>ไม่พบรายการอาหาร</Text></View>)}
-        <View style={{height: 120}} />
-      </ScrollView>
+        refreshing={refreshing}
+        onRefresh={onRefresh}
+        ListHeaderComponent={ListHeader}
+        ListEmptyComponent={EmptyState}
+        ListFooterComponent={<View style={{ height: 120 }} />}
+      />
 
       <Modal
         animationType="fade"
@@ -599,7 +634,6 @@ const styles = StyleSheet.create({
   cartBadgeSmall: { position: 'absolute', top: -2, right: -2, backgroundColor: '#ef4444', minWidth: 16, height: 16, borderRadius: 8, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#fff' },
   cartBadgeTextSmall: { color: '#fff', fontSize: 9, fontWeight: 'bold' },
 
-  // ✅ สไตล์ของแถบที่อยู่
   addressBar: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -619,7 +653,7 @@ const styles = StyleSheet.create({
   addressIconBg: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#fef2f2', alignItems: 'center', justifyContent: 'center' },
   addressTextContainer: { flex: 1, marginLeft: 12, marginRight: 10 },
   addressLabel: { fontSize: 11, color: '#6b7280', marginBottom: 2 },
-  addressText: { fontSize: 16, fontWeight: 'bold', color: '#1f2937' }, // ปรับให้ชื่อที่อยู่ใหญ่และเด่นขึ้น
+  addressText: { fontSize: 16, fontWeight: 'bold', color: '#1f2937' },
 
   searchContainer: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', paddingHorizontal: 15, paddingVertical: 12, borderRadius: 12, borderWidth: 1, borderColor: '#e5e7eb', marginBottom: 15 },
   searchInput: { flex: 1, marginLeft: 10, fontSize: 15, color: '#374151' },

@@ -14,7 +14,6 @@ import ForgotPasswordScreen from './screens/auth/ForgotPasswordScreen';
 import HomeScreen from './screens/customer/HomeScreen';
 import ProfileScreen from './screens/customer/ProfileScreen';
 import EditProfileScreen from './screens/customer/EditProfileScreen';
-import FoodListScreen from './screens/customer/FoodListScreen';
 import FoodDetailScreen from './screens/customer/FoodDetailScreen';
 import NotificationsScreen from './screens/customer/NotificationsScreen';
 import OrdersScreen from './screens/customer/OrdersScreen';
@@ -25,10 +24,9 @@ import StoreDetailScreen from './screens/customer/StoreDetailScreen';
 import WriteReviewScreen from './screens/customer/WriteReviewScreen';
 import AddressBookScreen from './screens/customer/AddressBookScreen';
 import ImpactHistoryScreen from './screens/customer/ImpactHistoryScreen';
+import ChangePasswordScreen from './screens/customer/ChangePasswordScreen';
 
 // --- 📂 STORE Screens (เพิ่มใหม่) ---
-import AddFoodScreen from './screens/store/AddFoodScreen';
-import StoreHomeScreen from './screens/store/HomeScreen';
 import RegisterStoreStep1Screen from './screens/store/RegisterStoreStep1Screen';
 import RegisterStoreStep2Screen from './screens/store/RegisterStoreStep2Screen';
 import RegisterStoreStep3Screen from './screens/store/RegisterStoreStep3Screen';
@@ -77,9 +75,10 @@ export default function App() {
             <Stack.Screen name="Home" component={HomeScreen} />
             <Stack.Screen name="Profile" component={ProfileScreen} />
             <Stack.Screen name="EditProfile" component={EditProfileScreen} />
+            <Stack.Screen name="ChangePassword" component={ChangePasswordScreen} />
+
             <Stack.Screen name="AddressBook" component={AddressBookScreen} />
 
-            <Stack.Screen name="FoodList" component={FoodListScreen} />
             <Stack.Screen name="FoodDetail" component={FoodDetailScreen} />
             <Stack.Screen name="StoreDetail" component={StoreDetailScreen} options={{ headerShown: false }} />
             <Stack.Screen name="WriteReview" component={WriteReviewScreen} />
@@ -99,7 +98,6 @@ export default function App() {
             <Stack.Screen name="MyShop" component={MyShopScreen} />
             <Stack.Screen name="StoreDashboard" component={StoreDashboardScreen} />
             <Stack.Screen name="CreateListing" component={CreateListingScreen} />
-            <Stack.Screen name="AddFood" component={AddFoodScreen} />
             <Stack.Screen name="StoreOrders" component={StoreOrdersScreen} />
             <Stack.Screen name="RegisterStoreStep1" component={RegisterStoreStep1Screen} />
             <Stack.Screen name="RegisterStoreStep2" component={RegisterStoreStep2Screen} />

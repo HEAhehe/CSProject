@@ -7,18 +7,38 @@ import {
   TouchableOpacity,
   StatusBar,
   Dimensions,
+  Alert,
+  ActivityIndicator,
+  Modal,
+  KeyboardAvoidingView,
+  Platform,
+  TextInput
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { db } from '../../firebase.config';
-import { doc, onSnapshot } from 'firebase/firestore';
+import { doc, onSnapshot, runTransaction, increment } from 'firebase/firestore';
 
 const { width } = Dimensions.get('window');
+
+const cancelReasonsList = [
+  'สั่งผิดเมนู / สั่งผิดร้าน',
+  'รอนานเกินไป (ร้านยังไม่ยืนยัน)',
+  'เปลี่ยนใจ / ไม่ต้องการแล้ว',
+  'ไม่สะดวกไปรับสินค้าแล้ว',
+  'อื่นๆ (โปรดระบุ)'
+];
 
 export default function OrderDetailScreen({ navigation, route }) {
   const initialOrder = route.params?.order || {};
 
   const [currentOrder, setCurrentOrder] = useState(initialOrder);
   const [isItemsExpanded, setIsItemsExpanded] = useState(false);
+  const [isCancelling, setIsCancelling] = useState(false);
+
+  // State สำหรับกล่องยกเลิก
+  const [isCancelModalVisible, setIsCancelModalVisible] = useState(false);
+  const [selectedReason, setSelectedReason] = useState('');
+  const [customReason, setCustomReason] = useState('');
 
   useEffect(() => {
     if (!currentOrder?.id) return;
@@ -31,6 +51,98 @@ export default function OrderDetailScreen({ navigation, route }) {
 
     return () => unsub();
   }, [currentOrder?.id]);
+
+  const handleOpenCancelModal = () => {
+    setSelectedReason('');
+    setCustomReason('');
+    setIsCancelModalVisible(true);
+  };
+
+  const submitCancel = async () => {
+    if (!selectedReason) {
+      Alert.alert('แจ้งเตือน', 'กรุณาเลือกเหตุผลการยกเลิก');
+      return;
+    }
+
+    let finalReason = selectedReason;
+    if (selectedReason === 'อื่นๆ (โปรดระบุ)') {
+      if (!customReason.trim()) {
+        Alert.alert('แจ้งเตือน', 'กรุณาระบุเหตุผลเพิ่มเติม');
+        return;
+      }
+      finalReason = customReason.trim();
+    }
+
+    setIsCancelModalVisible(false);
+    await executeCancelOrder(finalReason);
+  };
+
+  const executeCancelOrder = async (reasonToSave) => {
+      setIsCancelling(true);
+      try {
+          await runTransaction(db, async (transaction) => {
+              const orderRef = doc(db, 'orders', currentOrder.id);
+
+              // ==========================================
+              // 1. หมวดอ่านข้อมูล (READ)
+              // ==========================================
+              const orderDoc = await transaction.get(orderRef);
+
+              if (!orderDoc.exists()) throw "ไม่พบคำสั่งซื้อนี้ในระบบ";
+              if (orderDoc.data().status !== 'pending') throw "ไม่สามารถยกเลิกได้ เนื่องจากร้านค้าเริ่มดำเนินการแล้ว";
+
+              const items = orderDoc.data().items || [];
+              const orderWeight = orderDoc.data().totalOrderWeight || 0;
+              const userId = orderDoc.data().userId;
+
+              const foodDocsToUpdate = [];
+              for (let item of items) {
+                  const foodRef = doc(db, 'food_items', item.foodId);
+                  const foodDoc = await transaction.get(foodRef);
+                  if (foodDoc.exists()) {
+                      foodDocsToUpdate.push({ ref: foodRef, returnQty: item.quantity });
+                  }
+              }
+
+              let userRef = null;
+              let userDoc = null;
+              if (userId && orderWeight > 0) {
+                  userRef = doc(db, 'users', userId);
+                  userDoc = await transaction.get(userRef);
+              }
+
+              // ==========================================
+              // 2. หมวดเขียน/อัปเดตข้อมูล (WRITE)
+              // ==========================================
+              for (let fData of foodDocsToUpdate) {
+                  transaction.update(fData.ref, {
+                      quantity: increment(fData.returnQty)
+                  });
+              }
+
+              if (userDoc && userDoc.exists()) {
+                  transaction.update(userRef, {
+                      totalWeightSaved: increment(-orderWeight)
+                  });
+              }
+
+              // ใช้เหตุผลที่ลูกค้าเลือกบันทึกลงไป
+              transaction.update(orderRef, {
+                  status: 'cancelled',
+                  cancelReason: reasonToSave,
+                  cancelledBy: 'customer',
+                  cancelledAt: new Date().toISOString()
+              });
+          });
+
+          Alert.alert('สำเร็จ', 'ยกเลิกคำสั่งซื้อเรียบร้อยแล้ว');
+      } catch (error) {
+          console.error("Cancel Error:", error);
+          Alert.alert('เกิดข้อผิดพลาด', typeof error === 'string' ? error : 'ไม่สามารถยกเลิกคำสั่งซื้อได้');
+      } finally {
+          setIsCancelling(false);
+      }
+  };
 
   if (!currentOrder || !currentOrder.id) {
     return (
@@ -101,7 +213,13 @@ export default function OrderDetailScreen({ navigation, route }) {
                     <Ionicons name="warning" size={28} color="#ef4444" />
                 </View>
                 <View style={styles.cancelAlertContent}>
-                    <Text style={styles.cancelAlertLabel}>สาเหตุการยกเลิก:</Text>
+                    <Text style={styles.cancelAlertLabel}>
+                      {currentOrder.cancelledBy === 'store'
+                        ? 'ร้านค้ายกเลิกคำสั่งซื้อ (สาเหตุ):'
+                        : currentOrder.cancelledBy === 'customer'
+                        ? 'คุณยกเลิกคำสั่งซื้อนี้ (สาเหตุ):'
+                        : 'สาเหตุการยกเลิก:'}
+                    </Text>
                     <Text style={styles.cancelAlertText}>{currentOrder.cancelReason}</Text>
                 </View>
             </View>
@@ -164,7 +282,23 @@ export default function OrderDetailScreen({ navigation, route }) {
             </View>
         </View>
 
-        {/* ✅ ปรับคำพูดบนปุ่มให้ตรงกับจุดประสงค์ */}
+        {currentOrder.status === 'pending' && (
+            <TouchableOpacity
+                style={styles.cancelButton}
+                onPress={handleOpenCancelModal}
+                disabled={isCancelling}
+            >
+                {isCancelling ? (
+                    <ActivityIndicator color="#ef4444" />
+                ) : (
+                    <>
+                        <Ionicons name="close-circle-outline" size={20} color="#ef4444" style={{ marginRight: 8 }} />
+                        <Text style={styles.cancelButtonText}>ยกเลิกคำสั่งซื้อ</Text>
+                    </>
+                )}
+            </TouchableOpacity>
+        )}
+
         {currentOrder.status === 'completed' && (
           !currentOrder.isReviewed ? (
             <TouchableOpacity
@@ -189,6 +323,57 @@ export default function OrderDetailScreen({ navigation, route }) {
 
         <View style={{height: 50}} />
       </ScrollView>
+
+      {/* ✅ Modal สำหรับให้ลูกค้าเลือกเหตุผลการยกเลิก */}
+      <Modal visible={isCancelModalVisible} transparent animationType="fade" onRequestClose={() => setIsCancelModalVisible(false)}>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalOverlay}>
+          <View style={styles.cancelModalBox}>
+            <View style={styles.cancelIconCircle}>
+              <Ionicons name="help-circle" size={32} color="#f59e0b" />
+            </View>
+            <Text style={styles.cancelModalTitle}>เหตุผลการยกเลิก</Text>
+            <Text style={styles.cancelModalSubtitle}>โปรดระบุเหตุผลเพื่อช่วยให้เราพัฒนาบริการให้ดีขึ้น</Text>
+
+            <ScrollView style={{ width: '100%', maxHeight: 250 }} showsVerticalScrollIndicator={false}>
+              {cancelReasonsList.map((reason, index) => (
+                <TouchableOpacity
+                  key={index}
+                  style={styles.reasonOptionBtn}
+                  onPress={() => setSelectedReason(reason)}
+                >
+                  <View style={[styles.radioCircle, selectedReason === reason && styles.radioCircleSelected]}>
+                    {selectedReason === reason && <View style={styles.radioInnerCircle} />}
+                  </View>
+                  <Text style={[styles.reasonOptionText, selectedReason === reason && styles.reasonOptionTextSelected]}>
+                    {reason}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+
+              {selectedReason === 'อื่นๆ (โปรดระบุ)' && (
+                <TextInput
+                  style={styles.customReasonInput}
+                  placeholder="พิมพ์เหตุผลของคุณ..."
+                  placeholderTextColor="#9ca3af"
+                  value={customReason}
+                  onChangeText={setCustomReason}
+                  multiline
+                />
+              )}
+            </ScrollView>
+
+            <View style={styles.modalButtonGroup}>
+              <TouchableOpacity style={styles.modalBtnCancel} onPress={() => setIsCancelModalVisible(false)}>
+                <Text style={styles.modalBtnCancelText}>ปิด</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.modalBtnSubmit} onPress={submitCancel}>
+                <Text style={styles.modalBtnSubmitText}>ยืนยันยกเลิก</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
     </View>
   );
 }
@@ -243,6 +428,9 @@ const styles = StyleSheet.create({
   errorText: { fontSize: 18, color: '#6b7280', marginTop: 15, marginBottom: 20 },
   backLink: { fontSize: 16, color: '#10b981', fontWeight: 'bold' },
 
+  cancelButton: { backgroundColor: '#fef2f2', paddingVertical: 15, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', borderRadius: 12, marginBottom: 15, borderWidth: 1, borderColor: '#fecaca' },
+  cancelButtonText: { fontSize: 16, fontWeight: 'bold', color: '#ef4444' },
+
   reviewButton: { backgroundColor: '#f59e0b', paddingVertical: 15, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', borderRadius: 12, marginBottom: 15, gap: 8, elevation: 3 },
   reviewButtonText: { fontSize: 16, fontWeight: 'bold', color: '#fff' },
   reviewedBadge: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: '#ecfdf5', padding: 15, borderRadius: 12, marginBottom: 15, gap: 8, borderWidth: 1, borderColor: '#dcfce7' },
@@ -250,4 +438,23 @@ const styles = StyleSheet.create({
 
   homeButton: { backgroundColor: '#fff', paddingVertical: 15, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', borderRadius: 12, borderWidth: 1, borderColor: '#10b981' },
   homeButtonText: { fontSize: 16, fontWeight: 'bold', color: '#10b981' },
+
+  // ✅ สไตล์สำหรับ Modal เลือกเหตุผล
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 20 },
+  cancelModalBox: { width: '95%', backgroundColor: '#fff', borderRadius: 24, padding: 24, alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.15, shadowRadius: 20, elevation: 10 },
+  cancelIconCircle: { width: 64, height: 64, borderRadius: 32, backgroundColor: '#fef3c7', alignItems: 'center', justifyContent: 'center', marginBottom: 16 },
+  cancelModalTitle: { fontSize: 20, fontWeight: 'bold', color: '#1f2937', marginBottom: 8, textAlign: 'center' },
+  cancelModalSubtitle: { fontSize: 14, color: '#6b7280', marginBottom: 20, textAlign: 'center' },
+  reasonOptionBtn: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#f3f4f6' },
+  radioCircle: { height: 20, width: 20, borderRadius: 10, borderWidth: 2, borderColor: '#d1d5db', alignItems: 'center', justifyContent: 'center', marginRight: 12 },
+  radioCircleSelected: { borderColor: '#ef4444' },
+  radioInnerCircle: { height: 10, width: 10, borderRadius: 5, backgroundColor: '#ef4444' },
+  reasonOptionText: { fontSize: 15, color: '#4b5563', flex: 1 },
+  reasonOptionTextSelected: { color: '#1f2937', fontWeight: 'bold' },
+  customReasonInput: { backgroundColor: '#f9fafb', borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 12, padding: 12, fontSize: 14, color: '#1f2937', height: 80, textAlignVertical: 'top', marginTop: 10, marginBottom: 10 },
+  modalButtonGroup: { flexDirection: 'row', gap: 12, width: '100%', marginTop: 20 },
+  modalBtnCancel: { flex: 1, paddingVertical: 14, borderRadius: 12, backgroundColor: '#f3f4f6', alignItems: 'center' },
+  modalBtnCancelText: { fontSize: 15, fontWeight: 'bold', color: '#4b5563' },
+  modalBtnSubmit: { flex: 1, paddingVertical: 14, borderRadius: 12, backgroundColor: '#ef4444', alignItems: 'center' },
+  modalBtnSubmitText: { fontSize: 15, fontWeight: 'bold', color: '#fff' },
 });

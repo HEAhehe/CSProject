@@ -12,24 +12,54 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { auth, db } from '../../firebase.config';
-import { doc, onSnapshot } from 'firebase/firestore';
+// ✅ นำเข้า collection, query, where เพิ่มเติม
+import { doc, onSnapshot, collection, query, where } from 'firebase/firestore';
 
 export default function ProfileScreen({ navigation }) {
   const [userData, setUserData] = useState(null);
+  const [calculatedTotalWeight, setCalculatedTotalWeight] = useState(0); // ✅ State ใหม่สำหรับเก็บน้ำหนักที่คำนวณแล้ว
 
   useEffect(() => {
     const user = auth.currentUser;
+    let unsubscribeUser;
+    let unsubscribeOrders;
+
     if (user) {
-      const unsubscribe = onSnapshot(doc(db, 'users', user.uid), (doc) => {
+      // 1. ดึงข้อมูล User ทั่วไป (โปรไฟล์, ชื่อ, เบอร์โทร)
+      unsubscribeUser = onSnapshot(doc(db, 'users', user.uid), (doc) => {
         if (doc.exists()) {
           setUserData(doc.data());
         }
       });
-      return () => unsubscribe();
+
+      // 2. ✅ Query ดึงเฉพาะออเดอร์ที่ "เสร็จสมบูรณ์" มาคำนวณน้ำหนัก
+      const ordersRef = collection(db, 'orders');
+      const q = query(
+        ordersRef,
+        where('userId', '==', user.uid),
+        where('status', '==', 'completed')
+      );
+
+      unsubscribeOrders = onSnapshot(q, (snapshot) => {
+        let total = 0;
+        snapshot.forEach((doc) => {
+          const orderData = doc.data();
+          // นำ totalOrderWeight ของแต่ละออเดอร์ที่ completed มาบวกกัน
+          total += (Number(orderData.totalOrderWeight) || 0);
+        });
+        setCalculatedTotalWeight(total);
+      });
     }
+
+    // Cleanup function เมื่อออกจากหน้า Profile
+    return () => {
+      if (unsubscribeUser) unsubscribeUser();
+      if (unsubscribeOrders) unsubscribeOrders();
+    };
   }, []);
 
-  const totalWeight = userData?.totalWeightSaved || 0;
+  // ✅ ใช้น้ำหนักที่คำนวณจาก orders แทน userData
+  const totalWeight = calculatedTotalWeight || 0;
   const co2Saved = totalWeight * 2.5;
 
   const handleLogout = () => {
@@ -88,7 +118,7 @@ export default function ProfileScreen({ navigation }) {
             </Text>
           </View>
 
-          {/* ✅ Impact Dashboard (กดได้ทั้ง 2 อันและส่งพารามิเตอร์) */}
+          {/* Impact Dashboard */}
           <View style={styles.impactContainer}>
             <TouchableOpacity
               style={styles.impactCard}
@@ -99,6 +129,7 @@ export default function ProfileScreen({ navigation }) {
                 <Ionicons name="leaf" size={20} color="#10b981" />
               </View>
               <View style={styles.valueRow}>
+                {/* แสดงทศนิยม 1 ตำแหน่งเสมอ */}
                 <Text style={styles.impactValue}>{totalWeight.toFixed(1)}</Text>
                 <Text style={styles.unitText}> kg</Text>
               </View>

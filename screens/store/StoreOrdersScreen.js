@@ -22,7 +22,8 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { auth, db } from '../../firebase.config';
-import { collection, query, where, getDocs, orderBy, updateDoc, doc, getDoc, increment } from 'firebase/firestore';
+// ✅ นำเข้า onSnapshot มาใช้งานเพื่อทำระบบ Real-time
+import { collection, query, where, updateDoc, doc, getDoc, increment, runTransaction, onSnapshot } from 'firebase/firestore';
 import * as Clipboard from 'expo-clipboard';
 
 const { width } = Dimensions.get('window');
@@ -57,147 +58,112 @@ export default function StoreOrdersScreen({ navigation }) {
     completedTotal: 0
   });
 
-  useEffect(() => {
-    loadStoreData();
-    loadOrders();
-  }, [filter]);
-
+  // ✅ 1. โหลดข้อมูลร้านค้า
   const loadStoreData = async () => {
     try {
       const user = auth.currentUser;
       if (!user) return;
-
       const storeDocRef = doc(db, 'stores', user.uid);
       const storeDoc = await getDoc(storeDocRef);
-
-      if (storeDoc.exists()) {
-        setStoreData(storeDoc.data());
-      }
+      if (storeDoc.exists()) setStoreData(storeDoc.data());
     } catch (error) {
       console.error('Error loading store data:', error);
     }
   };
 
-  const loadOrders = async () => {
-    try {
-      const user = auth.currentUser;
-      if (!user) {
-        setLoading(false);
-        return;
-      }
+  // ✅ 2. ใช้ onSnapshot ทำให้เป็น Real-time และแก้ปัญหาโหลดช้า
+  useEffect(() => {
+    loadStoreData();
 
-      const q = query(
-        collection(db, 'orders'),
-        where('storeId', '==', user.uid),
-        where('status', '==', filter),
-        orderBy('createdAt', 'desc')
-      );
+    const user = auth.currentUser;
+    if (!user) {
+      setLoading(false);
+      return;
+    }
 
-      const querySnapshot = await getDocs(q);
-      const ordersList = [];
+    const q = query(collection(db, 'orders'), where('storeId', '==', user.uid));
 
-      for (const docSnap of querySnapshot.docs) {
-        const data = docSnap.data();
-
-        let customerName = 'ลูกค้า';
-        let customerAvatar = defaultUserAvatar;
-        let customerPhone = data.customerPhone || 'ไม่ระบุเบอร์โทร';
-        let customerAddress = data.customerAddress || 'ไม่ระบุที่อยู่';
-        let customerAddressTitle = data.customerAddressTitle || '';
-        let customerLat = data.customerLat || null;
-        let customerLng = data.customerLng || null;
-
-        if (data.userId) {
-          try {
-            const customerDoc = await getDoc(doc(db, 'users', data.userId));
-            if (customerDoc.exists()) {
-              const customerData = customerDoc.data();
-              customerName = customerData.username || customerData.displayName || `ลูกค้า ${data.userId.slice(0, 6)}`;
-              customerAvatar = customerData.profileImage || defaultUserAvatar;
-
-              const profilePhone = customerData.phoneNumber || customerData.phone || customerData.tel;
-              if (profilePhone) {
-                  customerPhone = profilePhone;
-              }
-
-              if (!data.customerAddress && customerData.address) {
-                  customerAddress = customerData.address;
-                  customerAddressTitle = customerData.addressTitle || '';
-              }
-            }
-          } catch (err) {
-            console.log('Cannot fetch customer details:', err);
-          }
-        }
-
-        ordersList.push({
-          id: docSnap.id,
-          ...data,
-          customerName,
-          customerPhone,
-          customerAvatar,
-          customerAddress,
-          customerAddressTitle,
-          customerLat,
-          customerLng
-        });
-      }
-
-      setOrders(ordersList);
-
-      const qAll = query(
-        collection(db, 'orders'),
-        where('storeId', '==', user.uid)
-      );
-
-      const allSnapshot = await getDocs(qAll);
+    // ฟังการเปลี่ยนแปลงของออเดอร์แบบ Real-time
+    const unsubscribe = onSnapshot(q, async (snapshot) => {
       const allOrdersList = [];
+      const uniqueUserIds = new Set();
 
-      allSnapshot.forEach((doc) => {
-        allOrdersList.push({
-          id: doc.id,
-          ...doc.data(),
-        });
+      snapshot.forEach((docSnap) => {
+        const data = docSnap.data();
+        allOrdersList.push({ id: docSnap.id, ...data });
+        if (data.userId) uniqueUserIds.add(data.userId);
       });
 
-      setAllOrders(allOrdersList);
+      // ✅ แก้บั๊ก N+1: ดึงข้อมูลลูกค้าทั้งหมดพร้อมกันในรอบเดียว
+      const usersData = {};
+      await Promise.all(
+        Array.from(uniqueUserIds).map(async (uid) => {
+          try {
+            const uDoc = await getDoc(doc(db, 'users', uid));
+            if (uDoc.exists()) usersData[uid] = uDoc.data();
+          } catch (e) {
+            console.log('Error fetching user:', e);
+          }
+        })
+      );
 
-      const pendingCount = allOrdersList.filter(o => o.status === 'pending').length;
+      // ประกอบร่างข้อมูลออเดอร์ + ข้อมูลลูกค้า
+      const enrichedOrders = allOrdersList.map(order => {
+        const uData = usersData[order.userId];
+        return {
+          ...order,
+          customerName: uData?.username || uData?.displayName || `ลูกค้า ${order.userId?.slice(0, 6)}`,
+          customerAvatar: uData?.profileImage || defaultUserAvatar,
+          customerPhone: order.customerPhone || uData?.phoneNumber || uData?.phone || 'ไม่ระบุเบอร์โทร',
+          customerAddress: order.customerAddress || uData?.address || 'ไม่ระบุที่อยู่',
+          customerAddressTitle: order.customerAddressTitle || uData?.addressTitle || ''
+        };
+      });
 
-      // ดึงเฉพาะออเดอร์ที่ "สำเร็จ" แล้วเท่านั้น
-      const completedOrders = allOrdersList.filter(o => o.status === 'completed');
-      const totalRevenue = completedOrders.reduce((sum, o) => sum + (o.totalPrice || 0), 0);
+      // เรียงลำดับวันที่ใหม่สุดขึ้นก่อน
+      enrichedOrders.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
-      // หาเวลาเริ่มต้นของวันนี้ (เที่ยงคืน)
+      setAllOrders(enrichedOrders);
+
+      // ✅ คำนวณ Stats ต่างๆ โดยไม่ต้องดึงฐานข้อมูลซ้ำ
+      const pendingCount = enrichedOrders.filter(o => o.status === 'pending').length;
+      const completedOrders = enrichedOrders.filter(o => o.status === 'completed');
+      const totalRevenue = completedOrders.reduce((sum, o) => sum + (Number(o.totalPrice) || 0), 0);
+
       const startOfToday = new Date();
       startOfToday.setHours(0, 0, 0, 0);
 
-      // นับยอดขายเฉพาะ "วันนี้" ที่สำเร็จแล้ว (ถ้าออเดอร์สร้างก่อนเที่ยงคืนวันนี้ จะไม่ถูกนับ)
       const completedTodayCount = completedOrders.filter(o => {
         if (!o.createdAt) return false;
-        try {
-          // รองรับทั้งแบบ Firebase Timestamp และแบบ Date String
-          const orderDate = o.createdAt.toDate ? o.createdAt.toDate() : new Date(o.createdAt);
-          return orderDate >= startOfToday;
-        } catch (e) {
-          return false;
-        }
+        const orderDate = new Date(o.createdAt);
+        return orderDate >= startOfToday;
       }).length;
 
       setStats({
         pending: pendingCount,
-        total: allOrdersList.length,
+        total: enrichedOrders.length,
         revenue: totalRevenue,
         completedToday: completedTodayCount,
         completedTotal: completedOrders.length
       });
 
-    } catch (error) {
-      console.error('❌ Error loading orders:', error);
-    } finally {
       setLoading(false);
-      setRefreshing(false);
-    }
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  // ✅ 3. กรองข้อมูลเวลาเปลี่ยนแท็บ (ใช้ข้อมูลที่มีอยู่แล้ว ทำให้ลื่น ไม่ต้องโหลดใหม่)
+  useEffect(() => {
+    const filtered = allOrders.filter(o => o.status === filter);
+    setOrders(filtered);
+  }, [filter, allOrders]);
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    await loadStoreData();
+    // ระบบ Real-time จะจัดการออเดอร์ให้เอง แค่ตั้งเวลาให้หลอดโหลดหายไป
+    setTimeout(() => setRefreshing(false), 800);
   };
 
   const getFormattedOrderId = (orderId, type) => {
@@ -218,24 +184,68 @@ export default function StoreOrdersScreen({ navigation }) {
       Alert.alert('แจ้งเตือน', 'กรุณาระบุเหตุผลในการยกเลิก');
       return;
     }
+
+    setLoading(true);
     try {
       setCancelModalVisible(false);
-      await updateDoc(doc(db, 'orders', cancelOrderId), {
-        status: 'cancelled',
-        cancelledAt: new Date().toISOString(),
-        cancelReason: cancelReason.trim()
+
+      await runTransaction(db, async (transaction) => {
+          const orderRef = doc(db, 'orders', cancelOrderId);
+          const orderDoc = await transaction.get(orderRef);
+
+          if (!orderDoc.exists()) throw "ไม่พบคำสั่งซื้อนี้ในระบบ";
+
+          const items = orderDoc.data().items || [];
+          const orderWeight = orderDoc.data().totalOrderWeight || 0;
+          const userId = orderDoc.data().userId;
+
+          const foodDocsToUpdate = [];
+          for (let item of items) {
+              const foodRef = doc(db, 'food_items', item.foodId);
+              const foodDoc = await transaction.get(foodRef);
+              if (foodDoc.exists()) {
+                  foodDocsToUpdate.push({ ref: foodRef, returnQty: item.quantity });
+              }
+          }
+
+          let userRef = null;
+          let userDoc = null;
+          if (userId && orderWeight > 0) {
+              userRef = doc(db, 'users', userId);
+              userDoc = await transaction.get(userRef);
+          }
+
+          for (let fData of foodDocsToUpdate) {
+              transaction.update(fData.ref, {
+                  quantity: increment(fData.returnQty)
+              });
+          }
+
+          if (userDoc && userDoc.exists()) {
+              transaction.update(userRef, {
+                  totalWeightSaved: increment(-orderWeight)
+              });
+          }
+
+          transaction.update(orderRef, {
+              status: 'cancelled',
+              cancelReason: cancelReason.trim(),
+              cancelledBy: 'store',
+              cancelledAt: new Date().toISOString()
+          });
       });
-      loadOrders();
-      Alert.alert('สำเร็จ', 'ยกเลิกออเดอร์และบันทึกเหตุผลเรียบร้อยแล้ว');
+
+      Alert.alert('สำเร็จ', 'ยกเลิกออเดอร์ คืนสต็อกสินค้า และแจ้งลูกค้าเรียบร้อยแล้ว');
     } catch (error) {
-      Alert.alert('ผิดพลาด', 'ไม่สามารถยกเลิกออเดอร์ได้');
+      console.error("Cancel by Store Error:", error);
+      Alert.alert('ผิดพลาด', typeof error === 'string' ? error : 'ไม่สามารถยกเลิกออเดอร์ได้');
+      setLoading(false);
     }
   };
 
   const handleConfirmOrder = async (orderId) => {
     try {
       await updateDoc(doc(db, 'orders', orderId), { status: 'confirmed' });
-      loadOrders();
       Alert.alert('สำเร็จ', 'ยืนยันออเดอร์แล้ว');
     } catch (error) {
       Alert.alert('ผิดพลาด', 'ไม่สามารถยืนยันออเดอร์ได้');
@@ -254,10 +264,6 @@ export default function StoreOrdersScreen({ navigation }) {
           onPress: async () => {
             try {
               await updateDoc(doc(db, 'orders', orderId), { status: 'completed' });
-              if (userId && totalOrderWeight) {
-                await updateDoc(doc(db, 'users', userId), { totalWeightSaved: increment(totalOrderWeight) });
-              }
-              loadOrders();
               Alert.alert('สำเร็จ!', 'อัปเดตสถานะเป็น "รับของแล้ว" เรียบร้อย');
             } catch (error) {
               Alert.alert('ผิดพลาด', 'ไม่สามารถอัปเดตสถานะได้');
@@ -319,9 +325,6 @@ export default function StoreOrdersScreen({ navigation }) {
     ]);
   };
 
-  // -------------------------------------------------------------
-  // Drawer Menu (เพิ่ม Dashboard ให้แล้วครับ)
-  // -------------------------------------------------------------
   const DrawerContent = () => {
     const userName = auth.currentUser?.displayName || 'Username';
 
@@ -507,9 +510,26 @@ export default function StoreOrdersScreen({ navigation }) {
               <TouchableOpacity style={styles.uiBtnConfirm} onPress={() => handleCompleteOrder(item.id, item.userId, item.totalOrderWeight)}><Text style={styles.uiBtnTextDark}>ลูกค้ารับของแล้ว</Text></TouchableOpacity>
             </View>
           )}
+
           {item.status === 'cancelled' && (
-            <View style={styles.uiCancelReasonBox}>
-               <Text style={styles.uiCancelReasonText}>เหตุผล: {item.cancelReason || 'ไม่ระบุเหตุผล'}</Text>
+            <View style={[
+                styles.uiCancelReasonBox,
+                item.cancelledBy === 'store' && { backgroundColor: '#f9fafb', borderColor: '#e5e7eb' }
+            ]}>
+               <Text style={[
+                   styles.uiCancelReasonLabel,
+                   item.cancelledBy === 'store' && { color: '#4b5563' }
+               ]}>
+                 {item.cancelledBy === 'customer' ? '🧑 ลูกค้ายกเลิก' :
+                  item.cancelledBy === 'store' ? '🏪 ร้านค้ายกเลิกเอง' :
+                  '⚠️ ถูกยกเลิก'}
+               </Text>
+               <Text style={[
+                   styles.uiCancelReasonText,
+                   item.cancelledBy === 'store' && { color: '#6b7280' }
+               ]}>
+                 เหตุผล: {item.cancelReason || 'ไม่ระบุเหตุผล'}
+               </Text>
             </View>
           )}
         </View>
@@ -701,7 +721,8 @@ const styles = StyleSheet.create({
   uiBtnCancel: { flex: 1, backgroundColor: '#f3f4f6', paddingVertical: 12, borderRadius: 10, alignItems: 'center' },
   uiBtnConfirm: { flex: 1, backgroundColor: '#f3f4f6', paddingVertical: 12, borderRadius: 10, alignItems: 'center' },
   uiBtnTextDark: { fontSize: 14, fontWeight: '600', color: '#374151' },
-  uiCancelReasonBox: { backgroundColor: '#fef2f2', borderRadius: 8, padding: 12, borderWidth: 1, borderColor: '#fee2e2' },
+  uiCancelReasonBox: { backgroundColor: '#fef2f2', borderRadius: 10, padding: 12, borderWidth: 1, borderColor: '#fecaca', marginTop: 10 },
+  uiCancelReasonLabel: { fontSize: 14, fontWeight: 'bold', color: '#ef4444', marginBottom: 4 },
   uiCancelReasonText: { fontSize: 13, color: '#ef4444', lineHeight: 20 },
   emptyState: { alignItems: 'center', justifyContent: 'center', paddingVertical: 60 },
   emptyText: { fontSize: 16, fontWeight: 'bold', color: '#9ca3af', marginTop: 15 },
@@ -731,7 +752,6 @@ const styles = StyleSheet.create({
   navLabel: { fontSize: 11, color: '#9ca3af' },
   navLabelActive: { color: '#1f2937', fontWeight: '600' },
 
-  // ----- สไตล์ของ Drawer Menu (ละมุนเหมือนเดิม) -----
   drawerOverlay: { flex: 1, flexDirection: 'row' },
   drawerContainer: { position: 'absolute', left: 0, top: 0, bottom: 0, width: width * 0.85, backgroundColor: '#fff', shadowColor: "#000", shadowOffset: { width: 2, height: 0 }, shadowOpacity: 0.25, shadowRadius: 3.84, elevation: 5 },
   drawerScrollContent: { flexGrow: 1, paddingTop: Platform.OS === 'ios' ? 50 : 30, paddingBottom: 40 },
