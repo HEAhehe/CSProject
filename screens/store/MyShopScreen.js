@@ -32,6 +32,7 @@ export default function MyShopScreen({ navigation }) {
   const [activeTab, setActiveTab] = useState('active');
   const [stats, setStats] = useState({ posted: 0, sold: 0, revenue: 0 });
   const [statusChecked, setStatusChecked] = useState(false);
+  const [isStoreOpen, setIsStoreOpen] = useState(false);
 
   // Drawer states
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
@@ -103,6 +104,37 @@ export default function MyShopScreen({ navigation }) {
     }
   };
 
+  const checkStoreOpenStatus = (businessHours) => {
+    if (!businessHours) return false;
+
+    const dayMap = {
+      0: 'sun', 1: 'mon', 2: 'tue', 3: 'wed', 4: 'thu', 5: 'fri', 6: 'sat'
+    };
+
+    const now = new Date();
+    const dayKey = dayMap[now.getDay()];
+    const todayHours = businessHours[dayKey];
+
+    if (!todayHours || !todayHours.isOpen) return false;
+
+    const { openTime, closeTime } = todayHours;
+    if (!openTime || !closeTime) return false;
+
+    const [openH, openM] = openTime.split(':').map(Number);
+    const [closeH, closeM] = closeTime.split(':').map(Number);
+
+    const currentMinutes = now.getHours() * 60 + now.getMinutes();
+    const openMinutes = openH * 60 + openM;
+    const closeMinutes = closeH * 60 + closeM;
+
+    // รองรับกรณีข้ามเที่ยงคืน เช่น 22:00 - 02:00
+    if (closeMinutes < openMinutes) {
+      return currentMinutes >= openMinutes || currentMinutes < closeMinutes;
+    }
+
+    return currentMinutes >= openMinutes && currentMinutes < closeMinutes;
+  };
+
   const loadStoreData = async () => {
     try {
       const user = auth.currentUser;
@@ -125,6 +157,7 @@ export default function MyShopScreen({ navigation }) {
         if (storeInfo.status === 'approved') {
           console.log('✅ Store is APPROVED');
           setStoreData(storeInfo);
+          setIsStoreOpen(checkStoreOpenStatus(storeInfo.businessHours));
           setStatusChecked(true);
           
         } else if (storeInfo.status === 'pending') {
@@ -630,9 +663,9 @@ export default function MyShopScreen({ navigation }) {
           <Text style={styles.bannerGreet}>สวัสดี 👋</Text>
           <Text style={styles.bannerName}>{storeData?.storeName || 'ร้านค้าของคุณ'}</Text>
         </View>
-        <View style={styles.statusBadge}>
-          <View style={styles.statusDot} />
-          <Text style={styles.statusText}>เปิดอยู่</Text>
+        <View style={[styles.statusBadge, !isStoreOpen && styles.statusBadgeClosed]}>
+          <View style={[styles.statusDot, !isStoreOpen && styles.statusDotClosed]} />
+          <Text style={styles.statusText}>{isStoreOpen ? 'เปิดอยู่' : 'ปิดอยู่'}</Text>
         </View>
       </View>
 
@@ -814,7 +847,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 7,
   },
+  statusBadgeClosed: {
+    backgroundColor: 'rgba(0,0,0,0.2)',
+  },
   statusDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: '#fff' },
+  statusDotClosed: { backgroundColor: '#fca5a5' },
   statusText: { fontSize: 12, color: '#fff', fontWeight: '700' },
 
   // ─── Stats ─────────────────────────────────────────────────────

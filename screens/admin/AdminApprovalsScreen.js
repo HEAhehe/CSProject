@@ -152,6 +152,17 @@ export default function AdminApprovalsScreen({ navigation }) {
             <Text style={styles.requestUser}>โดย: {item.userName || 'ไม่ระบุชื่อ'}</Text>
           </View>
         </View>
+
+        {/* ✅ แสดงเหตุผลปฏิเสธใน card */}
+        {item.status === 'rejected' && item.rejectReason ? (
+          <View style={styles.rejectReasonCard}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 4 }}>
+              <Ionicons name="close-circle" size={13} color="#ef4444" />
+              <Text style={styles.rejectReasonCardTitle}>เหตุผลที่ปฏิเสธ</Text>
+            </View>
+            <Text style={styles.rejectReasonCardText}>{item.rejectReason}</Text>
+          </View>
+        ) : null}
       </TouchableOpacity>
     );
   };
@@ -319,6 +330,11 @@ const styles = StyleSheet.create({
   rejectReasonBox: { backgroundColor: '#fee2e2', padding: 12, borderRadius: 8, marginTop: 15 },
   rejectReasonTitle: { color: '#ef4444', fontWeight: '600', marginBottom: 4 },
   rejectReasonText: { color: '#7f1d1d' },
+
+  // ✅ ในรายการ card
+  rejectReasonCard: { marginTop: 10, backgroundColor: '#fff1f2', borderRadius: 8, padding: 10, borderLeftWidth: 3, borderLeftColor: '#ef4444' },
+  rejectReasonCardTitle: { fontSize: 11, fontWeight: '700', color: '#ef4444' },
+  rejectReasonCardText: { fontSize: 13, color: '#7f1d1d', marginTop: 2, lineHeight: 18 },
 
   modalActions: { flexDirection: 'row', padding: 20, gap: 12, borderTopWidth: 1, borderTopColor: '#f3f4f6' },
   rejectButton: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, padding: 14, borderRadius: 8, backgroundColor: '#ef4444' },
