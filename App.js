@@ -26,7 +26,7 @@ import AddressBookScreen from './screens/customer/AddressBookScreen';
 import ImpactHistoryScreen from './screens/customer/ImpactHistoryScreen';
 import ChangePasswordScreen from './screens/customer/ChangePasswordScreen';
 
-// --- 📂 STORE Screens (เพิ่มใหม่) ---
+// --- 📂 STORE Screens ---
 import RegisterStoreStep1Screen from './screens/store/RegisterStoreStep1Screen';
 import RegisterStoreStep2Screen from './screens/store/RegisterStoreStep2Screen';
 import RegisterStoreStep3Screen from './screens/store/RegisterStoreStep3Screen';
@@ -34,6 +34,7 @@ import MyShopScreen from './screens/store/MyShopScreen';
 import CreateListingScreen from './screens/store/CreateListingScreen';
 import StoreOrdersScreen from './screens/store/StoreOrdersScreen';
 import StoreDashboardScreen from './screens/store/StoreDashboardScreen';
+import StoreSettingsScreen from './screens/store/StoreSettingsScreen';
 
 // --- 📂 ADMIN Screens ---
 import AdminHomeScreen from './screens/admin/AdminHomeScreen';
@@ -61,7 +62,6 @@ export default function App() {
   return (
     <NavigationContainer>
       <Stack.Navigator
-
         initialRouteName={user ? "Home" : "Welcome"}
         screenOptions={{
           headerShown: false,
@@ -94,11 +94,12 @@ export default function App() {
 
 
             {/* --- Store Flow (Registration & Management) --- */}
-
             <Stack.Screen name="MyShop" component={MyShopScreen} />
             <Stack.Screen name="StoreDashboard" component={StoreDashboardScreen} />
             <Stack.Screen name="CreateListing" component={CreateListingScreen} />
             <Stack.Screen name="StoreOrders" component={StoreOrdersScreen} />
+            <Stack.Screen name="StoreSettings" component={StoreSettingsScreen} />
+
             <Stack.Screen name="RegisterStoreStep1" component={RegisterStoreStep1Screen} />
             <Stack.Screen name="RegisterStoreStep2" component={RegisterStoreStep2Screen} />
             <Stack.Screen name="RegisterStoreStep3" component={RegisterStoreStep3Screen} />

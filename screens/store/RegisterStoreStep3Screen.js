@@ -47,26 +47,28 @@ export default function RegisterStoreStep3Screen({ navigation, route }) {
   };
 
   const handleSelectImage = async () => {
-    const hasPermission = await requestPermissions();
-    if (!hasPermission) return;
+      const hasPermission = await requestPermissions();
+      if (!hasPermission) return;
 
-    try {
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: true,
-        aspect: [16, 9],
-        quality: 0.8,
-      });
+      try {
+        const result = await ImagePicker.launchImageLibraryAsync({
+          mediaTypes: ImagePicker.MediaTypeOptions.Images,
+          allowsEditing: true,
+          aspect: [16, 9],
+          quality: 0.2, // ✅ ปรับลดขนาดลงมานิดนึงเพื่อไม่ให้ Base64 ใหญ่เกินไป
+          base64: true, // ✅ เพิ่มคำสั่งนี้ เพื่อแปลงรูปเป็นข้อความ
+        });
 
-      if (!result.canceled && result.assets[0]) {
-        setSelectedImage(result.assets[0].uri);
-        setErrorMessage('');
+        if (!result.canceled && result.assets[0]) {
+          // ✅ นำข้อมูล Base64 มาใช้งานแทน path ชั่วคราว
+          setSelectedImage(`data:image/jpeg;base64,${result.assets[0].base64}`);
+          setErrorMessage('');
+        }
+      } catch (error) {
+        console.error('Error picking image:', error);
+        Alert.alert('ข้อผิดพลาด', 'ไม่สามารถเลือกรูปภาพได้');
       }
-    } catch (error) {
-      console.error('Error picking image:', error);
-      Alert.alert('ข้อผิดพลาด', 'ไม่สามารถเลือกรูปภาพได้');
-    }
-  };
+    };
 
   const handleBack = () => {
     navigation.goBack();

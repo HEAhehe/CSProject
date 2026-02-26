@@ -388,7 +388,7 @@ export default function StoreOrdersScreen({ navigation }) {
             <Text style={styles.drawerMenuText}>โปรไฟล์</Text>
             <Ionicons name="chevron-forward" size={18} color="#9ca3af" style={{marginLeft: 'auto'}} />
           </TouchableOpacity>
-          <TouchableOpacity style={styles.drawerMenuItem} onPress={() => { toggleDrawer(); Alert.alert('กำลังพัฒนา', 'หน้าแก้ไขข้อมูลร้านค้า'); }}>
+          <TouchableOpacity style={styles.drawerMenuItem} onPress={() => { toggleDrawer(); navigation.navigate('StoreSettings'); }}>
             <View style={[styles.menuIconBox, {backgroundColor: '#f3f4f6'}]}><Ionicons name="settings-outline" size={20} color="#6b7280" /></View>
             <Text style={styles.drawerMenuText}>แก้ไขข้อมูลร้านค้า</Text>
             <Ionicons name="chevron-forward" size={18} color="#9ca3af" style={{marginLeft: 'auto'}} />

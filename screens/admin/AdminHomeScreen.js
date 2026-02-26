@@ -15,7 +15,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { db, auth } from '../../firebase.config';
-import { collection, getDocs, doc, updateDoc, getDoc, setDoc, query } from 'firebase/firestore';
+import { collection, getDocs, doc, updateDoc, getDoc, query } from 'firebase/firestore';
 
 export default function AdminHomeScreen({ navigation }) {
   const [requests, setRequests] = useState([]);
@@ -24,30 +24,20 @@ export default function AdminHomeScreen({ navigation }) {
   const [refreshing, setRefreshing] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  const [counts, setCounts] = useState({
-    pending: 0,
-    approved: 0,
-    rejected: 0,
-    all: 0
-  });
+  const [counts, setCounts] = useState({ pending: 0, approved: 0, rejected: 0, all: 0 });
 
   const [modalVisible, setModalVisible] = useState(false);
   const [selectedRequest, setSelectedRequest] = useState(null);
   const [rejectReason, setRejectReason] = useState('');
   const [expandedId, setExpandedId] = useState(null);
 
-  // State สำหรับเปิดดูรูปภาพเต็มจอ
   const [fullImageVisible, setFullImageVisible] = useState(false);
   const [selectedImageUrl, setSelectedImageUrl] = useState('');
 
-  const toggleExpand = (id) => {
-    setExpandedId(expandedId === id ? null : id);
-  };
+  const toggleExpand = (id) => setExpandedId(expandedId === id ? null : id);
 
   useFocusEffect(
-    useCallback(() => {
-      fetchData();
-    }, [])
+    useCallback(() => { fetchData(); }, [])
   );
 
   const fetchData = async () => {
@@ -106,22 +96,18 @@ export default function AdminHomeScreen({ navigation }) {
 
   const handleAction = (request, action) => {
     setSelectedRequest(request);
-    if (action === 'approve') {
-      confirmAction('approve', request);
-    } else {
-      setModalVisible(true);
-    }
+    if (action === 'approve') confirmAction('approve', request);
+    else setModalVisible(true);
   };
 
   const confirmAction = (actionType, request, reason = '') => {
-    Alert.alert(
-      actionType === 'approve' ? 'ยืนยันการอนุมัติ' : 'ยืนยันการปฏิเสธ',
-      `คุณต้องการ${actionType === 'approve' ? 'อนุมัติ' : 'ปฏิเสธ'}ร้านค้านี้ใช่หรือไม่?`,
-      [
-        { text: 'ยกเลิก', style: 'cancel' },
-        { text: 'ยืนยัน', onPress: async () => await processUpdate(actionType, request, reason) },
-      ]
-    );
+    let titleMsg = actionType === 'approve' ? 'ยืนยันการอนุมัติ' : 'ยืนยันการปฏิเสธ';
+    let bodyMsg = `คุณต้องการ${actionType === 'approve' ? 'อนุมัติ' : 'ปฏิเสธ'}${request.type === 'store_update' ? 'คำขอแก้ไขข้อมูลร้าน' : 'คำขอเปิดร้านใหม่'} ใช่หรือไม่?`;
+
+    Alert.alert(titleMsg, bodyMsg, [
+      { text: 'ยกเลิก', style: 'cancel' },
+      { text: 'ยืนยัน', onPress: async () => await processUpdate(actionType, request, reason) },
+    ]);
   };
 
   const processUpdate = async (actionType, request, reason) => {
@@ -134,37 +120,31 @@ export default function AdminHomeScreen({ navigation }) {
       };
 
       if (actionType === 'reject') updateData.rejectReason = reason;
-
       await updateDoc(doc(db, 'approval_requests', request.id), updateData);
 
-      if (actionType === 'approve' && request.userId) {
+      if (request.userId) {
         const storeDocRef = doc(db, 'stores', request.userId);
-        await updateDoc(storeDocRef, {
-          status: 'approved',
-          isActive: true,
-          approvedBy: auth.currentUser?.email || 'Admin',
-          approvedDate: new Date().toISOString(),
-          updatedAt: new Date().toISOString()
-        });
 
-        await updateDoc(doc(db, 'users', request.userId), {
-          currentRole: 'store',
-          hasStorePending: false,
-          updatedAt: new Date().toISOString()
-        });
-      }
-
-      if (actionType === 'reject' && request.userId) {
-        await updateDoc(doc(db, 'users', request.userId), {
-          hasStorePending: false,
-          updatedAt: new Date().toISOString()
-        });
-        await updateDoc(doc(db, 'stores', request.userId), {
-          status: 'rejected',
-          isActive: false,
-          rejectReason: reason,
-          updatedAt: new Date().toISOString()
-        });
+        if (request.type === 'store_registration') {
+            if (actionType === 'approve') {
+              await updateDoc(storeDocRef, {
+                status: 'approved', isActive: true,
+                approvedBy: auth.currentUser?.email || 'Admin',
+                approvedDate: new Date().toISOString(), updatedAt: new Date().toISOString()
+              });
+              await updateDoc(doc(db, 'users', request.userId), {
+                currentRole: 'store', hasStorePending: false, updatedAt: new Date().toISOString()
+              });
+            } else {
+              await updateDoc(doc(db, 'users', request.userId), { hasStorePending: false, updatedAt: new Date().toISOString() });
+              await updateDoc(storeDocRef, { status: 'rejected', isActive: false, rejectReason: reason, updatedAt: new Date().toISOString() });
+            }
+        }
+        else if (request.type === 'store_update') {
+            if (actionType === 'approve' && request.newData) {
+                await updateDoc(storeDocRef, { ...request.newData, updatedAt: new Date().toISOString() });
+            }
+        }
       }
 
       Alert.alert('สำเร็จ', 'บันทึกสถานะเรียบร้อยแล้ว');
@@ -176,18 +156,11 @@ export default function AdminHomeScreen({ navigation }) {
     }
   };
 
-  const openImage = (url) => {
-    setSelectedImageUrl(url);
-    setFullImageVisible(true);
-  };
+  const openImage = (url) => { setSelectedImageUrl(url); setFullImageVisible(true); };
 
-  // UI Components
   const StatusCard = ({ icon, label, count, color, filterKey }) => (
     <TouchableOpacity
-      style={[
-        styles.statusCard,
-        selectedStatus === filterKey && { borderColor: color, borderWidth: 1.5, backgroundColor: `${color}05` }
-      ]}
+      style={[styles.statusCard, selectedStatus === filterKey && { borderColor: color, borderWidth: 1.5, backgroundColor: `${color}05` }]}
       onPress={() => setSelectedStatus(filterKey)}
     >
       <View style={styles.cardHeader}>
@@ -202,53 +175,67 @@ export default function AdminHomeScreen({ navigation }) {
     const isExpanded = expandedId === item.id;
     const currentStatus = item.status || 'pending';
     const statusColor = currentStatus === 'approved' ? '#10b981' : currentStatus === 'rejected' ? '#ef4444' : '#f59e0b';
+    const isUpdate = item.type === 'store_update';
 
     const [realStoreImage, setRealStoreImage] = useState(item.details?.['รูปภาพ'] || item.storeImage || null);
 
-    // ดึงรูปภาพจาก stores collection (เอา isExpanded ออก เพื่อให้โหลดรูปทันที)
     useEffect(() => {
       if (!realStoreImage && item.userId) {
         const fetchStoreImage = async () => {
           try {
             const storeDoc = await getDoc(doc(db, 'stores', item.userId));
-            if (storeDoc.exists()) {
-              const data = storeDoc.data();
-              if (data.storeImage) {
-                setRealStoreImage(data.storeImage);
-              }
+            if (storeDoc.exists() && storeDoc.data().storeImage) {
+              setRealStoreImage(storeDoc.data().storeImage);
             }
-          } catch (error) {
-            console.log("Cannot fetch image: ", error);
-          }
+          } catch (error) {}
         };
         fetchStoreImage();
       }
     }, [item.userId, realStoreImage]);
 
-    // ฟังก์ชันจัดรูปแบบเวลาให้เว้นระยะตรงกันและเติม "น."
-    const renderFormattedTime = (timeString) => {
-      if (!timeString) return <Text style={styles.detailValueTime}>ไม่ระบุเวลา</Text>;
+    // ✅ ฟังก์ชันจัดเรียงเวลาทำการใหม่ ให้โชว์ครบ 7 วัน และบอกว่าปิดทำการ
+    const renderBusinessHours = (requestItem) => {
+        // 1. ถ้ามีข้อมูล newData.businessHours (แบบ object)
+        const rawBh = requestItem.newData?.businessHours;
+        const orderedKeys = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+        const daysMap = { mon: 'จันทร์', tue: 'อังคาร', wed: 'พุธ', thu: 'พฤหัสบดี', fri: 'ศุกร์', sat: 'เสาร์', sun: 'อาทิตย์' };
 
-      const lines = timeString.split('\n');
-      return lines.map((line, index) => {
-        const parts = line.split(': ');
-        if (parts.length === 2) {
-          const day = parts[0];
-          let timeRange = parts[1].replace('-', ' - ');
-
-          return (
-            <View key={index} style={{ flexDirection: 'row', marginBottom: 4, alignItems: 'center' }}>
-              <Text style={[styles.detailValueTime, { width: 85, fontWeight: '600', color: '#4b5563' }]}>
-                {day}
-              </Text>
-              <Text style={styles.detailValueTime}>
-                {timeRange} น.
-              </Text>
-            </View>
-          );
+        if (rawBh && typeof rawBh === 'object') {
+             return orderedKeys.map((key, index) => {
+                 const dayData = rawBh[key];
+                 return (
+                    <View key={index} style={{ flexDirection: 'row', marginBottom: 4, alignItems: 'center' }}>
+                      <Text style={[styles.detailValueTime, { width: 85, fontWeight: '600', color: '#4b5563' }]}>{daysMap[key]}</Text>
+                      <Text style={[styles.detailValueTime, !dayData.isOpen && { color: '#ef4444' }]}>
+                        {dayData.isOpen ? `${dayData.openTime} - ${dayData.closeTime} น.` : 'ปิดทำการ'}
+                      </Text>
+                    </View>
+                 );
+             });
         }
-        return <Text key={index} style={styles.detailValueTime}>{line}</Text>;
-      });
+
+        // 2. ถ้าเป็น String แบบเก่า (จับแยกแล้วเรียงใหม่)
+        const timeString = requestItem.details?.['เวลาทำการ'];
+        if (!timeString) return <Text style={styles.detailValueTime}>ไม่ระบุเวลา</Text>;
+
+        const lines = timeString.split('\n');
+        const parsedDays = {};
+        lines.forEach(line => {
+            const parts = line.split(': ');
+            if (parts.length === 2) {
+                parsedDays[parts[0]] = parts[1].replace('-', ' - ') + ' น.';
+            }
+        });
+
+        const thDays = ['จันทร์', 'อังคาร', 'พุธ', 'พฤหัสบดี', 'ศุกร์', 'เสาร์', 'อาทิตย์'];
+        return thDays.map((day, index) => (
+            <View key={index} style={{ flexDirection: 'row', marginBottom: 4, alignItems: 'center' }}>
+                <Text style={[styles.detailValueTime, { width: 85, fontWeight: '600', color: '#4b5563' }]}>{day}</Text>
+                <Text style={[styles.detailValueTime, !parsedDays[day] && { color: '#ef4444' }]}>
+                   {parsedDays[day] || 'ปิดทำการ'}
+                </Text>
+            </View>
+        ));
     };
 
     return (
@@ -262,36 +249,46 @@ export default function AdminHomeScreen({ navigation }) {
               <Ionicons name="storefront-outline" size={24} color="#9ca3af" />
             )}
           </View>
+
           <View style={styles.headerInfo}>
-            <Text style={[styles.statusBadgeText, { color: statusColor, backgroundColor: `${statusColor}15` }]}>
-              {currentStatus === 'approved' ? 'อนุมัติแล้ว' : currentStatus === 'rejected' ? 'ปฏิเสธ' : 'รอดำเนินการ'}
-            </Text>
-            <Text style={styles.storeNameText}>{item.details?.['ชื่อร้าน'] || item.storeName || 'ไม่ระบุชื่อร้าน'}</Text>
-            <Text style={styles.ownerLabel}>เจ้าของร้าน: {item.userName || 'ไม่ระบุ'}</Text>
-            <Text style={styles.dateLabel}>วันที่ส่ง: {new Date(item.requestDate).toLocaleDateString('th-TH')}</Text>
+            <View style={styles.badgeRow}>
+              <Text style={[styles.statusBadgeText, { color: statusColor, backgroundColor: `${statusColor}15` }]}>
+                {currentStatus === 'approved' ? 'อนุมัติแล้ว' : currentStatus === 'rejected' ? 'ปฏิเสธ' : 'รอดำเนินการ'}
+              </Text>
+
+              <View style={[styles.typeBadge, isUpdate ? styles.typeUpdateBg : styles.typeRegisterBg]}>
+                <Text style={[styles.typeBadgeText, isUpdate ? styles.typeUpdateText : styles.typeRegisterText]}>
+                  {isUpdate ? '📝 ขอแก้ไขข้อมูล' : '🆕 สมัครร้านใหม่'}
+                </Text>
+              </View>
+            </View>
+
+            <Text style={styles.storeNameText}>{item.details?.['ชื่อร้าน'] || item.details?.['ชื่อร้าน (ที่แก้ไข)'] || item.storeName || 'ไม่ระบุชื่อร้าน'}</Text>
+            <Text style={styles.ownerLabel}>โดย: {item.userName || 'ไม่ระบุ'}</Text>
+            <Text style={styles.dateLabel}>ส่งเมื่อ: {new Date(item.requestDate).toLocaleDateString('th-TH')}</Text>
           </View>
 
-          <View style={styles.headerActions}>
-            {currentStatus === 'pending' && (
-              <View style={styles.topBtnGroup}>
-                <TouchableOpacity style={styles.miniBtnApprove} onPress={() => handleAction(item, 'approve')}>
-                  <Text style={styles.miniBtnTextApprove}>อนุมัติ</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.miniBtnReject} onPress={() => handleAction(item, 'reject')}>
-                  <Text style={styles.miniBtnTextReject}>ปฏิเสธ</Text>
-                </TouchableOpacity>
-              </View>
-            )}
-            <TouchableOpacity onPress={() => toggleExpand(item.id)} style={styles.expandBtn}>
-              <Ionicons name={isExpanded ? "chevron-up" : "chevron-down"} size={22} color="#6b7280" />
-            </TouchableOpacity>
-          </View>
+          <TouchableOpacity onPress={() => toggleExpand(item.id)} style={styles.expandBtn}>
+             <Ionicons name={isExpanded ? "chevron-up" : "chevron-down"} size={22} color="#6b7280" />
+          </TouchableOpacity>
         </View>
 
-        {/* Expanded Section (Beautiful UI) */}
+        {/* ✅ ย้ายปุ่ม Action ลงมาไว้ด้านล่างของ Header ไม่ให้ทับกับ Tag ด้านบน */}
+        {currentStatus === 'pending' && (
+           <View style={styles.quickActionRow}>
+              <TouchableOpacity style={styles.miniBtnApprove} onPress={() => handleAction(item, 'approve')}>
+                <Ionicons name="checkmark-circle" size={16} color="#fff" />
+                <Text style={styles.miniBtnTextApprove}>อนุมัติ</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.miniBtnReject} onPress={() => handleAction(item, 'reject')}>
+                <Ionicons name="close-circle" size={16} color="#ef4444" />
+                <Text style={styles.miniBtnTextReject}>ปฏิเสธ</Text>
+              </TouchableOpacity>
+           </View>
+        )}
+
         {isExpanded && (
           <View style={styles.expandedContent}>
-
             <View style={styles.detailSection}>
               <Text style={styles.detailTitle}>ข้อมูลติดต่อ</Text>
               <View style={styles.detailBox}>
@@ -304,18 +301,15 @@ export default function AdminHomeScreen({ navigation }) {
               <Text style={styles.detailTitle}>ที่อยู่ร้าน</Text>
               <View style={styles.detailBox}>
                 <Ionicons name="location-outline" size={18} color="#6b7280" style={styles.detailIcon} />
-                <Text style={styles.detailValue}>{item.details?.['ที่อยู่'] || 'ไม่ระบุที่อยู่'}</Text>
+                <Text style={styles.detailValue}>{item.details?.['ที่อยู่'] || item.details?.['ที่อยู่ใหม่'] || 'ไม่ระบุที่อยู่'}</Text>
               </View>
             </View>
 
             <View style={styles.detailSection}>
               <Text style={styles.detailTitle}>เวลาทำการและการจัดส่ง</Text>
               <View style={[styles.detailBox, { flexDirection: 'column', alignItems: 'flex-start' }]}>
-
-                <View style={{ width: '100%' }}>
-                  {renderFormattedTime(item.details?.['เวลาทำการ'])}
-                </View>
-
+                {/* ✅ เรียกใช้ฟังก์ชันเวลาทำการใหม่ */}
+                <View style={{ width: '100%' }}>{renderBusinessHours(item)}</View>
                 <View style={styles.divider} />
                 <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                   <Ionicons name="bicycle-outline" size={18} color="#10b981" style={styles.detailIcon} />
@@ -343,7 +337,6 @@ export default function AdminHomeScreen({ navigation }) {
                 </View>
               )}
             </View>
-
           </View>
         )}
       </View>
@@ -356,7 +349,7 @@ export default function AdminHomeScreen({ navigation }) {
       <View style={styles.header}>
         <View>
           <Text style={styles.headerTitle}>Admin Panel</Text>
-          <Text style={styles.headerSubtitle}>จัดการคำขออนุมัติร้านค้า</Text>
+          <Text style={styles.headerSubtitle}>จัดการคำขออนุมัติ</Text>
         </View>
         <TouchableOpacity style={styles.statsButton} onPress={() => navigation.navigate('AdminReports')}>
           <Ionicons name="bar-chart-outline" size={18} color="#1f2937" />
@@ -364,11 +357,7 @@ export default function AdminHomeScreen({ navigation }) {
         </TouchableOpacity>
       </View>
 
-      <ScrollView
-        style={styles.content}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-        showsVerticalScrollIndicator={false}
-      >
+      <ScrollView style={styles.content} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />} showsVerticalScrollIndicator={false}>
         <View style={styles.cardsGrid}>
           <StatusCard icon="time-outline" label="รอดำเนินการ" count={counts.pending} color="#f59e0b" filterKey="pending" />
           <StatusCard icon="checkmark-circle" label="อนุมัติแล้ว" count={counts.approved} color="#10b981" filterKey="approved" />
@@ -383,11 +372,7 @@ export default function AdminHomeScreen({ navigation }) {
 
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabsContainer}>
             {['pending', 'approved', 'rejected'].map(status => (
-                <TouchableOpacity
-                    key={status}
-                    style={[styles.tab, selectedStatus === status && styles.tabActive]}
-                    onPress={() => setSelectedStatus(status)}
-                >
+                <TouchableOpacity key={status} style={[styles.tab, selectedStatus === status && styles.tabActive]} onPress={() => setSelectedStatus(status)}>
                     <Text style={[styles.tabText, selectedStatus === status && styles.tabTextActive]}>
                         {status === 'pending' ? 'รอดำเนินการ' : status === 'approved' ? 'อนุมัติแล้ว' : 'ปฏิเสธ'}
                     </Text>
@@ -422,9 +407,7 @@ export default function AdminHomeScreen({ navigation }) {
           <TouchableOpacity style={styles.closeImageBtn} onPress={() => setFullImageVisible(false)}>
             <Ionicons name="close" size={30} color="#fff" />
           </TouchableOpacity>
-          {selectedImageUrl ? (
-            <Image source={{ uri: selectedImageUrl }} style={styles.fullScreenImage} resizeMode="contain" />
-          ) : null}
+          {selectedImageUrl ? <Image source={{ uri: selectedImageUrl }} style={styles.fullScreenImage} resizeMode="contain" /> : null}
         </View>
       </Modal>
 
@@ -460,26 +443,35 @@ const styles = StyleSheet.create({
   tabTextActive: { color: '#fff' },
   listContainer: { gap: 12 },
 
-  // Request Card (UI ใหม่)
   requestCard: { backgroundColor: '#fff', borderRadius: 16, padding: 16, borderWidth: 1, borderColor: '#e5e7eb', shadowColor: "#000", shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 2, elevation: 2 },
   cardMainHeader: { flexDirection: 'row', alignItems: 'flex-start' },
   requestIcon: { width: 50, height: 50, borderRadius: 10, backgroundColor: '#f3f4f6', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
   storeMiniImage: { width: '100%', height: '100%' },
   headerInfo: { flex: 1, marginLeft: 12 },
-  statusBadgeText: { fontSize: 11, fontWeight: '600', alignSelf: 'flex-start', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, marginBottom: 4 },
-  storeNameText: { fontSize: 16, fontWeight: 'bold', color: '#111827' },
-  ownerLabel: { fontSize: 13, color: '#6b7280', marginTop: 2 },
-  dateLabel: { fontSize: 11, color: '#9ca3af', marginTop: 4 },
-  headerActions: { alignItems: 'flex-end' },
-  topBtnGroup: { flexDirection: 'row', gap: 6, marginBottom: 8 },
-  miniBtnApprove: { backgroundColor: '#10b981', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6 },
-  miniBtnReject: { backgroundColor: '#fee2e2', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6 },
-  miniBtnTextApprove: { fontSize: 12, fontWeight: '600', color: '#fff' },
-  miniBtnTextReject: { fontSize: 12, fontWeight: '600', color: '#ef4444' },
-  expandBtn: { padding: 4, backgroundColor: '#f9fafb', borderRadius: 20 },
 
-  // Expanded Content (UI ใหม่)
-  expandedContent: { marginTop: 16, borderTopWidth: 1, borderTopColor: '#f3f4f6', paddingTop: 16 },
+  badgeRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6, marginBottom: 6 },
+  statusBadgeText: { fontSize: 11, fontWeight: '600', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
+  typeBadge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
+  typeUpdateBg: { backgroundColor: '#ede9fe' },
+  typeRegisterBg: { backgroundColor: '#dbeafe' },
+  typeBadgeText: { fontSize: 10, fontWeight: 'bold' },
+  typeUpdateText: { color: '#8b5cf6' },
+  typeRegisterText: { color: '#3b82f6' },
+
+  storeNameText: { fontSize: 16, fontWeight: 'bold', color: '#111827' },
+  ownerLabel: { fontSize: 12, color: '#6b7280', marginTop: 2 },
+  dateLabel: { fontSize: 11, color: '#9ca3af', marginTop: 2 },
+
+  expandBtn: { padding: 4, backgroundColor: '#f9fafb', borderRadius: 20, marginLeft: 10 },
+
+  // ✅ สไตล์สำหรับปุ่มที่ถูกย้ายลงมาด้านล่าง Header
+  quickActionRow: { flexDirection: 'row', marginTop: 12, gap: 10, borderTopWidth: 1, borderTopColor: '#f3f4f6', paddingTop: 12 },
+  miniBtnApprove: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: '#10b981', paddingVertical: 10, borderRadius: 8 },
+  miniBtnReject: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: '#fee2e2', paddingVertical: 10, borderRadius: 8 },
+  miniBtnTextApprove: { fontSize: 13, fontWeight: '700', color: '#fff' },
+  miniBtnTextReject: { fontSize: 13, fontWeight: '700', color: '#ef4444' },
+
+  expandedContent: { marginTop: 12, borderTopWidth: 1, borderTopColor: '#f3f4f6', paddingTop: 16 },
   detailSection: { marginBottom: 14 },
   detailTitle: { fontSize: 13, fontWeight: '600', color: '#6b7280', marginBottom: 6, marginLeft: 2 },
   detailBox: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#f9fafb', borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 10, padding: 12 },
@@ -489,7 +481,6 @@ const styles = StyleSheet.create({
   detailValueBold: { fontSize: 14, color: '#111827', fontWeight: '600' },
   divider: { height: 1, backgroundColor: '#e5e7eb', width: '100%', marginVertical: 8 },
 
-  // Image Preview
   imagePreviewBox: { width: '100%', height: 160, borderRadius: 10, overflow: 'hidden', borderWidth: 1, borderColor: '#e5e7eb' },
   previewImage: { width: '100%', height: '100%' },
   imageOverlay: { position: 'absolute', bottom: 10, right: 10 },
