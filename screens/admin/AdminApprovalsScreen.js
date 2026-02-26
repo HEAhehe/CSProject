@@ -340,4 +340,5 @@ const styles = StyleSheet.create({
   rejectButton: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, padding: 14, borderRadius: 8, backgroundColor: '#ef4444' },
   approveButton: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, padding: 14, borderRadius: 8, backgroundColor: '#10b981' },
   buttonText: { color: '#fff', fontWeight: '600', fontSize: 15 },
+  
 });
