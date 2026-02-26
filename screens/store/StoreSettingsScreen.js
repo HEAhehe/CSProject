@@ -639,4 +639,5 @@ const styles = StyleSheet.create({
   instructionOverlay: { position: 'absolute', top: 80, left: 20, right: 20, alignItems: 'center' },
   instructionBox: { backgroundColor: 'rgba(0, 0, 0, 0.75)', paddingHorizontal: 20, paddingVertical: 12, borderRadius: 25 },
   instructionText: { color: '#FFFFFF', fontSize: 14, fontWeight: '500' }
+  
 });
