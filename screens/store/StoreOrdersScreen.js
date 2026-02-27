@@ -35,6 +35,7 @@ export default function StoreOrdersScreen({ navigation }) {
   const [filter, setFilter] = useState('pending');
   const [storeData, setStoreData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [username, setUsername] = useState('');
 
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const slideAnim = useRef(new Animated.Value(-width * 0.85)).current;
@@ -63,6 +64,14 @@ export default function StoreOrdersScreen({ navigation }) {
     try {
       const user = auth.currentUser;
       if (!user) return;
+      // โหลด username จาก users collection
+      const userDoc = await getDoc(doc(db, 'users', user.uid));
+      if (userDoc.exists()) {
+        const data = userDoc.data();
+        setUsername(data.username || data.displayName || user.displayName || 'Username');
+      } else {
+        setUsername(user.displayName || 'Username');
+      }
       const storeDocRef = doc(db, 'stores', user.uid);
       const storeDoc = await getDoc(storeDocRef);
       if (storeDoc.exists()) setStoreData(storeDoc.data());
@@ -326,7 +335,6 @@ export default function StoreOrdersScreen({ navigation }) {
   };
 
   const DrawerContent = () => {
-    const userName = auth.currentUser?.displayName || 'Username';
 
     return (
       <ScrollView contentContainerStyle={styles.drawerScrollContent} showsVerticalScrollIndicator={false}>
@@ -344,7 +352,7 @@ export default function StoreOrdersScreen({ navigation }) {
             <View style={styles.profileHeader}>
               <Image source={storeData?.storeImage ? { uri: storeData.storeImage } : { uri: defaultAvatar }} style={styles.drawerAvatar} />
               <View style={{ flex: 1 }}>
-                <Text style={styles.drawerName}>{userName}</Text>
+                <Text style={styles.drawerName}>{username}</Text>
                 <Text style={styles.drawerRole}>โหมด: ร้านค้า</Text>
               </View>
             </View>
@@ -371,16 +379,21 @@ export default function StoreOrdersScreen({ navigation }) {
             <Text style={styles.drawerMenuText}>คำสั่งซื้อของร้าน</Text>
             <Ionicons name="chevron-forward" size={18} color="#9ca3af" style={{marginLeft: 'auto'}} />
           </TouchableOpacity>
-          <TouchableOpacity style={styles.drawerMenuItem} onPress={() => { toggleDrawer(); Alert.alert('กำลังพัฒนา', 'หน้า Dashboard'); }}>
-            <View style={[styles.menuIconBox, {backgroundColor: '#eff6ff'}]}><Ionicons name="notifications-outline" size={20} color="#3b82f6" /></View>
-            <Text style={styles.drawerMenuText}>Dashboard</Text>
-            <Ionicons name="chevron-forward" size={18} color="#9ca3af" style={{marginLeft: 'auto'}} />
-          </TouchableOpacity>
+          <TouchableOpacity style={styles.drawerMenuItem} onPress={() => { toggleDrawer(); navigation.navigate('StoreDashboard'); }}>
+                    <View style={[styles.menuIconBox, { backgroundColor: '#eff6ff' }]}><Ionicons name="bar-chart-outline" size={20} color="#3b82f6" /></View>
+                    <Text style={styles.drawerMenuText}>แดชบอร์ด</Text>
+                    <Ionicons name="chevron-forward" size={18} color="#9ca3af" style={{ marginLeft: 'auto' }} />
+                  </TouchableOpacity>
           <TouchableOpacity style={styles.drawerMenuItem} onPress={() => { toggleDrawer(); Alert.alert('กำลังพัฒนา', 'หน้าจัดการสินค้า'); }}>
             <View style={[styles.menuIconBox, {backgroundColor: '#fce7f3'}]}><Ionicons name="cube-outline" size={20} color="#ec4899" /></View>
             <Text style={styles.drawerMenuText}>จัดการสินค้า</Text>
             <Ionicons name="chevron-forward" size={18} color="#9ca3af" style={{marginLeft: 'auto'}} />
           </TouchableOpacity>
+           <TouchableOpacity style={styles.drawerMenuItem} onPress={() => { toggleDrawer(); navigation.navigate('StoreDashboard'); }}>
+                    <View style={[styles.menuIconBox, { backgroundColor: '#eff6ff' }]}><Ionicons name="notifications-outline" size={20} color="#3b82f6" /></View>
+                    <Text style={styles.drawerMenuText}>การแจ้งเตือนร้านค้า</Text>
+                    <Ionicons name="chevron-forward" size={18} color="#9ca3af" style={{ marginLeft: 'auto' }} />
+                  </TouchableOpacity>
 
           <Text style={styles.sectionTitle}>บัญชี</Text>
           <TouchableOpacity style={styles.drawerMenuItem} onPress={() => { toggleDrawer(); Alert.alert('กำลังพัฒนา', 'หน้าโปรไฟล์'); }}>
