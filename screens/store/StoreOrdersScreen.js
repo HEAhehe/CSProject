@@ -123,7 +123,10 @@ export default function StoreOrdersScreen({ navigation }) {
           ...order,
           customerName: uData?.username || uData?.displayName || `ลูกค้า ${order.userId?.slice(0, 6)}`,
           customerAvatar: uData?.profileImage || defaultUserAvatar,
-          customerPhone: order.customerPhone || uData?.phoneNumber || uData?.phone || 'ไม่ระบุเบอร์โทร',
+          // ✅ ดึงเบอร์จาก users collection ก่อนเสมอ เพราะเป็นข้อมูลล่าสุด
+          // ถ้าลูกค้าเปลี่ยนเบอร์ในโปรไฟล์ จะสะท้อนที่นี่ทันที
+          // ใช้ค่าจาก order เป็น fallback กรณี uData หาไม่เจอ (เช่น ลบบัญชีแล้ว)
+          customerPhone: uData?.phoneNumber || uData?.phone || uData?.tel || uData?.mobile || uData?.contactPhone || order.customerPhone || order.phone || order.phoneNumber || null,
           customerAddress: order.customerAddress || uData?.address || 'ไม่ระบุที่อยู่',
           customerAddressTitle: order.customerAddressTitle || uData?.addressTitle || ''
         };
@@ -384,11 +387,7 @@ export default function StoreOrdersScreen({ navigation }) {
                     <Text style={styles.drawerMenuText}>แดชบอร์ด</Text>
                     <Ionicons name="chevron-forward" size={18} color="#9ca3af" style={{ marginLeft: 'auto' }} />
                   </TouchableOpacity>
-          <TouchableOpacity style={styles.drawerMenuItem} onPress={() => { toggleDrawer(); Alert.alert('กำลังพัฒนา', 'หน้าจัดการสินค้า'); }}>
-            <View style={[styles.menuIconBox, {backgroundColor: '#fce7f3'}]}><Ionicons name="cube-outline" size={20} color="#ec4899" /></View>
-            <Text style={styles.drawerMenuText}>จัดการสินค้า</Text>
-            <Ionicons name="chevron-forward" size={18} color="#9ca3af" style={{marginLeft: 'auto'}} />
-          </TouchableOpacity>
+          
            <TouchableOpacity style={styles.drawerMenuItem} onPress={() => { toggleDrawer(); navigation.navigate('StoreDashboard'); }}>
                     <View style={[styles.menuIconBox, { backgroundColor: '#eff6ff' }]}><Ionicons name="notifications-outline" size={20} color="#3b82f6" /></View>
                     <Text style={styles.drawerMenuText}>การแจ้งเตือนร้านค้า</Text>
@@ -505,8 +504,15 @@ export default function StoreOrdersScreen({ navigation }) {
           )}
 
           <TouchableOpacity style={styles.uiInfoRow} onPress={() => handlePhonePress(item.customerPhone)}>
-            <Ionicons name="call-outline" size={16} color="#4b5563" />
-            <Text style={styles.uiInfoText}>เบอร์โทร: {item.customerPhone}</Text>
+            <Ionicons name="call-outline" size={16} color={item.customerPhone ? '#10b981' : '#9ca3af'} />
+            <Text style={[styles.uiInfoText, item.customerPhone && { color: '#10b981', fontWeight: '700' }]}>
+              {item.customerPhone ? item.customerPhone : 'ไม่ระบุเบอร์โทร'}
+            </Text>
+            {item.customerPhone && (
+              <View style={styles.phoneCallBadge}>
+                <Text style={styles.phoneCallBadgeText}>โทร</Text>
+              </View>
+            )}
           </TouchableOpacity>
         </View>
 
@@ -567,7 +573,7 @@ export default function StoreOrdersScreen({ navigation }) {
         <TouchableOpacity onPress={toggleDrawer} style={styles.menuButton}>
           <Ionicons name="menu" size={26} color="#1f2937" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>ORDER</Text>
+        <Text style={styles.headerTitle}>ออร์เดอร์</Text>
         <TouchableOpacity onPress={() => {}}>
            <View style={styles.headerProfileIcon}>
              <Ionicons name="person-outline" size={20} color="#1f2937" />
@@ -578,7 +584,7 @@ export default function StoreOrdersScreen({ navigation }) {
       <ScrollView stickyHeaderIndices={[2]} showsVerticalScrollIndicator={false}>
         <View style={styles.statsHeaderContainer}>
             <Ionicons name="stats-chart" size={20} color="#1f2937" />
-            <Text style={styles.statsTitleText}>Today's Stats</Text>
+            <Text style={styles.statsTitleText}>สถิติ</Text>
         </View>
 
         <View style={styles.statsContainer}>
@@ -757,6 +763,14 @@ const styles = StyleSheet.create({
   phoneButtonGroup: { flexDirection: 'row', gap: 12, width: '100%', marginBottom: 16 },
   phoneBtnAction: { flex: 1, paddingVertical: 12, borderRadius: 12, backgroundColor: '#f3f4f6', alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 8 },
   phoneBtnActionText: { fontSize: 14, fontWeight: 'bold', color: '#4b5563' },
+  phoneCallBadge: {
+    marginLeft: 'auto',
+    backgroundColor: '#10b981',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+  },
+  phoneCallBadgeText: { fontSize: 11, fontWeight: '700', color: '#fff' },
   phoneBtnClose: { width: '100%', paddingVertical: 12, borderRadius: 12, alignItems: 'center' },
   phoneBtnCloseText: { fontSize: 15, fontWeight: 'bold', color: '#9ca3af' },
   bottomNav: { position: 'absolute', bottom: 0, left: 0, right: 0, flexDirection: 'row', backgroundColor: '#fff', borderTopWidth: 1, borderTopColor: '#f3f4f6', paddingVertical: 12, paddingHorizontal: 20 },

@@ -412,11 +412,7 @@ export default function StoreDashboardScreen({ navigation }) {
           <Text style={styles.drawerMenuText}>แดชบอร์ด</Text>
           <Ionicons name="chevron-forward" size={18} color="#9ca3af" style={{ marginLeft: 'auto' }} />
         </TouchableOpacity>
-        <TouchableOpacity style={styles.drawerMenuItem} onPress={() => { toggleDrawer(); Alert.alert('กำลังพัฒนา', 'หน้าจัดการสินค้า'); }}>
-          <View style={[styles.menuIconBox, { backgroundColor: '#fce7f3' }]}><Ionicons name="cube-outline" size={20} color="#ec4899" /></View>
-          <Text style={styles.drawerMenuText}>จัดการสินค้า</Text>
-          <Ionicons name="chevron-forward" size={18} color="#9ca3af" style={{ marginLeft: 'auto' }} />
-        </TouchableOpacity>
+       
          <TouchableOpacity style={styles.drawerMenuItem} onPress={() => { toggleDrawer(); navigation.navigate('StoreDashboard'); }}>
                   <View style={[styles.menuIconBox, { backgroundColor: '#eff6ff' }]}><Ionicons name="notifications-outline" size={20} color="#3b82f6" /></View>
                   <Text style={styles.drawerMenuText}>การแจ้งเตือนร้านค้า</Text>
@@ -878,6 +874,13 @@ export default function StoreDashboardScreen({ navigation }) {
                 const displayName = review.isAnonymous ? 'ไม่ประสงค์ออกนาม' : (review.userName || 'ลูกค้า');
                 return (
                   <View key={review.id} style={rvStyles.reviewCard}>
+                    {/* Order food name badge */}
+                    {!!review.orderFoodName && (
+                      <View style={rvStyles.orderBadgeRow}>
+                        <Ionicons name="fast-food-outline" size={13} color="#f59e0b" />
+                        <Text style={rvStyles.orderBadgeText} numberOfLines={1}>{review.orderFoodName}</Text>
+                      </View>
+                    )}
                     <View style={rvStyles.reviewHeader}>
                       <View style={rvStyles.avatarCircle}>
                         {review.isAnonymous || !review.userProfileImage ? (
@@ -906,6 +909,14 @@ export default function StoreDashboardScreen({ navigation }) {
                     )}
                     {!!review.comment && (
                       <Text style={rvStyles.reviewComment}>{review.comment}</Text>
+                    )}
+                    {/* Review image from WriteReviewScreen */}
+                    {!!review.reviewImage && (
+                      <Image
+                        source={{ uri: review.reviewImage }}
+                        style={rvStyles.reviewImage}
+                        resizeMode="cover"
+                      />
                     )}
                   </View>
                 );
@@ -1759,4 +1770,30 @@ const rvStyles = StyleSheet.create({
   tagChip: { backgroundColor: '#f0fdf4', borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4, borderWidth: 1, borderColor: '#a7f3d0' },
   tagText: { fontSize: 11, color: '#059669', fontWeight: '600' },
   reviewComment: { fontSize: 14, color: '#374151', lineHeight: 20 },
+  orderBadgeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: '#fef9c3',
+    alignSelf: 'flex-start',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 20,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: '#fde68a',
+  },
+  orderBadgeText: {
+    fontSize: 12,
+    color: '#92400e',
+    fontWeight: '600',
+    maxWidth: 220,
+  },
+  reviewImage: {
+    width: '100%',
+    height: 180,
+    borderRadius: 10,
+    marginTop: 10,
+    backgroundColor: '#f3f4f6',
+  },
 });

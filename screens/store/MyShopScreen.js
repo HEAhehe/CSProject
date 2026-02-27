@@ -443,7 +443,13 @@ export default function MyShopScreen({ navigation }) {
               <Ionicons name="layers-outline" size={12} color="#10b981" />
               <Text style={styles.metaText}>{item.quantity} {item.unit}</Text>
             </View>
-{item.expiryDate ? (
+            {item.category ? (
+              <View style={[styles.metaChip, { backgroundColor: '#eff6ff', borderColor: '#bfdbfe' }]}>
+                <Ionicons name="pricetag-outline" size={12} color="#3b82f6" />
+                <Text style={[styles.metaText, { color: '#3b82f6' }]}>{item.category}</Text>
+              </View>
+            ) : null}
+            {item.expiryDate ? (
               <View style={[styles.metaChip, { backgroundColor: '#1a2030' }]}>
                 <Ionicons name="time-outline" size={12} color="#60a5fa" />
                 <Text style={[styles.metaText, { color: '#60a5fa' }]}>
@@ -590,11 +596,7 @@ export default function MyShopScreen({ navigation }) {
           <Text style={styles.drawerMenuText}>แดชบอร์ด</Text>
           <Ionicons name="chevron-forward" size={18} color="#9ca3af" style={{ marginLeft: 'auto' }} />
         </TouchableOpacity>
-        <TouchableOpacity style={styles.drawerMenuItem} onPress={() => { toggleDrawer(); Alert.alert('กำลังพัฒนา', 'หน้าจัดการสินค้า'); }}>
-          <View style={[styles.menuIconBox, { backgroundColor: '#fce7f3' }]}><Ionicons name="cube-outline" size={20} color="#ec4899" /></View>
-          <Text style={styles.drawerMenuText}>จัดการสินค้า</Text>
-          <Ionicons name="chevron-forward" size={18} color="#9ca3af" style={{ marginLeft: 'auto' }} />
-        </TouchableOpacity>
+        
         <TouchableOpacity style={styles.drawerMenuItem} onPress={() => { toggleDrawer(); navigation.navigate('StoreDashboard'); }}>
           <View style={[styles.menuIconBox, { backgroundColor: '#eff6ff' }]}><Ionicons name="notifications-outline" size={20} color="#3b82f6" /></View>
           <Text style={styles.drawerMenuText}>การแจ้งเตือนร้านค้า</Text>
@@ -671,7 +673,7 @@ export default function MyShopScreen({ navigation }) {
           <View style={styles.logoLeafWrap}>
             <Ionicons name="leaf" size={14} color="#10b981" />
           </View>
-          <Text style={styles.headerTitle}>MY SHOP</Text>
+          <Text style={styles.headerTitle}>ร้านค้าของฉัน</Text>
         </View>
 
         <TouchableOpacity onPress={() => navigation.navigate('StoreProfile')} style={styles.avatarWrap}>

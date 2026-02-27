@@ -261,7 +261,7 @@ export default function CartScreen({ navigation }) {
                 customerAddress: userData?.address || '',
                 customerLat: userData?.latitude || null,
                 customerLng: userData?.longitude || null,
-                customerPhone: userData?.phone || 'ไม่ระบุเบอร์โทร',
+                customerPhone: userData?.phoneNumber || userData?.phone || userData?.tel || userData?.mobile || null,
                 closingTime: closingTime,
                 createdAt: new Date().toISOString()
               };
