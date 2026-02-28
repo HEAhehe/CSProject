@@ -18,7 +18,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { auth, db } from '../../firebase.config';
-import { collection, getDocs, query, where, deleteDoc, doc, updateDoc, getDoc } from 'firebase/firestore';
+import { collection, getDocs, query, where, deleteDoc, doc, updateDoc, getDoc, writeBatch } from 'firebase/firestore';
 import { useFocusEffect } from '@react-navigation/native';
 
 const { width } = Dimensions.get('window');
@@ -491,6 +491,57 @@ export default function MyShopScreen({ navigation }) {
     checkAuthAndLoadData();
   };
 
+
+  const handleDeleteStore = () => {
+    Alert.alert(
+      'ยกเลิกการเป็นร้านค้า',
+      'คุณแน่ใจหรือไม่? ข้อมูลร้านค้าและสินค้าทั้งหมดจะถูกลบอย่างถาวร ไม่สามารถกู้คืนได้',
+      [
+        { text: 'ไม่ใช่', style: 'cancel' },
+        {
+          text: 'ยืนยันลบ',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              const user = auth.currentUser;
+              if (!user) return;
+
+              const batch = writeBatch(db);
+
+              // ลบ store document
+              batch.delete(doc(db, 'stores', user.uid));
+
+              // ลบ approval_requests ที่เกี่ยวข้อง
+              const approvalSnap = await getDocs(
+                query(collection(db, 'approval_requests'), where('userId', '==', user.uid))
+              );
+              approvalSnap.forEach(d => batch.delete(d.ref));
+
+              // ลบสินค้าทั้งหมดของร้าน
+              const foodSnap = await getDocs(
+                query(collection(db, 'food_items'), where('userId', '==', user.uid))
+              );
+              foodSnap.forEach(d => batch.delete(d.ref));
+
+              // รีเซ็ต currentRole ของ user กลับเป็น customer
+              batch.update(doc(db, 'users', user.uid), { currentRole: 'customer' });
+
+              await batch.commit();
+
+              toggleDrawer();
+              Alert.alert('สำเร็จ', 'ลบข้อมูลร้านค้าเรียบร้อยแล้ว', [
+                { text: 'ตกลง', onPress: () => navigation.replace('Home') }
+              ]);
+            } catch (error) {
+              console.error('Error deleting store:', error);
+              Alert.alert('ผิดพลาด', 'ไม่สามารถลบข้อมูลร้านค้าได้ กรุณาลองใหม่อีกครั้ง');
+            }
+          }
+        }
+      ]
+    );
+  };
+
   // Drawer functions
   const toggleDrawer = () => {
     if (isDrawerOpen) {
@@ -606,7 +657,7 @@ export default function MyShopScreen({ navigation }) {
 
         {/* Account Menu */}
         <Text style={styles.sectionLabel}>บัญชี</Text>
-        <TouchableOpacity style={styles.drawerMenuItem} onPress={() => { toggleDrawer(); Alert.alert('กำลังพัฒนา', 'หน้าโปรไฟล์'); }}>
+        <TouchableOpacity style={styles.drawerMenuItem} onPress={() => { toggleDrawer(); navigation.navigate('StoreProfile'); }}>
           <View style={[styles.menuIconBox, { backgroundColor: '#f3e8ff' }]}><Ionicons name="person-outline" size={20} color="#a855f7" /></View>
           <Text style={styles.drawerMenuText}>โปรไฟล์</Text>
           <Ionicons name="chevron-forward" size={18} color="#9ca3af" style={{ marginLeft: 'auto' }} />
@@ -616,7 +667,7 @@ export default function MyShopScreen({ navigation }) {
           <Text style={styles.drawerMenuText}>แก้ไขข้อมูลร้านค้า</Text>
           <Ionicons name="chevron-forward" size={18} color="#9ca3af" style={{ marginLeft: 'auto' }} />
         </TouchableOpacity>
-        <TouchableOpacity style={styles.drawerMenuItem} onPress={() => { toggleDrawer(); Alert.alert('ยกเลิก', 'ยืนยันการยกเลิกการเป็นร้านค้า?'); }}>
+        <TouchableOpacity style={styles.drawerMenuItem} onPress={handleDeleteStore}>
           <View style={[styles.menuIconBox, { backgroundColor: '#fee2e2' }]}><Ionicons name="close-circle-outline" size={20} color="#ef4444" /></View>
           <Text style={styles.drawerMenuText}>ยกเลิกการเป็นร้านค้า</Text>
           <Ionicons name="chevron-forward" size={18} color="#9ca3af" style={{ marginLeft: 'auto' }} />
@@ -676,12 +727,11 @@ export default function MyShopScreen({ navigation }) {
           <Text style={styles.headerTitle}>ร้านค้าของฉัน</Text>
         </View>
 
-        <TouchableOpacity onPress={() => navigation.navigate('StoreProfile')} style={styles.avatarWrap}>
+        <TouchableOpacity onPress={() => navigation.navigate('StoreProfile')}>
           <Image
             source={storeData?.storeImage ? { uri: storeData.storeImage } : { uri: defaultAvatar }}
-            style={styles.avatar}
+            style={styles.headerAvatar}
           />
-          <View style={styles.avatarOnline} />
         </TouchableOpacity>
       </View>
 
@@ -784,7 +834,7 @@ export default function MyShopScreen({ navigation }) {
           <Ionicons name="notifications-outline" size={24} color="#9ca3af" />
           <Text style={styles.navLabel}>แจ้งเตือน</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.navItem} onPress={() => Alert.alert('กำลังพัฒนา')}>
+        <TouchableOpacity style={styles.navItem} onPress={() => navigation.navigate('StoreProfile')}>
           <Ionicons name="person-outline" size={24} color="#9ca3af" />
           <Text style={styles.navLabel}>โปรไฟล์</Text>
         </TouchableOpacity>
@@ -848,26 +898,7 @@ const styles = StyleSheet.create({
     color: '#fff',
     letterSpacing: 3,
   },
-  avatarWrap: { position: 'relative' },
-  avatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    borderWidth: 2,
-    borderColor: '#fff',
-    backgroundColor: '#d1fae5',
-  },
-  avatarOnline: {
-    position: 'absolute',
-    bottom: 1,
-    right: 1,
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: '#fff',
-    borderWidth: 2,
-    borderColor: '#10b981',
-  },
+  headerAvatar: { width: 36, height: 36, borderRadius: 18, borderWidth: 2, borderColor: '#10b981', backgroundColor: '#d1fae5' },
 
   // ─── Banner ────────────────────────────────────────────────────
   bannerRow: {

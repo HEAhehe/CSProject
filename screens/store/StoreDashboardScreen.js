@@ -18,7 +18,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { auth, db } from '../../firebase.config';
-import { collection, getDocs, query, where, doc, getDoc } from 'firebase/firestore';
+import { collection, getDocs, query, where, doc, getDoc, writeBatch } from 'firebase/firestore';
 
 const { width } = Dimensions.get('window');
 
@@ -313,6 +313,56 @@ export default function StoreDashboardScreen({ navigation }) {
     loadDashboardData();
   };
 
+  const handleDeleteStore = () => {
+    Alert.alert(
+      'ยกเลิกการเป็นร้านค้า',
+      'คุณแน่ใจหรือไม่? ข้อมูลร้านค้าและสินค้าทั้งหมดจะถูกลบอย่างถาวร ไม่สามารถกู้คืนได้',
+      [
+        { text: 'ไม่ใช่', style: 'cancel' },
+        {
+          text: 'ยืนยันลบ',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              const user = auth.currentUser;
+              if (!user) return;
+
+              const batch = writeBatch(db);
+
+              // ลบ store document
+              batch.delete(doc(db, 'stores', user.uid));
+
+              // ลบ approval_requests ที่เกี่ยวข้อง
+              const approvalSnap = await getDocs(
+                query(collection(db, 'approval_requests'), where('userId', '==', user.uid))
+              );
+              approvalSnap.forEach(d => batch.delete(d.ref));
+
+              // ลบสินค้าทั้งหมดของร้าน
+              const foodSnap = await getDocs(
+                query(collection(db, 'food_items'), where('userId', '==', user.uid))
+              );
+              foodSnap.forEach(d => batch.delete(d.ref));
+
+              // รีเซ็ต currentRole ของ user กลับเป็น customer
+              batch.update(doc(db, 'users', user.uid), { currentRole: 'customer' });
+
+              await batch.commit();
+
+              toggleDrawer();
+              Alert.alert('สำเร็จ', 'ลบข้อมูลร้านค้าเรียบร้อยแล้ว', [
+                { text: 'ตกลง', onPress: () => navigation.replace('Home') }
+              ]);
+            } catch (error) {
+              console.error('Error deleting store:', error);
+              Alert.alert('ผิดพลาด', 'ไม่สามารถลบข้อมูลร้านค้าได้ กรุณาลองใหม่อีกครั้ง');
+            }
+          }
+        }
+      ]
+    );
+  };
+
   const toggleDrawer = () => {
     if (isDrawerOpen) {
       Animated.parallel([
@@ -420,7 +470,7 @@ export default function StoreDashboardScreen({ navigation }) {
                 </TouchableOpacity>
 
         <Text style={styles.sectionLabel}>บัญชี</Text>
-        <TouchableOpacity style={styles.drawerMenuItem} onPress={() => { toggleDrawer(); Alert.alert('กำลังพัฒนา', 'หน้าโปรไฟล์'); }}>
+        <TouchableOpacity style={styles.drawerMenuItem} onPress={() => { toggleDrawer(); navigation.navigate('StoreProfile'); }}>
           <View style={[styles.menuIconBox, { backgroundColor: '#f3e8ff' }]}><Ionicons name="person-outline" size={20} color="#a855f7" /></View>
           <Text style={styles.drawerMenuText}>โปรไฟล์</Text>
           <Ionicons name="chevron-forward" size={18} color="#9ca3af" style={{ marginLeft: 'auto' }} />
@@ -430,7 +480,7 @@ export default function StoreDashboardScreen({ navigation }) {
           <Text style={styles.drawerMenuText}>แก้ไขข้อมูลร้านค้า</Text>
           <Ionicons name="chevron-forward" size={18} color="#9ca3af" style={{ marginLeft: 'auto' }} />
         </TouchableOpacity>
-        <TouchableOpacity style={styles.drawerMenuItem} onPress={() => { toggleDrawer(); Alert.alert('ยกเลิก', 'ยืนยันการยกเลิกการเป็นร้านค้า?'); }}>
+        <TouchableOpacity style={styles.drawerMenuItem} onPress={handleDeleteStore}>
           <View style={[styles.menuIconBox, { backgroundColor: '#fee2e2' }]}><Ionicons name="close-circle-outline" size={20} color="#ef4444" /></View>
           <Text style={styles.drawerMenuText}>ยกเลิกการเป็นร้านค้า</Text>
           <Ionicons name="chevron-forward" size={18} color="#9ca3af" style={{ marginLeft: 'auto' }} />
@@ -953,7 +1003,7 @@ export default function StoreDashboardScreen({ navigation }) {
 
         <TouchableOpacity
           style={styles.navItem}
-          onPress={() => navigation.navigate('Profile')}
+          onPress={() => navigation.navigate('StoreProfile')}
         >
           <Ionicons name="person-outline" size={24} color="#9ca3af" />
           <Text style={styles.navLabel}>โปรไฟล์</Text>
