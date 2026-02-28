@@ -1,18 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  Image,
-  ScrollView,
-  TouchableOpacity,
-  StatusBar,
-  Dimensions,
-  ActivityIndicator,
-  FlatList,
-  Linking,
-  Platform,
-  Alert
+  View, Text, StyleSheet, Image, ScrollView, TouchableOpacity,
+  StatusBar, Dimensions, ActivityIndicator, FlatList, Linking, Platform, Alert
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { db, auth } from '../../firebase.config';
@@ -38,9 +27,12 @@ export default function StoreDetailScreen({ navigation, route }) {
   useEffect(() => {
     const fetchStoreData = async () => {
       try {
-        const storeDoc = await getDoc(doc(db, 'stores', storeId));
+        let storeDoc = await getDoc(doc(db, 'stores', storeId));
         if (storeDoc.exists()) {
           setStore({ id: storeDoc.id, ...storeDoc.data() });
+        } else {
+          storeDoc = await getDoc(doc(db, 'users', storeId));
+          if (storeDoc.exists()) setStore({ id: storeDoc.id, ...storeDoc.data() });
         }
 
         const qFoods = query(collection(db, 'food_items'), where('userId', '==', storeId));
@@ -83,7 +75,6 @@ export default function StoreDetailScreen({ navigation, route }) {
       });
 
       setReviews(reviewsData);
-
       if (reviewsData.length > 0) {
          setAverageRating((totalStars / reviewsData.length).toFixed(1));
       } else {
@@ -144,6 +135,36 @@ export default function StoreDetailScreen({ navigation, route }) {
     }
   };
 
+  // 🔴 ฟังก์ชันคำนวณเวลาที่แม่นยำ (รองรับข้ามคืน)
+  const checkIsStoreOpen = () => {
+    if (!store) return false;
+    const now = new Date();
+    const daysMap = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+    const currentDayIdx = now.getDay();
+    const prevDayIdx = currentDayIdx === 0 ? 6 : currentDayIdx - 1;
+
+    let todayHours = store.businessHours ? store.businessHours[daysMap[currentDayIdx]] : { isOpen: true, openTime: store.openTime || "08:00", closeTime: store.closeTime || store.closingTime || "20:00" };
+    let prevDayHours = store.businessHours ? store.businessHours[daysMap[prevDayIdx]] : todayHours;
+
+    if (prevDayHours && prevDayHours.isOpen) {
+      const [poH, poM] = prevDayHours.openTime.split(':').map(Number);
+      const [pcH, pcM] = prevDayHours.closeTime.split(':').map(Number);
+      if (pcH < poH || (pcH === poH && pcM < poM)) { // ถ้าเปิดข้ามคืนมาจากเมื่อวาน
+         if (now.getHours() < pcH || (now.getHours() === pcH && now.getMinutes() < pcM)) return true;
+      }
+    }
+
+    if (todayHours && todayHours.isOpen) {
+      const [toH, toM] = todayHours.openTime.split(':').map(Number);
+      const [tcH, tcM] = todayHours.closeTime.split(':').map(Number);
+      let oDate = new Date(); oDate.setHours(toH, toM, 0, 0);
+      let cDate = new Date(); cDate.setHours(tcH, tcM, 0, 0);
+      if (tcH < toH || (tcH === toH && tcM < toM)) cDate.setDate(cDate.getDate() + 1);
+      return now >= oDate && now <= cDate;
+    }
+    return false;
+  };
+
   const renderBusinessHours = () => {
     if (!store?.businessHours) return <Text style={styles.infoText}>ไม่ระบุเวลาทำการ</Text>;
 
@@ -151,7 +172,6 @@ export default function StoreDetailScreen({ navigation, route }) {
         mon: 'จันทร์', tue: 'อังคาร', wed: 'พุธ', thu: 'พฤหัสฯ',
         fri: 'ศุกร์', sat: 'เสาร์', sun: 'อาทิตย์'
     };
-
     const daysOrder = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
 
     return daysOrder.map((dayKey) => {
@@ -185,7 +205,6 @@ export default function StoreDetailScreen({ navigation, route }) {
     { id: 1, label: '1 ดาว' },
   ];
 
-  // ✅ ฟังก์ชันคำนวณจำนวนรีวิวในแต่ละดาว สำหรับกราฟแท่ง
   const getRatingCounts = () => {
     const counts = { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 };
     reviews.forEach(r => {
@@ -212,6 +231,9 @@ export default function StoreDetailScreen({ navigation, route }) {
     );
   }
 
+  // 🔴 เรียกใช้ฟังก์ชันเช็คเวลาเปิด-ปิดร้าน
+  const isStoreOpen = checkIsStoreOpen();
+
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
@@ -233,9 +255,10 @@ export default function StoreDetailScreen({ navigation, route }) {
                 <Text style={styles.ratingText}>
                   {averageRating > 0 ? averageRating : '0.0'} ({reviews.length} รีวิว)
                 </Text>
-                <View style={styles.statusBadge}>
+                {/* 🔴 แก้ไขป้ายสถานะให้แสดงตามเวลาจริง ไม่ใช่แค่ isActive */}
+                <View style={[styles.statusBadge, { backgroundColor: !store.isActive ? '#6b7280' : isStoreOpen ? '#10b981' : '#ef4444' }]}>
                     <Text style={styles.statusText}>
-                       {store.isActive ? "เปิดทำการ" : "ปิดชั่วคราว"}
+                       {!store.isActive ? "ปิดชั่วคราว" : isStoreOpen ? "เปิดทำการ" : "ปิดแล้ว"}
                     </Text>
                 </View>
             </View>
@@ -269,8 +292,14 @@ export default function StoreDetailScreen({ navigation, route }) {
 
                 return (
                   <TouchableOpacity
-                      style={styles.foodCard}
-                      onPress={() => navigation.push('FoodDetail', { food: { ...item, storeName: store.storeName, storeId: store.id } })}
+                      style={[styles.foodCard, !isStoreOpen && { opacity: 0.6 }]} // ถ้าร้านปิดให้เมนูจางลง
+                      onPress={() => {
+                        if (isStoreOpen) {
+                          navigation.push('FoodDetail', { food: { ...item, storeName: store.storeName, storeId: store.id } });
+                        } else {
+                          Alert.alert('ร้านปิดให้บริการ', 'ไม่สามารถสั่งอาหารได้ในขณะนี้ กรุณาทำรายการในเวลาทำการครับ');
+                        }
+                      }}
                   >
                       <View style={styles.imageWrapper}>
                           <Image source={{ uri: item.imageUrl }} style={styles.foodImage} />
@@ -291,7 +320,7 @@ export default function StoreDetailScreen({ navigation, route }) {
                           </View>
                       </View>
 
-                      <View style={styles.addBtn}>
+                      <View style={[styles.addBtn, !isStoreOpen && { backgroundColor: '#9ca3af' }]}>
                           <Ionicons name="add" size={20} color="#fff" />
                       </View>
                   </TouchableOpacity>
@@ -322,14 +351,8 @@ export default function StoreDetailScreen({ navigation, route }) {
                 <View style={styles.mapPreview}>
                     <MapView
                         style={styles.map}
-                        initialRegion={{
-                            latitude: store.latitude,
-                            longitude: store.longitude,
-                            latitudeDelta: 0.005,
-                            longitudeDelta: 0.005,
-                        }}
-                        scrollEnabled={false}
-                        zoomEnabled={false}
+                        initialRegion={{ latitude: store.latitude, longitude: store.longitude, latitudeDelta: 0.005, longitudeDelta: 0.005 }}
+                        scrollEnabled={false} zoomEnabled={false}
                     >
                         <Marker coordinate={{ latitude: store.latitude, longitude: store.longitude }} />
                     </MapView>
@@ -373,9 +396,7 @@ export default function StoreDetailScreen({ navigation, route }) {
             <View style={styles.reviewHeaderWrapper}>
               <Text style={[styles.sectionTitle, { marginBottom: 10 }]}>คะแนนและรีวิวจากผู้สั่งซื้อ</Text>
 
-              {/* ✅ เพิ่มกล่องสรุปคะแนนและกราฟแท่งแนวนอน */}
               <View style={styles.ratingSummaryContainer}>
-                 {/* ฝั่งซ้าย: ตัวเลขคะแนนเฉลี่ย */}
                  <View style={styles.averageScoreContainer}>
                     <Text style={styles.hugeAverageText}>{averageRating > 0 ? averageRating : '0.0'}</Text>
                     <View style={styles.starsSummaryRow}>
@@ -386,7 +407,6 @@ export default function StoreDetailScreen({ navigation, route }) {
                     <Text style={styles.totalReviewsText}>{reviews.length} รีวิว</Text>
                  </View>
 
-                 {/* ฝั่งขวา: กราฟแท่ง */}
                  <View style={styles.barsContainer}>
                     {[5, 4, 3, 2, 1].map(star => {
                        const count = ratingCounts[star];
@@ -404,11 +424,7 @@ export default function StoreDetailScreen({ navigation, route }) {
                  </View>
               </View>
 
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.filterBarContainer}
-              >
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterBarContainer}>
                 {filterOptions.map((filter) => {
                   const isActive = reviewFilter === filter.id;
                   return (
@@ -430,11 +446,8 @@ export default function StoreDetailScreen({ navigation, route }) {
           }
           renderItem={({ item }) => {
             let formattedDate = 'เพิ่งรีวิวเมื่อสักครู่';
-            if (item.createdAt && item.createdAt.toDate) {
-               formattedDate = item.createdAt.toDate().toLocaleDateString('th-TH');
-            } else if (item.createdAt && item.createdAt.seconds) {
-               formattedDate = new Date(item.createdAt.seconds * 1000).toLocaleDateString('th-TH');
-            }
+            if (item.createdAt && item.createdAt.toDate) formattedDate = item.createdAt.toDate().toLocaleDateString('th-TH');
+            else if (item.createdAt && item.createdAt.seconds) formattedDate = new Date(item.createdAt.seconds * 1000).toLocaleDateString('th-TH');
 
             return (
               <View style={styles.reviewCard}>
@@ -448,9 +461,7 @@ export default function StoreDetailScreen({ navigation, route }) {
                       )}
                     </View>
                     <View>
-                        <Text style={styles.reviewerName}>
-                          {item.isAnonymous ? 'ผู้ไม่ประสงค์ออกนาม' : (item.userName || 'ผู้ใช้งาน')}
-                        </Text>
+                        <Text style={styles.reviewerName}>{item.isAnonymous ? 'ผู้ไม่ประสงค์ออกนาม' : (item.userName || 'ผู้ใช้งาน')}</Text>
                         <Text style={styles.reviewDate}>{formattedDate}</Text>
                     </View>
                   </View>
@@ -462,23 +473,17 @@ export default function StoreDetailScreen({ navigation, route }) {
                         <Text style={styles.orderSummaryTitle}>รายการที่สั่งซื้อ</Text>
                         {item.orderType && (
                           <View style={styles.orderTypeBadge}>
-                              <Text style={styles.orderTypeText}>
-                                  {item.orderType === 'delivery' ? 'จัดส่ง' : 'รับที่ร้าน'}
-                              </Text>
+                              <Text style={styles.orderTypeText}>{item.orderType === 'delivery' ? 'จัดส่ง' : 'รับที่ร้าน'}</Text>
                           </View>
                         )}
                     </View>
                     <View style={styles.orderItemsList}>
                         {item.orderItems && item.orderItems.length > 0 ? (
                             item.orderItems.map((food, idx) => (
-                                <Text key={idx} style={styles.orderItemText}>
-                                    <Text style={{fontWeight: 'bold'}}>{food.quantity}x</Text> {food.foodName}
-                                </Text>
+                                <Text key={idx} style={styles.orderItemText}><Text style={{fontWeight: 'bold'}}>{food.quantity}x</Text> {food.foodName}</Text>
                             ))
                         ) : (
-                            <Text style={styles.orderItemText}>
-                                • {item.orderFoodName || 'รายการอาหาร'}
-                            </Text>
+                            <Text style={styles.orderItemText}>• {item.orderFoodName || 'รายการอาหาร'}</Text>
                         )}
                     </View>
                 </View>
@@ -492,20 +497,13 @@ export default function StoreDetailScreen({ navigation, route }) {
                 {item.tags && item.tags.length > 0 && (
                   <View style={styles.reviewTagsContainer}>
                     {item.tags.map((tag, idx) => (
-                      <View key={idx} style={styles.reviewTag}>
-                        <Text style={styles.reviewTagText}>{tag}</Text>
-                      </View>
+                      <View key={idx} style={styles.reviewTag}><Text style={styles.reviewTagText}>{tag}</Text></View>
                     ))}
                   </View>
                 )}
 
-                {item.comment ? (
-                  <Text style={styles.reviewComment}>{item.comment}</Text>
-                ) : null}
-
-                {item.reviewImage && (
-                  <Image source={{ uri: item.reviewImage }} style={styles.attachedImage} />
-                )}
+                {item.comment ? <Text style={styles.reviewComment}>{item.comment}</Text> : null}
+                {item.reviewImage && <Image source={{ uri: item.reviewImage }} style={styles.attachedImage} />}
               </View>
             )
           }}
@@ -529,40 +527,32 @@ const styles = StyleSheet.create({
   headerContainer: { height: 250, width: '100%', position: 'relative' },
   coverImage: { width: '100%', height: '100%' },
   overlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.4)' },
-
   backButton: { position: 'absolute', top: 50, left: 20, width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
   favoriteButton: { position: 'absolute', top: 50, right: 20, width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
-
   headerContent: { position: 'absolute', bottom: 20, left: 20, right: 20 },
   storeName: { fontSize: 26, fontWeight: 'bold', color: '#fff', marginBottom: 5, textShadowColor: 'rgba(0,0,0,0.7)', textShadowOffset: { width: 1, height: 1 }, textShadowRadius: 4 },
   ratingRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   ratingText: { color: '#fff', fontSize: 14, fontWeight: '600' },
-  statusBadge: { backgroundColor: '#10b981', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 4, marginLeft: 10 },
+  statusBadge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 4, marginLeft: 10 },
   statusText: { color: '#fff', fontSize: 12, fontWeight: 'bold' },
-
   tabContainer: { flexDirection: 'row', backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#f0f0f0' },
   tabItem: { flex: 1, paddingVertical: 15, alignItems: 'center' },
   activeTab: { borderBottomWidth: 2, borderBottomColor: '#10b981' },
   tabText: { fontSize: 15, color: '#666', fontWeight: '500' },
   activeTabText: { color: '#10b981', fontWeight: 'bold' },
-
   menuList: { padding: 15, paddingBottom: 50 },
   foodCard: { width: (width - 45) / 2, backgroundColor: '#fff', borderRadius: 12, marginBottom: 15, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 5, elevation: 2, overflow: 'hidden' },
-
   imageWrapper: { position: 'relative' },
   foodImage: { width: '100%', height: 140, backgroundColor: '#f0f0f0' },
   discountBadgeSmall: { position: 'absolute', top: 8, right: 8, backgroundColor: '#ef4444', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 8 },
   discountBadgeText: { color: '#fff', fontSize: 10, fontWeight: 'bold' },
-
   foodInfo: { padding: 10, paddingBottom: 15 },
   foodName: { fontSize: 14, fontWeight: '600', color: '#333', marginBottom: 6 },
   priceContainer: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   foodPrice: { fontSize: 15, fontWeight: 'bold', color: '#ef4444' },
   foodOriginalPrice: { fontSize: 11, color: '#9ca3af', textDecorationLine: 'line-through' },
   addBtn: { position: 'absolute', bottom: 10, right: 10, width: 28, height: 28, borderRadius: 14, backgroundColor: '#10b981', justifyContent: 'center', alignItems: 'center' },
-
   emptyState: { alignItems: 'center', marginTop: 50 },
-
   infoContainer: { padding: 20 },
   sectionTitle: { fontSize: 18, fontWeight: 'bold', color: '#333', marginBottom: 12 },
   descriptionText: { fontSize: 14, color: '#4b5563', lineHeight: 22, textAlign: 'justify' },
@@ -572,22 +562,17 @@ const styles = StyleSheet.create({
   mapOverlayBtn: { position: 'absolute', bottom: 10, right: 10, backgroundColor: '#fff', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, elevation: 3 },
   mapBtnText: { fontSize: 12, fontWeight: '600', color: '#333' },
   divider: { height: 1, backgroundColor: '#eee', marginVertical: 20 },
-
   contactRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 15 },
   iconBox: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#dcfce7', justifyContent: 'center', alignItems: 'center', marginRight: 15 },
   contactText: { fontSize: 15, color: '#333', flex: 1 },
-
   hoursBox: { backgroundColor: '#fff', padding: 15, borderRadius: 12, borderWidth: 1, borderColor: '#eee' },
   hourRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 6 },
   todayRow: { backgroundColor: '#f0fdf4', marginHorizontal: -15, paddingHorizontal: 15 },
   dayText: { fontSize: 14, color: '#666' },
   timeText: { fontSize: 14, color: '#333', fontWeight: '500' },
   todayText: { color: '#10b981', fontWeight: 'bold' },
-
   reviewList: { padding: 20, paddingBottom: 50 },
   reviewHeaderWrapper: { marginBottom: 15 },
-
-  // ✅ สไตล์ของกล่องสรุปคะแนนและกราฟแท่ง
   ratingSummaryContainer: { flexDirection: 'row', backgroundColor: '#fff', padding: 20, borderRadius: 16, marginBottom: 15, borderWidth: 1, borderColor: '#f3f4f6', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.03, shadowRadius: 4, elevation: 1 },
   averageScoreContainer: { alignItems: 'center', justifyContent: 'center', paddingRight: 20, borderRightWidth: 1, borderColor: '#f3f4f6', width: '35%' },
   hugeAverageText: { fontSize: 44, fontWeight: 'bold', color: '#1f2937', includeFontPadding: false },
@@ -598,20 +583,17 @@ const styles = StyleSheet.create({
   barStarText: { fontSize: 12, color: '#4b5563', width: 10, textAlign: 'center', fontWeight: '600' },
   barTrack: { flex: 1, height: 6, backgroundColor: '#f3f4f6', borderRadius: 3, marginLeft: 4, overflow: 'hidden' },
   barFill: { height: '100%', backgroundColor: '#f59e0b', borderRadius: 3 },
-
   filterBarContainer: { flexDirection: 'row', gap: 10, paddingBottom: 10 },
   filterButton: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20, borderWidth: 1, borderColor: '#e5e7eb' },
   filterButtonActive: { backgroundColor: '#10b981', borderColor: '#10b981' },
   filterButtonText: { fontSize: 13, color: '#4b5563', fontWeight: '500' },
   filterButtonTextActive: { color: '#fff', fontWeight: 'bold' },
-
   reviewCard: { backgroundColor: '#fff', padding: 15, borderRadius: 12, marginBottom: 15, borderWidth: 1, borderColor: '#f3f4f6' },
   reviewHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 },
   reviewerInfo: { flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 },
   reviewerAvatar: { width: 34, height: 34, borderRadius: 17, backgroundColor: '#10b981', justifyContent: 'center', alignItems: 'center', overflow: 'hidden' },
   reviewerName: { fontSize: 14, fontWeight: 'bold', color: '#374151' },
   reviewDate: { fontSize: 12, color: '#9ca3af' },
-
   orderSummaryBox: { backgroundColor: '#fcfcfc', borderRadius: 8, padding: 10, marginBottom: 10, borderWidth: 1, borderColor: '#f3f4f6' },
   orderSummaryHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 6 },
   orderSummaryTitle: { fontSize: 12, fontWeight: 'bold', color: '#f59e0b', marginLeft: 4, flex: 1 },
@@ -619,7 +601,6 @@ const styles = StyleSheet.create({
   orderTypeText: { fontSize: 10, color: '#6b7280', fontWeight: '600' },
   orderItemsList: { paddingLeft: 4 },
   orderItemText: { fontSize: 12, color: '#4b5563', marginBottom: 2 },
-
   reviewStars: { flexDirection: 'row', marginBottom: 10 },
   reviewTagsContainer: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 10 },
   reviewTag: { backgroundColor: '#f0fdf4', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, borderWidth: 1, borderColor: '#dcfce7' },

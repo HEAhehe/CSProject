@@ -123,6 +123,7 @@ export default function NotificationsScreen({ navigation }) {
       case 'order_cancelled': return { name: 'close-circle', color: '#ef4444', bg: '#fee2e2' };
       case 'store_approved': return { name: 'storefront', color: '#10b981', bg: '#dcfce7' };
       case 'store_rejected': return { name: 'warning', color: '#ef4444', bg: '#fee2e2' };
+      case 'new_food_item': return { name: 'fast-food', color: '#f59e0b', bg: '#fef3c7' };
       case 'promo': return { name: 'flash', color: '#f59e0b', bg: '#fef3c7' };
       default: return { name: 'notifications', color: '#6b7280', bg: '#f3f4f6' };
     }

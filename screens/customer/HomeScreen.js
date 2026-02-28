@@ -11,14 +11,19 @@ import * as Location from 'expo-location';
 
 const { width } = Dimensions.get('window');
 
+// ค้นหาส่วนของ categories ใน HomeScreen.js แล้วแทนที่ด้วยชุดนี้ครับ
 const categories = [
   { id: 'all', name: 'ทั้งหมด', icon: 'grid' },
-  { id: 'เบเกอรี่ / ขนมปัง', name: 'เบเกอรี่ / ขนมปัง', icon: 'pie-chart' },
-  { id: 'อาหารกล่อง / ข้าวกล่อง', name: 'อาหารกล่อง', icon: 'restaurant' },
-  { id: 'เครื่องดื่ม/น้ำ', name: 'เครื่องดื่ม/น้ำ', icon: 'cafe' },
-  { id: 'อาหารสด/วัตถุดิบ', name: 'อาหารสด/วัตถุดิบ', icon: 'leaf' },
-  { id: 'discount_50', name: 'ลดมากกว่า 50%', icon: 'flame' },
-  { id: 'under_50', name: 'ต่ำกว่า 50 บาท', icon: 'pricetag' },
+  { id: 'อาหารสด', name: 'อาหารสด', icon: 'leaf' },
+  { id: 'อาหารแห้ง', name: 'อาหารแห้ง', icon: 'cube' },
+  { id: 'เครื่องดื่ม', name: 'เครื่องดื่ม', icon: 'cafe' },
+  { id: 'ขนม/ของหวาน', name: 'ขนม/ของหวาน', icon: 'ice-cream' },
+  { id: 'ผัก/ผลไม้', name: 'ผัก/ผลไม้', icon: 'nutrition' },
+  { id: 'อาหารสำเร็จรูป', name: 'อาหารกล่อง', icon: 'restaurant' },
+  { id: 'นม/ผลิตภัณฑ์นม', name: 'นม/เนย', icon: 'water' },
+  { id: 'discount_50', name: 'ลด 50%+', icon: 'flame' },
+  { id: 'under_50', name: 'ไม่เกิน 50.-', icon: 'pricetag' },
+  { id: 'อื่นๆ', name: 'อื่นๆ', icon: 'ellipsis-horizontal' },
 ];
 
 const calculateDistance = (lat1, lon1, lat2, lon2) => {
