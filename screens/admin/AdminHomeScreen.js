@@ -15,7 +15,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { db, auth } from '../../firebase.config';
-import { collection, getDocs, doc, updateDoc, getDoc, query } from 'firebase/firestore';
+import { collection, getDocs, doc, updateDoc, getDoc, query, addDoc } from 'firebase/firestore';
 
 export default function AdminHomeScreen({ navigation }) {
   const [requests, setRequests] = useState([]);
@@ -96,8 +96,11 @@ export default function AdminHomeScreen({ navigation }) {
 
   const handleAction = (request, action) => {
     setSelectedRequest(request);
-    if (action === 'approve') confirmAction('approve', request);
-    else setModalVisible(true);
+    if (action === 'approve') {
+      confirmAction('approve', request);
+    } else {
+      setModalVisible(true);
+    }
   };
 
   const confirmAction = (actionType, request, reason = '') => {
@@ -124,6 +127,7 @@ export default function AdminHomeScreen({ navigation }) {
 
       if (request.userId) {
         const storeDocRef = doc(db, 'stores', request.userId);
+        const notifRef = collection(db, 'notifications');
 
         if (request.type === 'store_registration') {
             if (actionType === 'approve') {
@@ -135,9 +139,28 @@ export default function AdminHomeScreen({ navigation }) {
               await updateDoc(doc(db, 'users', request.userId), {
                 currentRole: 'store', hasStorePending: false, updatedAt: new Date().toISOString()
               });
+
+              await addDoc(notifRef, {
+                 userId: request.userId,
+                 title: 'ยินดีด้วย! ร้านค้าอนุมัติแล้ว 🎉',
+                 message: 'คุณสามารถเริ่มโพสต์ขายอาหารเพื่อช่วยลด Food Waste ได้เลย',
+                 type: 'store_approved',
+                 isRead: false,
+                 createdAt: new Date().toISOString()
+              });
+
             } else {
               await updateDoc(doc(db, 'users', request.userId), { hasStorePending: false, updatedAt: new Date().toISOString() });
               await updateDoc(storeDocRef, { status: 'rejected', isActive: false, rejectReason: reason, updatedAt: new Date().toISOString() });
+
+              await addDoc(notifRef, {
+                 userId: request.userId,
+                 title: 'คำขอเปิดร้านถูกปฏิเสธ ❌',
+                 message: `(เหตุผล: ${reason}) กรุณาตรวจสอบข้อมูลและส่งคำขอใหม่อีกครั้ง`,
+                 type: 'store_rejected',
+                 isRead: false,
+                 createdAt: new Date().toISOString()
+              });
             }
         }
         else if (request.type === 'store_update') {
@@ -193,9 +216,7 @@ export default function AdminHomeScreen({ navigation }) {
       }
     }, [item.userId, realStoreImage]);
 
-    // ✅ ฟังก์ชันจัดเรียงเวลาทำการใหม่ ให้โชว์ครบ 7 วัน และบอกว่าปิดทำการ
     const renderBusinessHours = (requestItem) => {
-        // 1. ถ้ามีข้อมูล newData.businessHours (แบบ object)
         const rawBh = requestItem.newData?.businessHours;
         const orderedKeys = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
         const daysMap = { mon: 'จันทร์', tue: 'อังคาร', wed: 'พุธ', thu: 'พฤหัสบดี', fri: 'ศุกร์', sat: 'เสาร์', sun: 'อาทิตย์' };
@@ -214,7 +235,6 @@ export default function AdminHomeScreen({ navigation }) {
              });
         }
 
-        // 2. ถ้าเป็น String แบบเก่า (จับแยกแล้วเรียงใหม่)
         const timeString = requestItem.details?.['เวลาทำการ'];
         if (!timeString) return <Text style={styles.detailValueTime}>ไม่ระบุเวลา</Text>;
 
@@ -240,7 +260,6 @@ export default function AdminHomeScreen({ navigation }) {
 
     return (
       <View style={styles.requestCard}>
-        {/* Header Section */}
         <View style={styles.cardMainHeader}>
           <View style={styles.requestIcon}>
             {realStoreImage ? (
@@ -273,7 +292,6 @@ export default function AdminHomeScreen({ navigation }) {
           </TouchableOpacity>
         </View>
 
-        {/* ✅ ย้ายปุ่ม Action ลงมาไว้ด้านล่างของ Header ไม่ให้ทับกับ Tag ด้านบน */}
         {currentStatus === 'pending' && (
            <View style={styles.quickActionRow}>
               <TouchableOpacity style={styles.miniBtnApprove} onPress={() => handleAction(item, 'approve')}>
@@ -308,7 +326,6 @@ export default function AdminHomeScreen({ navigation }) {
             <View style={styles.detailSection}>
               <Text style={styles.detailTitle}>เวลาทำการและการจัดส่ง</Text>
               <View style={[styles.detailBox, { flexDirection: 'column', alignItems: 'flex-start' }]}>
-                {/* ✅ เรียกใช้ฟังก์ชันเวลาทำการใหม่ */}
                 <View style={{ width: '100%' }}>{renderBusinessHours(item)}</View>
                 <View style={styles.divider} />
                 <View style={{ flexDirection: 'row', alignItems: 'center' }}>
@@ -345,7 +362,7 @@ export default function AdminHomeScreen({ navigation }) {
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="dark-content" />
+      <StatusBar barStyle="dark-content" backgroundColor="#f9fafb" />
       <View style={styles.header}>
         <View>
           <Text style={styles.headerTitle}>Admin Panel</Text>
@@ -387,7 +404,6 @@ export default function AdminHomeScreen({ navigation }) {
         <View style={{ height: 100 }} />
       </ScrollView>
 
-      {/* Reject Modal */}
       <Modal animationType="fade" transparent={true} visible={modalVisible}>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
@@ -395,13 +411,23 @@ export default function AdminHomeScreen({ navigation }) {
             <TextInput style={styles.rejectInput} placeholder="ระบุเหตุผลที่นี่..." multiline value={rejectReason} onChangeText={setRejectReason} />
             <View style={styles.modalActions}>
               <TouchableOpacity style={styles.modalBtnCancel} onPress={() => setModalVisible(false)}><Text style={{fontWeight:'600', color:'#4b5563'}}>ยกเลิก</Text></TouchableOpacity>
-              <TouchableOpacity style={styles.modalBtnConfirm} onPress={() => confirmAction('reject', selectedRequest, rejectReason)}><Text style={{ color: '#fff', fontWeight:'600' }}>ยืนยัน</Text></TouchableOpacity>
+
+              {/* ✅ แก้ไขตรงนี้: ไม่ใช้ confirmAction แล้ว ให้เช็คเหตุผลแล้วพุ่งตรงไปเซฟเลย */}
+              <TouchableOpacity style={styles.modalBtnConfirm} onPress={() => {
+                if(!rejectReason.trim()){
+                  Alert.alert('แจ้งเตือน', 'กรุณาระบุเหตุผลในการปฏิเสธคำขอ');
+                  return;
+                }
+                processUpdate('reject', selectedRequest, rejectReason);
+              }}>
+                <Text style={{ color: '#fff', fontWeight:'600' }}>ยืนยัน</Text>
+              </TouchableOpacity>
+
             </View>
           </View>
         </View>
       </Modal>
 
-      {/* Full Image Modal */}
       <Modal animationType="fade" transparent={true} visible={fullImageVisible}>
         <View style={styles.imageModalOverlay}>
           <TouchableOpacity style={styles.closeImageBtn} onPress={() => setFullImageVisible(false)}>
@@ -464,7 +490,6 @@ const styles = StyleSheet.create({
 
   expandBtn: { padding: 4, backgroundColor: '#f9fafb', borderRadius: 20, marginLeft: 10 },
 
-  // ✅ สไตล์สำหรับปุ่มที่ถูกย้ายลงมาด้านล่าง Header
   quickActionRow: { flexDirection: 'row', marginTop: 12, gap: 10, borderTopWidth: 1, borderTopColor: '#f3f4f6', paddingTop: 12 },
   miniBtnApprove: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: '#10b981', paddingVertical: 10, borderRadius: 8 },
   miniBtnReject: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: '#fee2e2', paddingVertical: 10, borderRadius: 8 },
@@ -492,7 +517,6 @@ const styles = StyleSheet.create({
   emptyState: { alignItems: 'center', marginTop: 40 },
   emptyText: { color: '#9ca3af' },
 
-  // Modals
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: 20 },
   modalContent: { backgroundColor: '#fff', borderRadius: 16, padding: 24 },
   modalTitle: { fontSize: 18, fontWeight: 'bold', marginBottom: 16, color: '#111827' },

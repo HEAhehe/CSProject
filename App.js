@@ -25,6 +25,7 @@ import WriteReviewScreen from './screens/customer/WriteReviewScreen';
 import AddressBookScreen from './screens/customer/AddressBookScreen';
 import ImpactHistoryScreen from './screens/customer/ImpactHistoryScreen';
 import ChangePasswordScreen from './screens/customer/ChangePasswordScreen';
+import NotificationDetailScreen from './screens/customer/NotificationDetailScreen';
 
 // --- 📂 STORE Screens ---
 import RegisterStoreStep1Screen from './screens/store/RegisterStoreStep1Screen';
@@ -89,6 +90,7 @@ export default function App() {
             <Stack.Screen name="OrderDetail" component={OrderDetailScreen} />
 
             <Stack.Screen name="Notifications" component={NotificationsScreen} />
+            <Stack.Screen name="NotificationDetail" component={NotificationDetailScreen} />
             <Stack.Screen name="FavoriteStores" component={FavoriteStoresScreen} />
             <Stack.Screen name="ImpactHistory" component={ImpactHistoryScreen} />
 

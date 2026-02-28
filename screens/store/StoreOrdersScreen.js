@@ -22,7 +22,6 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { auth, db } from '../../firebase.config';
-// ✅ นำเข้า onSnapshot มาใช้งานเพื่อทำระบบ Real-time
 import { collection, query, where, updateDoc, doc, getDoc, increment, runTransaction, onSnapshot } from 'firebase/firestore';
 import * as Clipboard from 'expo-clipboard';
 
@@ -35,6 +34,8 @@ export default function StoreOrdersScreen({ navigation }) {
   const [filter, setFilter] = useState('pending');
   const [storeData, setStoreData] = useState(null);
   const [loading, setLoading] = useState(true);
+
+  const [unreadCount, setUnreadCount] = useState(0);
 
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const slideAnim = useRef(new Animated.Value(-width * 0.85)).current;
@@ -58,7 +59,6 @@ export default function StoreOrdersScreen({ navigation }) {
     completedTotal: 0
   });
 
-  // ✅ 1. โหลดข้อมูลร้านค้า
   const loadStoreData = async () => {
     try {
       const user = auth.currentUser;
@@ -71,7 +71,6 @@ export default function StoreOrdersScreen({ navigation }) {
     }
   };
 
-  // ✅ 2. ใช้ onSnapshot ทำให้เป็น Real-time และแก้ปัญหาโหลดช้า
   useEffect(() => {
     loadStoreData();
 
@@ -83,7 +82,6 @@ export default function StoreOrdersScreen({ navigation }) {
 
     const q = query(collection(db, 'orders'), where('storeId', '==', user.uid));
 
-    // ฟังการเปลี่ยนแปลงของออเดอร์แบบ Real-time
     const unsubscribe = onSnapshot(q, async (snapshot) => {
       const allOrdersList = [];
       const uniqueUserIds = new Set();
@@ -94,7 +92,6 @@ export default function StoreOrdersScreen({ navigation }) {
         if (data.userId) uniqueUserIds.add(data.userId);
       });
 
-      // ✅ แก้บั๊ก N+1: ดึงข้อมูลลูกค้าทั้งหมดพร้อมกันในรอบเดียว
       const usersData = {};
       await Promise.all(
         Array.from(uniqueUserIds).map(async (uid) => {
@@ -107,7 +104,6 @@ export default function StoreOrdersScreen({ navigation }) {
         })
       );
 
-      // ประกอบร่างข้อมูลออเดอร์ + ข้อมูลลูกค้า
       const enrichedOrders = allOrdersList.map(order => {
         const uData = usersData[order.userId];
         return {
@@ -120,12 +116,9 @@ export default function StoreOrdersScreen({ navigation }) {
         };
       });
 
-      // เรียงลำดับวันที่ใหม่สุดขึ้นก่อน
       enrichedOrders.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-
       setAllOrders(enrichedOrders);
 
-      // ✅ คำนวณ Stats ต่างๆ โดยไม่ต้องดึงฐานข้อมูลซ้ำ
       const pendingCount = enrichedOrders.filter(o => o.status === 'pending').length;
       const completedOrders = enrichedOrders.filter(o => o.status === 'completed');
       const totalRevenue = completedOrders.reduce((sum, o) => sum + (Number(o.totalPrice) || 0), 0);
@@ -150,10 +143,12 @@ export default function StoreOrdersScreen({ navigation }) {
       setLoading(false);
     });
 
-    return () => unsubscribe();
+    const qNotif = query(collection(db, 'notifications'), where('userId', '==', user.uid), where('isRead', '==', false));
+    const unsubscribeNotif = onSnapshot(qNotif, (snapshot) => { setUnreadCount(snapshot.docs.length); });
+
+    return () => { unsubscribe(); unsubscribeNotif(); };
   }, []);
 
-  // ✅ 3. กรองข้อมูลเวลาเปลี่ยนแท็บ (ใช้ข้อมูลที่มีอยู่แล้ว ทำให้ลื่น ไม่ต้องโหลดใหม่)
   useEffect(() => {
     const filtered = allOrders.filter(o => o.status === filter);
     setOrders(filtered);
@@ -162,7 +157,6 @@ export default function StoreOrdersScreen({ navigation }) {
   const handleRefresh = async () => {
     setRefreshing(true);
     await loadStoreData();
-    // ระบบ Real-time จะจัดการออเดอร์ให้เอง แค่ตั้งเวลาให้หลอดโหลดหายไป
     setTimeout(() => setRefreshing(false), 800);
   };
 
@@ -233,6 +227,19 @@ export default function StoreOrdersScreen({ navigation }) {
               cancelledBy: 'store',
               cancelledAt: new Date().toISOString()
           });
+
+          if (userId) {
+              const notifRef = doc(collection(db, 'notifications'));
+              transaction.set(notifRef, {
+                  userId: userId,
+                  title: 'ออเดอร์ถูกยกเลิก ❌',
+                  message: `ร้านค้ายกเลิกออเดอร์ (เหตุผล: ${cancelReason.trim()})`,
+                  type: 'order_cancelled',
+                  orderId: cancelOrderId,
+                  isRead: false,
+                  createdAt: new Date().toISOString()
+              });
+          }
       });
 
       Alert.alert('สำเร็จ', 'ยกเลิกออเดอร์ คืนสต็อกสินค้า และแจ้งลูกค้าเรียบร้อยแล้ว');
@@ -243,36 +250,75 @@ export default function StoreOrdersScreen({ navigation }) {
     }
   };
 
-  const handleConfirmOrder = async (orderId) => {
+  // ✅ ปรับฟังก์ชันให้รับ orderType เพื่อแยกข้อความแจ้งเตือน
+  const handleConfirmOrder = async (orderId, userId, orderType) => {
     try {
       await updateDoc(doc(db, 'orders', orderId), { status: 'confirmed' });
-      Alert.alert('สำเร็จ', 'ยืนยันออเดอร์แล้ว');
+
+      // 🔔 ตรวจสอบประเภทออเดอร์ เพื่อสร้างประโยคที่ถูกต้อง
+      let notifMessage = 'ร้านกำลังเตรียมอาหารให้คุณ 🍳';
+      if (orderType === 'delivery') {
+         notifMessage = 'ร้านกำลังเตรียมอาหาร และจะดำเนินการจัดส่งให้คุณตามที่อยู่ที่ระบุไว้ 🛵';
+      } else { // กรณีเป็น pickup
+         notifMessage = 'ร้านกำลังเตรียมอาหาร แวะมารับที่หน้าร้านตามเวลาทำการได้เลย 🛍️';
+      }
+
+      if (userId) {
+        const { addDoc, collection } = require('firebase/firestore');
+        await addDoc(collection(db, 'notifications'), {
+          userId: userId,
+          title: 'ร้านค้ายืนยันออเดอร์แล้ว 🍳',
+          message: notifMessage,
+          type: 'order_confirmed',
+          orderId: orderId,
+          isRead: false,
+          createdAt: new Date().toISOString()
+        });
+      }
+
+      Alert.alert('สำเร็จ', 'ยืนยันออเดอร์และส่งแจ้งเตือนแล้ว');
     } catch (error) {
+      console.error(error);
       Alert.alert('ผิดพลาด', 'ไม่สามารถยืนยันออเดอร์ได้');
     }
   };
 
   const handleCompleteOrder = (orderId, userId, totalOrderWeight) => {
-    Alert.alert(
-      'ลูกค้ารับของแล้ว',
-      'ยืนยันว่าลูกค้ามารับอาหารเรียบร้อยแล้วใช่หรือไม่?',
-      [
-        { text: 'ยกเลิก', style: 'cancel' },
-        {
-          text: 'ยืนยัน',
-          style: 'default',
-          onPress: async () => {
-            try {
-              await updateDoc(doc(db, 'orders', orderId), { status: 'completed' });
-              Alert.alert('สำเร็จ!', 'อัปเดตสถานะเป็น "รับของแล้ว" เรียบร้อย');
-            } catch (error) {
-              Alert.alert('ผิดพลาด', 'ไม่สามารถอัปเดตสถานะได้');
+      Alert.alert(
+        'ลูกค้ารับของแล้ว',
+        'ยืนยันว่าลูกค้ามารับอาหารเรียบร้อยแล้วใช่หรือไม่?',
+        [
+          { text: 'ยกเลิก', style: 'cancel' },
+          {
+            text: 'ยืนยัน',
+            style: 'default',
+            onPress: async () => {
+              try {
+                await updateDoc(doc(db, 'orders', orderId), { status: 'completed' });
+
+                // 🔔 คำพูดน่ารักๆ สำหรับตอนลูกค้าได้รับของเรียบร้อย
+                if (userId) {
+                  const { addDoc, collection } = require('firebase/firestore');
+                  await addDoc(collection(db, 'notifications'), {
+                    userId: userId,
+                    title: 'รับอาหารสำเร็จ! 🌍',
+                    message: 'อาหารมื้ออร่อยของคุณส่งมอบเรียบร้อยแล้ว! ขอบคุณที่ร่วมเป็นส่วนหนึ่งในการลดขยะอาหารและช่วยดูแลโลกของเรา ฝากแวะมารีวิวเพื่อเป็นกำลังใจให้ร้านค้าด้วยนะ 💚',
+                    type: 'order_completed',
+                    orderId: orderId,
+                    isRead: false,
+                    createdAt: new Date().toISOString()
+                  });
+                }
+
+                Alert.alert('สำเร็จ!', 'อัปเดตสถานะเป็น "รับของแล้ว" เรียบร้อย');
+              } catch (error) {
+                Alert.alert('ผิดพลาด', 'ไม่สามารถอัปเดตสถานะได้');
+              }
             }
           }
-        }
-      ]
-    );
-  };
+        ]
+      );
+    };
 
   const handlePhonePress = (phone) => {
     if (!phone || phone === 'ไม่ระบุเบอร์โทร') return;
@@ -500,8 +546,13 @@ export default function StoreOrdersScreen({ navigation }) {
         <View style={styles.uiActionArea}>
           {item.status === 'pending' && (
             <View style={styles.uiButtonGroup}>
-              <TouchableOpacity style={styles.uiBtnCancel} onPress={() => handleCancelClick(item.id)}><Text style={styles.uiBtnTextDark}>ยกเลิกออร์เดอร์</Text></TouchableOpacity>
-              <TouchableOpacity style={styles.uiBtnConfirm} onPress={() => handleConfirmOrder(item.id)}><Text style={styles.uiBtnTextDark}>ยืนยันออร์เดอร์</Text></TouchableOpacity>
+              <TouchableOpacity style={styles.uiBtnCancel} onPress={() => handleCancelClick(item.id)}>
+                <Text style={styles.uiBtnTextDark}>ยกเลิกออร์เดอร์</Text>
+              </TouchableOpacity>
+              {/* ✅ แนบ item.orderType ส่งเข้าไปด้วย */}
+              <TouchableOpacity style={styles.uiBtnConfirm} onPress={() => handleConfirmOrder(item.id, item.userId, item.orderType)}>
+                <Text style={styles.uiBtnTextDark}>ยืนยันออร์เดอร์</Text>
+              </TouchableOpacity>
             </View>
           )}
           {item.status === 'confirmed' && (
@@ -654,10 +705,19 @@ export default function StoreOrdersScreen({ navigation }) {
           <Ionicons name="list" size={24} color="#1f2937" />
           <Text style={[styles.navLabel, styles.navLabelActive]}>ออร์เดอร์</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.navItem} onPress={() => Alert.alert('กำลังพัฒนา')}>
-          <Ionicons name="notifications-outline" size={24} color="#9ca3af" />
+
+        <TouchableOpacity style={styles.navItem} onPress={() => navigation.navigate('Notifications')}>
+          <View style={{ position: 'relative' }}>
+            <Ionicons name="notifications-outline" size={24} color="#9ca3af" />
+            {unreadCount > 0 && (
+              <View style={styles.notificationBadge}>
+                <Text style={styles.notificationBadgeText}>{unreadCount > 99 ? '99+' : unreadCount}</Text>
+              </View>
+            )}
+          </View>
           <Text style={styles.navLabel}>แจ้งเตือน</Text>
         </TouchableOpacity>
+
         <TouchableOpacity style={styles.navItem} onPress={() => Alert.alert('กำลังพัฒนา')}>
           <Ionicons name="person-outline" size={24} color="#9ca3af" />
           <Text style={styles.navLabel}>โปรไฟล์</Text>
@@ -751,19 +811,16 @@ const styles = StyleSheet.create({
   navItemActive: { borderBottomWidth: 2, borderBottomColor: '#1f2937' },
   navLabel: { fontSize: 11, color: '#9ca3af' },
   navLabelActive: { color: '#1f2937', fontWeight: '600' },
-
   drawerOverlay: { flex: 1, flexDirection: 'row' },
   drawerContainer: { position: 'absolute', left: 0, top: 0, bottom: 0, width: width * 0.85, backgroundColor: '#fff', shadowColor: "#000", shadowOffset: { width: 2, height: 0 }, shadowOpacity: 0.25, shadowRadius: 3.84, elevation: 5 },
   drawerScrollContent: { flexGrow: 1, paddingTop: Platform.OS === 'ios' ? 50 : 30, paddingBottom: 40 },
   drawerContentPadding: { paddingHorizontal: 20 },
-
   drawerTopHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
   logoContainer: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   logoCircle: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#f0fdf4', alignItems: 'center', justifyContent: 'center' },
   appName: { fontSize: 16, fontWeight: 'bold', color: '#1f2937' },
   appSlogan: { fontSize: 12, color: '#6b7280' },
   closeButton: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#f3f4f6', alignItems: 'center', justifyContent: 'center' },
-
   profileCard: { backgroundColor: '#fff', borderRadius: 16, padding: 15, borderWidth: 1, borderColor: '#f3f4f6', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 3, elevation: 2, marginBottom: 20 },
   profileHeader: { flexDirection: 'row', alignItems: 'center', gap: 15, marginBottom: 15 },
   drawerAvatar: { width: 50, height: 50, borderRadius: 25, borderWidth: 1, borderColor: '#10b981', backgroundColor: '#f3f4f6' },
@@ -774,12 +831,10 @@ const styles = StyleSheet.create({
   modeButtonInactive: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, paddingVertical: 8, backgroundColor: '#f3f4f6', borderRadius: 8 },
   modeTextActive: { fontSize: 11, fontWeight: 'bold', color: '#fff' },
   modeTextInactive: { fontSize: 11, color: '#6b7280' },
-
   sectionTitle: { fontSize: 14, color: '#9ca3af', marginBottom: 10, marginLeft: 5, marginTop: 5, fontWeight: 'bold' },
   drawerMenuItem: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', paddingVertical: 10, paddingHorizontal: 5, marginBottom: 5 },
   menuIconBox: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#f9fafb', alignItems: 'center', justifyContent: 'center', marginRight: 15 },
   drawerMenuText: { fontSize: 15, color: '#1f2937', fontWeight: '500' },
-
   storeStatusCardSoft: { backgroundColor: '#f9fafb', borderRadius: 16, padding: 16, marginTop: 15, marginBottom: 20, borderWidth: 1, borderColor: '#f3f4f6' },
   storeStatusHeaderSoft: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   storeIconCircle: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#d1fae5', alignItems: 'center', justifyContent: 'center' },
@@ -789,7 +844,8 @@ const styles = StyleSheet.create({
   storeStatBoxSoft: { flex: 1, backgroundColor: '#fff', paddingVertical: 12, borderRadius: 12, alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 2, elevation: 1 },
   storeStatBoxTitleSoft: { fontSize: 11, color: '#6b7280', marginBottom: 4 },
   storeStatBoxValueSoft: { fontSize: 14, color: '#1f2937', fontWeight: 'bold' },
-
   drawerLogout: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 5, marginTop: 10, marginBottom: 20 },
   drawerLogoutText: { fontSize: 15, color: '#ef4444', fontWeight: 'bold' },
+  notificationBadge: { position: 'absolute', top: -4, right: -6, backgroundColor: '#ef4444', borderRadius: 10, minWidth: 18, height: 18, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#fff', paddingHorizontal: 4, zIndex: 5 },
+  notificationBadgeText: { color: '#fff', fontSize: 10, fontWeight: 'bold' }
 });

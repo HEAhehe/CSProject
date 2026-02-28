@@ -12,11 +12,12 @@ import {
   Modal,
   KeyboardAvoidingView,
   Platform,
-  TextInput
+  TextInput,
+  Linking
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { db } from '../../firebase.config';
-import { doc, onSnapshot, runTransaction, increment } from 'firebase/firestore';
+import { doc, onSnapshot, runTransaction, increment, getDoc, collection } from 'firebase/firestore';
 
 const { width } = Dimensions.get('window');
 
@@ -35,7 +36,8 @@ export default function OrderDetailScreen({ navigation, route }) {
   const [isItemsExpanded, setIsItemsExpanded] = useState(false);
   const [isCancelling, setIsCancelling] = useState(false);
 
-  // State สำหรับกล่องยกเลิก
+  const [storePhone, setStorePhone] = useState(null);
+
   const [isCancelModalVisible, setIsCancelModalVisible] = useState(false);
   const [selectedReason, setSelectedReason] = useState('');
   const [customReason, setCustomReason] = useState('');
@@ -51,6 +53,22 @@ export default function OrderDetailScreen({ navigation, route }) {
 
     return () => unsub();
   }, [currentOrder?.id]);
+
+  useEffect(() => {
+    if (currentOrder?.storeId) {
+      const fetchStorePhone = async () => {
+        try {
+          const storeSnap = await getDoc(doc(db, 'stores', currentOrder.storeId));
+          if (storeSnap.exists() && storeSnap.data().phoneNumber) {
+            setStorePhone(storeSnap.data().phoneNumber);
+          }
+        } catch (error) {
+          console.error("Error fetching store phone:", error);
+        }
+      };
+      fetchStorePhone();
+    }
+  }, [currentOrder?.storeId]);
 
   const handleOpenCancelModal = () => {
     setSelectedReason('');
@@ -78,70 +96,84 @@ export default function OrderDetailScreen({ navigation, route }) {
   };
 
   const executeCancelOrder = async (reasonToSave) => {
-      setIsCancelling(true);
-      try {
-          await runTransaction(db, async (transaction) => {
-              const orderRef = doc(db, 'orders', currentOrder.id);
+        setIsCancelling(true);
+        try {
+            await runTransaction(db, async (transaction) => {
+                const orderRef = doc(db, 'orders', currentOrder.id);
+                const orderDoc = await transaction.get(orderRef);
 
-              // ==========================================
-              // 1. หมวดอ่านข้อมูล (READ)
-              // ==========================================
-              const orderDoc = await transaction.get(orderRef);
+                if (!orderDoc.exists()) throw "ไม่พบคำสั่งซื้อนี้ในระบบ";
+                if (orderDoc.data().status !== 'pending') throw "ไม่สามารถยกเลิกได้ เนื่องจากร้านค้าเริ่มดำเนินการแล้ว";
 
-              if (!orderDoc.exists()) throw "ไม่พบคำสั่งซื้อนี้ในระบบ";
-              if (orderDoc.data().status !== 'pending') throw "ไม่สามารถยกเลิกได้ เนื่องจากร้านค้าเริ่มดำเนินการแล้ว";
+                const items = orderDoc.data().items || [];
+                const orderWeight = orderDoc.data().totalOrderWeight || 0;
+                const userId = orderDoc.data().userId;
+                const storeId = orderDoc.data().storeId;
 
-              const items = orderDoc.data().items || [];
-              const orderWeight = orderDoc.data().totalOrderWeight || 0;
-              const userId = orderDoc.data().userId;
+                const foodDocsToUpdate = [];
+                for (let item of items) {
+                    const foodRef = doc(db, 'food_items', item.foodId);
+                    const foodDoc = await transaction.get(foodRef);
+                    if (foodDoc.exists()) {
+                        foodDocsToUpdate.push({ ref: foodRef, returnQty: item.quantity });
+                    }
+                }
 
-              const foodDocsToUpdate = [];
-              for (let item of items) {
-                  const foodRef = doc(db, 'food_items', item.foodId);
-                  const foodDoc = await transaction.get(foodRef);
-                  if (foodDoc.exists()) {
-                      foodDocsToUpdate.push({ ref: foodRef, returnQty: item.quantity });
-                  }
-              }
+                let userRef = null;
+                let userDoc = null;
+                if (userId && orderWeight > 0) {
+                    userRef = doc(db, 'users', userId);
+                    userDoc = await transaction.get(userRef);
+                }
 
-              let userRef = null;
-              let userDoc = null;
-              if (userId && orderWeight > 0) {
-                  userRef = doc(db, 'users', userId);
-                  userDoc = await transaction.get(userRef);
-              }
+                for (let fData of foodDocsToUpdate) {
+                    transaction.update(fData.ref, {
+                        quantity: increment(fData.returnQty)
+                    });
+                }
 
-              // ==========================================
-              // 2. หมวดเขียน/อัปเดตข้อมูล (WRITE)
-              // ==========================================
-              for (let fData of foodDocsToUpdate) {
-                  transaction.update(fData.ref, {
-                      quantity: increment(fData.returnQty)
-                  });
-              }
+                if (userDoc && userDoc.exists()) {
+                    transaction.update(userRef, {
+                        totalWeightSaved: increment(-orderWeight)
+                    });
+                }
 
-              if (userDoc && userDoc.exists()) {
-                  transaction.update(userRef, {
-                      totalWeightSaved: increment(-orderWeight)
-                  });
-              }
+                transaction.update(orderRef, {
+                    status: 'cancelled',
+                    cancelReason: reasonToSave,
+                    cancelledBy: 'customer',
+                    cancelledAt: new Date().toISOString()
+                });
 
-              // ใช้เหตุผลที่ลูกค้าเลือกบันทึกลงไป
-              transaction.update(orderRef, {
-                  status: 'cancelled',
-                  cancelReason: reasonToSave,
-                  cancelledBy: 'customer',
-                  cancelledAt: new Date().toISOString()
-              });
-          });
+                if (storeId) {
+                    const notifRef = doc(collection(db, 'notifications'));
+                    transaction.set(notifRef, {
+                        userId: storeId,
+                        title: 'ลูกค้ายกเลิกออเดอร์ ❌',
+                        message: `ออเดอร์ #${currentOrder.id.slice(0, 6).toUpperCase()} ถูกลูกค้ายกเลิก (สาเหตุ: ${reasonToSave}) จำนวนสินค้าถูกคืนเข้าสต๊อกเรียบร้อยแล้ว`,
+                        type: 'order_cancelled',
+                        orderId: currentOrder.id,
+                        isRead: false,
+                        createdAt: new Date().toISOString()
+                    });
+                }
+            });
 
-          Alert.alert('สำเร็จ', 'ยกเลิกคำสั่งซื้อเรียบร้อยแล้ว');
-      } catch (error) {
-          console.error("Cancel Error:", error);
-          Alert.alert('เกิดข้อผิดพลาด', typeof error === 'string' ? error : 'ไม่สามารถยกเลิกคำสั่งซื้อได้');
-      } finally {
-          setIsCancelling(false);
-      }
+            Alert.alert('สำเร็จ', 'ยกเลิกคำสั่งซื้อเรียบร้อยแล้ว');
+        } catch (error) {
+            console.error("Cancel Error:", error);
+            Alert.alert('เกิดข้อผิดพลาด', typeof error === 'string' ? error : 'ไม่สามารถยกเลิกคำสั่งซื้อได้');
+        } finally {
+            setIsCancelling(false);
+        }
+    };
+
+  const handleCallStore = () => {
+    if (storePhone) {
+      Linking.openURL(`tel:${storePhone}`);
+    } else {
+      Alert.alert('แจ้งเตือน', 'ขออภัย ไม่พบเบอร์โทรติดต่อของร้านค้านี้');
+    }
   };
 
   if (!currentOrder || !currentOrder.id) {
@@ -271,15 +303,31 @@ export default function OrderDetailScreen({ navigation, route }) {
                 </View>
             </View>
 
+            {/* แถวข้อมูลร้านค้า */}
             <View style={styles.detailRow}>
                 <View style={styles.iconBox}><Ionicons name="storefront-outline" size={20} color="#555" /></View>
                 <View style={styles.detailTextContainer}>
                     <Text style={styles.detailMainText}>{currentOrder.storeName}</Text>
-                    <Text style={[styles.detailSubText, {color: currentOrder.orderType === 'delivery' ? '#ef4444' : '#10b981', fontWeight: 'bold'}]}>
+                    <Text style={[styles.detailSubText, {color: currentOrder.orderType === 'delivery' ? '#0284c7' : '#10b981', fontWeight: 'bold'}]}>
                         {currentOrder.orderType === 'delivery' ? '🚚 บริการจัดส่ง (Delivery)' : '🛍️ รับเองที่ร้าน (Pickup)'}
                     </Text>
                 </View>
             </View>
+
+            {/* ✅ แถวเบอร์โทรศัพท์ร้านค้า (แสดงแยกออกมาให้เห็นชัดเจน) */}
+            {storePhone && (currentOrder.status === 'pending' || currentOrder.status === 'confirmed') && (
+              <View style={styles.detailRow}>
+                  <View style={styles.iconBox}><Ionicons name="call-outline" size={20} color="#555" /></View>
+                  <View style={styles.detailTextContainer}>
+                      <Text style={styles.detailMainText}>ติดต่อร้านค้า</Text>
+                      <Text style={styles.detailSubText}>{storePhone}</Text>
+                  </View>
+                  <TouchableOpacity style={styles.callStoreBtnText} onPress={handleCallStore}>
+                      <Ionicons name="call" size={16} color="#fff" style={{marginRight: 6}} />
+                      <Text style={styles.callStoreBtnLabel}>โทรออก</Text>
+                  </TouchableOpacity>
+              </View>
+            )}
         </View>
 
         {currentOrder.status === 'pending' && (
@@ -324,7 +372,6 @@ export default function OrderDetailScreen({ navigation, route }) {
         <View style={{height: 50}} />
       </ScrollView>
 
-      {/* ✅ Modal สำหรับให้ลูกค้าเลือกเหตุผลการยกเลิก */}
       <Modal visible={isCancelModalVisible} transparent animationType="fade" onRequestClose={() => setIsCancelModalVisible(false)}>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalOverlay}>
           <View style={styles.cancelModalBox}>
@@ -390,16 +437,7 @@ const styles = StyleSheet.create({
   successTitle: { fontSize: 22, fontWeight: 'bold', marginBottom: 4 },
   successSubtitle: { fontSize: 14, color: '#6b7280', textAlign: 'center', paddingHorizontal: 20 },
 
-  cancelAlertBox: {
-    flexDirection: 'row',
-    backgroundColor: '#fef2f2',
-    padding: 16,
-    borderRadius: 12,
-    marginBottom: 20,
-    borderWidth: 1,
-    borderColor: '#fecaca',
-    alignItems: 'flex-start'
-  },
+  cancelAlertBox: { flexDirection: 'row', backgroundColor: '#fef2f2', padding: 16, borderRadius: 12, marginBottom: 20, borderWidth: 1, borderColor: '#fecaca', alignItems: 'flex-start' },
   cancelAlertIcon: { marginRight: 12, marginTop: 2 },
   cancelAlertContent: { flex: 1 },
   cancelAlertLabel: { fontSize: 16, color: '#ef4444', fontWeight: 'bold', marginBottom: 4 },
@@ -418,6 +456,27 @@ const styles = StyleSheet.create({
   detailTextContainer: { flex: 1 },
   detailMainText: { fontSize: 15, fontWeight: 'bold', color: '#1f2937' },
   detailSubText: { fontSize: 13, color: '#6b7280', marginTop: 2 },
+
+  // ✅ สไตล์ของปุ่มโทรออกแบบมีข้อความ
+  callStoreBtnText: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#10b981',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
+    shadowColor: '#10b981',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 3,
+    elevation: 4
+  },
+  callStoreBtnLabel: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: 'bold'
+  },
+
   expandedItemsBox: { backgroundColor: '#fafafa', padding: 15, marginBottom: 10, borderBottomLeftRadius: 12, borderBottomRightRadius: 12, borderWidth: 1, borderColor: '#f3f4f6', borderTopWidth: 0 },
   itemSmallRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 6 },
   itemSmallName: { fontSize: 14, color: '#374151', flex: 1 },
@@ -439,7 +498,6 @@ const styles = StyleSheet.create({
   homeButton: { backgroundColor: '#fff', paddingVertical: 15, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', borderRadius: 12, borderWidth: 1, borderColor: '#10b981' },
   homeButtonText: { fontSize: 16, fontWeight: 'bold', color: '#10b981' },
 
-  // ✅ สไตล์สำหรับ Modal เลือกเหตุผล
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 20 },
   cancelModalBox: { width: '95%', backgroundColor: '#fff', borderRadius: 24, padding: 24, alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.15, shadowRadius: 20, elevation: 10 },
   cancelIconCircle: { width: 64, height: 64, borderRadius: 32, backgroundColor: '#fef3c7', alignItems: 'center', justifyContent: 'center', marginBottom: 16 },

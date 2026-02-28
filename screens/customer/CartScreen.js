@@ -237,37 +237,37 @@ export default function CartScreen({ navigation }) {
               const orderType = itemsInOrder[0].deliveryMethod || 'pickup';
               const newOrderRef = doc(collection(db, 'orders'));
 
-              // ✅ เพิ่มชื่อที่อยู่, รายละเอียด, และเบอร์โทร
               const orderData = {
                 id: newOrderRef.id,
                 userId: user.uid,
                 storeId: storeId,
-                storeName: itemsInOrder[0].storeName || 'ร้านค้า',
+                storeName: itemsInOrder[0]?.storeName || 'ร้านค้า',
                 items: itemsInOrder.map(i => ({
-                  foodId: i.foodId,
-                  foodName: i.foodName,
-                  quantity: i.quantity,
-                  price: i.price,
+                  foodId: i.foodId || i.id || 'unknown_id',
+                  foodName: i.foodName || 'ไม่ระบุชื่อสินค้า',
+                  quantity: i.quantity || 1,
+                  price: i.price || 0,
                   weight: Number(i.weight) || 0.4,
                   imageUrl: i.imageUrl || null
                 })),
-                foodName: itemsInOrder.length > 1 ? `${itemsInOrder[0].foodName} และอื่นๆ` : itemsInOrder[0].foodName,
-                totalPrice: itemsInOrder.reduce((sum, i) => sum + (i.price * i.quantity), 0),
-                quantity: itemsInOrder.reduce((sum, i) => sum + i.quantity, 0),
-                totalOrderWeight: orderWeight,
+                foodName: itemsInOrder.length > 1 ? `${itemsInOrder[0]?.foodName || 'สินค้า'} และอื่นๆ` : (itemsInOrder[0]?.foodName || 'สินค้า'),
+                totalPrice: itemsInOrder.reduce((sum, i) => sum + ((i.price || 0) * (i.quantity || 1)), 0),
+                quantity: itemsInOrder.reduce((sum, i) => sum + (i.quantity || 1), 0),
+                totalOrderWeight: orderWeight || 0,
                 status: 'pending',
                 orderType: orderType,
-                customerAddressTitle: userData?.addressTitle || '',
-                customerAddress: userData?.address || '',
+                customerAddressTitle: userData?.addressTitle || null,
+                customerAddress: userData?.address || null,
                 customerLat: userData?.latitude || null,
                 customerLng: userData?.longitude || null,
-                customerPhone: userData?.phone || 'ไม่ระบุเบอร์โทร',
-                closingTime: closingTime,
+                customerPhone: userData?.phone || null,
+                closingTime: closingTime || '20:00',
                 createdAt: new Date().toISOString()
               };
 
-              lastCreatedOrder = orderData;
-              transaction.set(newOrderRef, orderData);
+              const cleanOrderData = JSON.parse(JSON.stringify(orderData));
+              lastCreatedOrder = cleanOrderData;
+              transaction.set(newOrderRef, cleanOrderData);
             });
 
             for (const item of itemsInOrder) {

@@ -366,131 +366,147 @@ export default function FoodDetailScreen({ navigation, route }) {
   };
 
   const handleAddToCart = async () => {
-      if (!isCurrentlyOpen) return showCustomAlert('ร้านปิดให้บริการ', `ร้าน "${storeName}" ปิดให้บริการในขณะนี้\nไม่สามารถเพิ่มลงตะกร้าได้`, 'error');
-      const user = auth.currentUser;
-      if (!user) return showCustomAlert('แจ้งเตือน', 'กรุณาเข้าสู่ระบบเพื่อทำรายการ');
-      if (!targetStoreIdForNav) return showCustomAlert('ผิดพลาด', 'ไม่สามารถระบุร้านค้าได้');
+        if (!isCurrentlyOpen) return showCustomAlert('ร้านปิดให้บริการ', `ร้าน "${storeName}" ปิดให้บริการในขณะนี้\nไม่สามารถเพิ่มลงตะกร้าได้`, 'error');
+        const user = auth.currentUser;
+        if (!user) return showCustomAlert('แจ้งเตือน', 'กรุณาเข้าสู่ระบบเพื่อทำรายการ');
+        if (!targetStoreIdForNav) return showCustomAlert('ผิดพลาด', 'ไม่สามารถระบุร้านค้าได้');
 
-      setLoading(true);
-      try {
-        const cartRef = collection(db, 'users', user.uid, 'cart');
+        setLoading(true);
+        try {
+          const cartRef = collection(db, 'users', user.uid, 'cart');
 
-        const q = query(
-          cartRef,
-          where('foodId', '==', food.id),
-          where('deliveryMethod', '==', selectedMethod)
-        );
+          const q = query(
+            cartRef,
+            where('foodId', '==', food.id),
+            where('deliveryMethod', '==', selectedMethod)
+          );
 
-        const querySnapshot = await getDocs(q);
-        const actualWeight = getCalculatedWeightInKg();
+          const querySnapshot = await getDocs(q);
+          const actualWeight = getCalculatedWeightInKg();
 
-        if (!querySnapshot.empty) {
-          const existingDoc = querySnapshot.docs[0];
-          const currentQty = existingDoc.data().quantity || 0;
+          if (!querySnapshot.empty) {
+            const existingDoc = querySnapshot.docs[0];
+            const currentQty = existingDoc.data().quantity || 0;
 
-          await updateDoc(doc(db, 'users', user.uid, 'cart', existingDoc.id), {
-             quantity: currentQty + quantity,
-             weight: actualWeight
+            await updateDoc(doc(db, 'users', user.uid, 'cart', existingDoc.id), {
+               quantity: currentQty + quantity,
+               weight: actualWeight
+            });
+
+          } else {
+            // 🛡️ ดักจับ undefined และ fallback ให้ครอบคลุม
+            const newCartItem = {
+                foodId: food.id || 'unknown_id',
+                foodName: food.name || food.foodName || 'ไม่ระบุชื่ออาหาร',
+                price: price || 0,
+                originalPrice: originalPrice || 0,
+                quantity: quantity || 1,
+                unit: sellingUnit || 'ชุด',
+                weight: actualWeight || 0.4,
+                storeName: storeName || 'ไม่ระบุชื่อร้าน',
+                storeId: targetStoreIdForNav || 'unknown_store',
+                imageUrl: food.imageUrl || null, // บังคับ null ถ้ารูปไม่มี
+                deliveryMethod: selectedMethod || 'pickup',
+                addedAt: new Date().toISOString()
+            };
+
+            // ใช้ท่าไม้ตายสลัด undefined ก่อนส่งเข้า Firestore
+            const cleanCartItem = JSON.parse(JSON.stringify(newCartItem));
+            await addDoc(cartRef, cleanCartItem);
+          }
+
+          showCustomAlert('สำเร็จ!', 'เพิ่มอาหารลงตะกร้าเรียบร้อยแล้ว', 'success', {
+            showCancel: true,
+            confirmText: 'ไปตะกร้า',
+            cancelText: 'ซื้อต่อ',
+            onConfirm: () => navigation.navigate('Cart')
           });
-
-        } else {
-          await addDoc(cartRef, {
-              foodId: food.id,
-              foodName: food.name,
-              price: price,
-              originalPrice: originalPrice,
-              quantity: quantity,
-              unit: sellingUnit,
-              weight: actualWeight,
-              storeName: storeName,
-              storeId: targetStoreIdForNav,
-              imageUrl: food.imageUrl,
-              deliveryMethod: selectedMethod,
-              addedAt: new Date().toISOString()
-          });
+        } catch (e) {
+          console.error(e);
+          showCustomAlert('ผิดพลาด', 'ไม่สามารถเพิ่มลงตะกร้าได้ กรุณาลองใหม่');
         }
-
-        showCustomAlert('สำเร็จ!', 'เพิ่มอาหารลงตะกร้าเรียบร้อยแล้ว', 'success', {
-          showCancel: true,
-          confirmText: 'ไปตะกร้า',
-          cancelText: 'ซื้อต่อ',
-          onConfirm: () => navigation.navigate('Cart')
-        });
-      } catch (e) {
-        console.error(e);
-        showCustomAlert('ผิดพลาด', 'ไม่สามารถเพิ่มลงตะกร้าได้ กรุณาลองใหม่');
-      }
-      finally { setLoading(false); }
-    };
+        finally { setLoading(false); }
+      };
 
   const increaseQty = () => { if (quantity < food.quantity) setQuantity(quantity + 1); };
   const decreaseQty = () => { if (quantity > 1) setQuantity(quantity - 1); };
 
   const handleBookNow = async () => {
-    if (!isCurrentlyOpen) return showCustomAlert('ร้านปิดให้บริการ', `ร้าน "${storeName}" ปิดให้บริการในขณะนี้\nไม่สามารถสั่งอาหารได้`, 'error');
-    const user = auth.currentUser;
-    if (!user) return showCustomAlert('แจ้งเตือน', 'กรุณาเข้าสู่ระบบเพื่อทำรายการ');
-    if (!targetStoreIdForNav) return showCustomAlert('ผิดพลาด', 'ไม่สามารถระบุร้านค้าได้');
+      if (!isCurrentlyOpen) return showCustomAlert('ร้านปิดให้บริการ', `ร้าน "${storeName}" ปิดให้บริการในขณะนี้\nไม่สามารถสั่งอาหารได้`, 'error');
+      const user = auth.currentUser;
+      if (!user) return showCustomAlert('แจ้งเตือน', 'กรุณาเข้าสู่ระบบเพื่อทำรายการ');
+      if (!targetStoreIdForNav) return showCustomAlert('ผิดพลาด', 'ไม่สามารถระบุร้านค้าได้');
 
-    setLoading(true);
-    let createdOrderData = null;
+      setLoading(true);
+      let createdOrderData = null;
 
-    try {
-      const newOrderRef = doc(collection(db, 'orders'));
-      const orderId = newOrderRef.id;
+      try {
+        const newOrderRef = doc(collection(db, 'orders'));
+        const orderId = newOrderRef.id;
 
-      const actualWeight = getCalculatedWeightInKg();
-      const orderWeight = actualWeight * quantity;
+        const actualWeight = getCalculatedWeightInKg();
+        const orderWeight = actualWeight * quantity;
 
-      await runTransaction(db, async (transaction) => {
-        const foodRef = doc(db, 'food_items', food.id);
-        const foodDoc = await transaction.get(foodRef);
-        if (!foodDoc.exists()) throw "สินค้าถูกลบไปแล้ว";
-        if (foodDoc.data().quantity < quantity) throw "สินค้าหมดพอดี กรุณาลดจำนวน";
-        transaction.update(foodRef, { quantity: foodDoc.data().quantity - quantity });
+        await runTransaction(db, async (transaction) => {
+          const foodRef = doc(db, 'food_items', food.id);
+          const foodDoc = await transaction.get(foodRef);
+          if (!foodDoc.exists()) throw "สินค้าถูกลบไปแล้ว";
+          if (foodDoc.data().quantity < quantity) throw "สินค้าหมดพอดี กรุณาลดจำนวน";
+          transaction.update(foodRef, { quantity: foodDoc.data().quantity - quantity });
 
-        const orderData = {
-          id: orderId,
-          userId: user.uid,
-          storeId: targetStoreIdForNav,
-          storeName: storeName,
-          items: [{ foodId: food.id, foodName: food.name, quantity, price, unit: sellingUnit, weight: actualWeight }],
-          foodName: food.name,
-          totalPrice: price * quantity,
-          quantity: quantity,
-          totalOrderWeight: orderWeight,
-          status: 'pending',
-          orderType: selectedMethod,
-          customerAddressTitle: currentUserData?.addressTitle || '',
-          customerAddress: currentUserData?.address || '',
-          customerLat: currentUserData?.latitude || null,
-          customerLng: currentUserData?.longitude || null,
-          customerPhone: currentUserData?.phone || 'ไม่ระบุเบอร์โทร',
-          closingTime: activeClosingTime,
-          createdAt: new Date().toISOString()
-        };
+          // 🛡️ ดักจับ undefined และ fallback ให้ครอบคลุม
+          const orderData = {
+            id: orderId,
+            userId: user.uid,
+            storeId: targetStoreIdForNav || 'unknown_store',
+            storeName: storeName || 'ร้านค้า',
+            items: [{
+                foodId: food.id || 'unknown_id',
+                foodName: food.name || food.foodName || 'ไม่ระบุชื่ออาหาร',
+                quantity: quantity || 1,
+                price: price || 0,
+                unit: sellingUnit || 'ชุด',
+                weight: actualWeight || 0.4,
+                imageUrl: food.imageUrl || null
+            }],
+            foodName: food.name || food.foodName || 'ไม่ระบุชื่ออาหาร',
+            totalPrice: (price || 0) * (quantity || 1),
+            quantity: quantity || 1,
+            totalOrderWeight: orderWeight || 0,
+            status: 'pending',
+            orderType: selectedMethod || 'pickup',
+            customerAddressTitle: currentUserData?.addressTitle || null,
+            customerAddress: currentUserData?.address || null,
+            customerLat: currentUserData?.latitude || null,
+            customerLng: currentUserData?.longitude || null,
+            customerPhone: currentUserData?.phone || null,
+            closingTime: activeClosingTime || '20:00',
+            createdAt: new Date().toISOString()
+          };
 
-        createdOrderData = orderData;
-        transaction.set(newOrderRef, orderData);
-      });
+          // ใช้ท่าไม้ตายสลัด undefined
+          const cleanOrderData = JSON.parse(JSON.stringify(orderData));
+          createdOrderData = cleanOrderData;
+          transaction.set(newOrderRef, cleanOrderData);
+        });
 
-      const userRef = doc(db, 'users', user.uid);
-      await updateDoc(userRef, {
-          totalWeightSaved: increment(orderWeight)
-      });
+        const userRef = doc(db, 'users', user.uid);
+        await updateDoc(userRef, {
+            totalWeightSaved: increment(orderWeight)
+        });
 
-      setLoading(false);
-      showCustomAlert('สำเร็จ!', `สั่งอาหารเรียบร้อยแล้ว 🌍`, 'success', {
-          onConfirm: () => {
-              setAlertVisible(false);
-              navigation.replace('OrderDetail', { order: createdOrderData });
-          }
-      });
-    } catch (error) {
-      setLoading(false);
-      showCustomAlert('จองไม่สำเร็จ', typeof error === 'string' ? error : 'เกิดข้อผิดพลาดในการจอง');
-    }
-  };
+        setLoading(false);
+        showCustomAlert('สำเร็จ!', `สั่งอาหารเรียบร้อยแล้ว 🌍`, 'success', {
+            onConfirm: () => {
+                setAlertVisible(false);
+                navigation.replace('OrderDetail', { order: createdOrderData });
+            }
+        });
+      } catch (error) {
+        setLoading(false);
+        showCustomAlert('จองไม่สำเร็จ', typeof error === 'string' ? error : 'เกิดข้อผิดพลาดในการจอง');
+      }
+    };
 
   return (
     <View style={styles.container}>
