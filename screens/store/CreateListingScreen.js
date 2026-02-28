@@ -1,560 +1,585 @@
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   ScrollView,
   TouchableOpacity,
+  TextInput,
   StatusBar,
   Image,
-  RefreshControl,
   ActivityIndicator,
   Alert,
-  Animated,
-  Dimensions,
+  Platform,
+  KeyboardAvoidingView,
   Modal,
-  TouchableWithoutFeedback,
-  Platform
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { auth, db } from '../../firebase.config';
-import { collection, getDocs, query, where, deleteDoc, doc, getDoc } from 'firebase/firestore';
-import { useFocusEffect } from '@react-navigation/native';
+import { collection, addDoc, doc, updateDoc, serverTimestamp, getDoc } from 'firebase/firestore';
+import * as ImagePicker from 'expo-image-picker';
 
-const { width } = Dimensions.get('window');
+const UNIT_OPTIONS = ['กล่อง', 'ถุง', 'ชิ้น', 'แพ็ค', 'โหล', 'กิโลกรัม', 'ลิตร', 'ขวด', 'ถาด', 'ชุด'];
 
-export default function MyShopScreen({ navigation }) {
+const CATEGORY_OPTIONS = [
+  { label: 'อาหารสด', icon: 'nutrition-outline' },
+  { label: 'อาหารแห้ง', icon: 'cube-outline' },
+  { label: 'เครื่องดื่ม', icon: 'wine-outline' },
+  { label: 'ขนม/ของหวาน', icon: 'ice-cream-outline' },
+  { label: 'ผัก/ผลไม้', icon: 'leaf-outline' },
+  { label: 'อาหารสำเร็จรูป', icon: 'fast-food-outline' },
+  { label: 'นม/ผลิตภัณฑ์นม', icon: 'water-outline' },
+  { label: 'อื่นๆ', icon: 'ellipsis-horizontal-outline' },
+];
+
+export default function CreateListingScreen({ navigation, route }) {
+  const editItem = route.params?.editItem || null;
+  const isEditMode = !!editItem;
+
   const [storeData, setStoreData] = useState(null);
-  const [activeListings, setActiveListings] = useState([]);
-  const [soldListings, setSoldListings] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [activeTab, setActiveTab] = useState('active');
-  const [stats, setStats] = useState({ posted: 0, sold: 0, revenue: 0 });
-  const [statusChecked, setStatusChecked] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [imageUri, setImageUri] = useState(editItem?.imageUrl || null);
+  const [showUnitModal, setShowUnitModal] = useState(false);
+  const [showCategoryModal, setShowCategoryModal] = useState(false);
 
-  // Drawer states
-  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
-  const slideAnim = useRef(new Animated.Value(-width * 0.85)).current;
-  const fadeAnim = useRef(new Animated.Value(0)).current;
-
-  const defaultAvatar = Image.resolveAssetSource(require('../../assets/icon.png')).uri;
-
-  useFocusEffect(
-    useCallback(() => {
-      // ✅ ลบการรีเซ็ต setStoreData(null) ออก เพื่อไม่ให้จอกะพริบเวลาสลับแท็บไปมา
-      setStatusChecked(false);
-      checkAuthAndLoadData();
-    }, [])
+  // Form fields
+  const [name, setName] = useState(editItem?.name || '');
+  const [description, setDescription] = useState(editItem?.description || '');
+  const [originalPrice, setOriginalPrice] = useState(editItem?.originalPrice?.toString() || '');
+  const [discountPrice, setDiscountPrice] = useState(
+    (editItem?.discountPrice || editItem?.price)?.toString() || ''
   );
+  const [quantity, setQuantity] = useState(editItem?.quantity?.toString() || '');
+  const [unit, setUnit] = useState(editItem?.unit || editItem?.sellingUnit || 'กล่อง');
+  const [category, setCategory] = useState(editItem?.category || 'อาหารสด');
+  const [expiryDate, setExpiryDate] = useState(editItem?.expiryDate || '');
+  const [pickupNote, setPickupNote] = useState(editItem?.pickupNote || '');
 
-  const checkAuthAndLoadData = async () => {
-    try {
-      const user = auth.currentUser;
-
-      if (!user) {
-        Alert.alert('ต้องเข้าสู่ระบบ', 'กรุณาเข้าสู่ระบบเพื่อดำเนินการต่อ', [
-          { text: 'ตกลง', onPress: () => navigation.replace('SignIn') }
-        ]);
-        return;
-      }
-
-      try {
-        await user.reload();
-        await user.getIdToken(true);
-      } catch (tokenError) {
-        if (tokenError.code === 'auth/invalid-credential' || tokenError.code === 'auth/user-token-expired') {
-          await auth.signOut();
-          Alert.alert('เซสชันหมดอายุ', 'กรุณาเข้าสู่ระบบใหม่อีกครั้ง', [
-            { text: 'ตกลง', onPress: () => navigation.replace('SignIn') }
-          ]);
-          return;
-        }
-      }
-
-      await loadStoreData();
-      await loadListings();
-
-    } catch (error) {
-      console.error('Error in checkAuthAndLoadData:', error);
-      setLoading(false);
-    }
-  };
+  useEffect(() => {
+    loadStoreData();
+  }, []);
 
   const loadStoreData = async () => {
     try {
       const user = auth.currentUser;
       if (!user) return;
-
-      const storeDocRef = doc(db, 'stores', user.uid);
-      const storeDoc = await getDoc(storeDocRef);
-
-      if (storeDoc.exists()) {
-        const storeInfo = storeDoc.data();
-
-        if (storeInfo.status === 'approved') {
-          setStoreData(storeInfo);
-          setStatusChecked(true);
-
-        } else if (storeInfo.status === 'pending') {
-          if (!statusChecked) {
-            setStatusChecked(true);
-            Alert.alert('รอการอนุมัติ', 'ร้านค้าของคุณอยู่ระหว่างการตรวจสอบ กรุณารอการอนุมัติจากผู้ดูแลระบบ', [
-              { text: 'ตกลง', onPress: () => navigation.navigate('Home') } // ✅ แก้ goBack() เป็น navigate('Home')
-            ]);
-          }
-        } else if (storeInfo.status === 'rejected') {
-          if (!statusChecked) {
-            setStatusChecked(true);
-            Alert.alert('คำขออนุมัติถูกปฏิเสธ', storeInfo.rejectReason || 'ร้านค้าของคุณไม่ได้รับการอนุมัติ กรุณาติดต่อผู้ดูแลระบบ', [
-              { text: 'ตกลง', onPress: () => navigation.navigate('Home') } // ✅ แก้ goBack() เป็น navigate('Home')
-            ]);
-          }
-        }
-      } else {
-        const approvalQuery = query(
-          collection(db, 'approval_requests'),
-          where('userId', '==', user.uid),
-          where('type', '==', 'store_registration')
-        );
-        const approvalSnapshot = await getDocs(approvalQuery);
-
-        if (!approvalSnapshot.empty) {
-          if (!statusChecked) {
-            setStatusChecked(true);
-            Alert.alert('รอการอนุมัติ', 'ร้านค้าของคุณอยู่ระหว่างการตรวจสอบ กรุณารอการอนุมัติจากผู้ดูแลระบบ', [
-              { text: 'ตกลง', onPress: () => navigation.navigate('Home') } // ✅ แก้ goBack() เป็น navigate('Home')
-            ]);
-          }
-        } else {
-          if (!statusChecked) {
-            setStatusChecked(true);
-            Alert.alert('ยังไม่มีร้านค้า', 'คุณยังไม่ได้สมัครเป็นร้านค้า ต้องการสมัครหรือไม่?', [
-              { text: 'ยกเลิก', onPress: () => navigation.navigate('Home'), style: 'cancel' }, // ✅ แก้ goBack() เป็น navigate('Home')
-              { text: 'สมัคร', onPress: () => navigation.navigate('RegisterStoreStep1') }
-            ]);
-          }
-        }
-      }
-    } catch (error) {
-      console.error('Error loading store data:', error);
-      Alert.alert('ข้อผิดพลาด', 'ไม่สามารถโหลดข้อมูลร้านค้าได้');
+      const storeDoc = await getDoc(doc(db, 'stores', user.uid));
+      if (storeDoc.exists()) setStoreData(storeDoc.data());
+    } catch (e) {
+      console.error('Error loading store:', e);
     }
   };
 
-  const loadListings = async () => {
+  const pickImage = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('ไม่ได้รับอนุญาต', 'กรุณาอนุญาตการเข้าถึงรูปภาพในการตั้งค่า');
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [4, 3],
+      quality: 0.7,
+    });
+    if (!result.canceled) {
+      setImageUri(result.assets[0].uri);
+    }
+  };
+
+  const discountPercent =
+    originalPrice && discountPrice && Number(originalPrice) > 0
+      ? Math.round(((Number(originalPrice) - Number(discountPrice)) / Number(originalPrice)) * 100)
+      : 0;
+
+  const validate = () => {
+    if (!name.trim()) { Alert.alert('กรุณากรอกชื่อสินค้า'); return false; }
+    if (!discountPrice || Number(discountPrice) <= 0) { Alert.alert('กรุณากรอกราคาขาย'); return false; }
+    if (!quantity || Number(quantity) <= 0) { Alert.alert('กรุณากรอกจำนวน'); return false; }
+    if (originalPrice && Number(discountPrice) > Number(originalPrice)) {
+      Alert.alert('ราคาขายต้องน้อยกว่าราคาปกติ'); return false;
+    }
+    return true;
+  };
+
+  const handleSubmit = async () => {
+    if (!validate()) return;
+    setLoading(true);
     try {
       const user = auth.currentUser;
-      if (!user) return;
+      if (!user) throw new Error('Not authenticated');
 
-      const q = query(collection(db, 'food_items'), where('userId', '==', user.uid));
-      const snapshot = await getDocs(q);
-      const items = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      const payload = {
+        name: name.trim(),
+        description: description.trim(),
+        originalPrice: Number(originalPrice) || 0,
+        discountPrice: Number(discountPrice),
+        price: Number(discountPrice),
+        quantity: Number(quantity),
+        unit,
+        sellingUnit: unit,
+        category,
+        expiryDate: expiryDate.trim(),
+        pickupNote: pickupNote.trim(),
+        imageUrl: imageUri || null,
+        userId: user.uid,
+        storeId: user.uid,
+        storeName: storeData?.storeName || '',
+        storeImage: storeData?.storeImage || null,
+        updatedAt: serverTimestamp(),
+      };
 
-      const active = items.filter(item => item.quantity > 0);
-      const sold = items.filter(item => item.quantity === 0);
-
-      setActiveListings(active);
-      setSoldListings(sold);
-
-      // ⚠️ หมายเหตุ: การดึง order ทั้งหมดตรงนี้อาจทำให้เกิดการอ่าน Firestore จำนวนมากถ้าร้านมีออเดอร์เยอะ
-      const ordersQuery = query(
-        collection(db, 'orders'),
-        where('storeId', '==', user.uid),
-        where('status', '==', 'completed')
-      );
-      const ordersSnapshot = await getDocs(ordersQuery);
-      const completedOrders = ordersSnapshot.docs.map(doc => doc.data());
-
-      const totalSoldCount = completedOrders.reduce((sum, order) => {
-        const itemsCount = (order.items || []).reduce((s, item) => s + (item.quantity || 1), 0);
-        return sum + itemsCount;
-      }, 0);
-
-      const totalRevenue = completedOrders.reduce((sum, order) => {
-        return sum + (Number(order.totalPrice) || 0);
-      }, 0);
-
-      setStats({
-        posted: active.length,
-        sold: totalSoldCount,
-        revenue: totalRevenue,
-      });
+      if (isEditMode) {
+        await updateDoc(doc(db, 'food_items', editItem.id), payload);
+        Alert.alert('สำเร็จ', 'อัปเดตสินค้าเรียบร้อยแล้ว', [
+          { text: 'ตกลง', onPress: () => navigation.goBack() }
+        ]);
+      } else {
+        payload.createdAt = serverTimestamp();
+        payload.status = 'active';
+        await addDoc(collection(db, 'food_items'), payload);
+        Alert.alert('สำเร็จ', 'โพสต์สินค้าเรียบร้อยแล้ว', [
+          { text: 'ตกลง', onPress: () => navigation.goBack() }
+        ]);
+      }
     } catch (error) {
-      console.error('Error loading listings:', error);
+      console.error('Error submitting:', error);
+      Alert.alert('ผิดพลาด', 'ไม่สามารถบันทึกสินค้าได้ กรุณาลองใหม่อีกครั้ง');
     } finally {
       setLoading(false);
-      setRefreshing(false);
     }
   };
-
-  const handleDeleteListing = async (itemId) => {
-    Alert.alert(
-      'ลบรายการ',
-      'คุณต้องการลบรายการนี้ใช่หรือไม่?',
-      [
-        { text: 'ยกเลิก', style: 'cancel' },
-        {
-          text: 'ลบ',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await deleteDoc(doc(db, 'food_items', itemId));
-              Alert.alert('สำเร็จ', 'ลบรายการเรียบร้อย');
-              loadListings();
-            } catch (error) {
-              console.error('Error deleting:', error);
-              Alert.alert('ผิดพลาด', 'ไม่สามารถลบรายการได้');
-            }
-          }
-        }
-      ]
-    );
-  };
-
-  const formatExpiryDate = (dateString) => {
-    if (!dateString) return 'ไม่ระบุ';
-    try {
-      const date = new Date(dateString);
-      if (isNaN(date.getTime())) return dateString;
-      const day = date.getDate().toString().padStart(2, '0');
-      const month = (date.getMonth() + 1).toString().padStart(2, '0');
-      const year = date.getFullYear();
-      const hours = date.getHours().toString().padStart(2, '0');
-      const minutes = date.getMinutes().toString().padStart(2, '0');
-      return `${day}/${month}/${year} ${hours}:${minutes} น.`;
-    } catch (error) {
-      return dateString;
-    }
-  };
-
-  const renderListingCard = (item) => {
-    const originalPrice = Number(item.originalPrice) || 0;
-    const discountPrice = Number(item.discountPrice) || Number(item.price) || 0;
-    const discountPercent = originalPrice > 0 ? Math.round(((originalPrice - discountPrice) / originalPrice) * 100) : 0;
-
-    return (
-      <View key={item.id} style={styles.listingCard}>
-        <View style={styles.listingImageContainer}>
-          {item.imageUrl ? (
-            <Image source={{ uri: item.imageUrl }} style={styles.listingImage} />
-          ) : (
-            <View style={styles.placeholderImage}>
-              <Ionicons name="image-outline" size={36} color="#2d4a3e" />
-            </View>
-          )}
-          {discountPercent > 0 && (
-            <View style={styles.discountBadge}>
-              <Text style={styles.discountBadgeText}>-{discountPercent}%</Text>
-            </View>
-          )}
-        </View>
-
-        <View style={styles.cardBody}>
-          <Text style={styles.listingName} numberOfLines={1}>{item.name}</Text>
-          <View style={styles.priceRow}>
-            {originalPrice > 0 && (
-              <Text style={styles.originalPrice}>{originalPrice} ฿</Text>
-            )}
-            <Text style={styles.finalPrice}>{discountPrice} ฿</Text>
-          </View>
-          <View style={styles.cardMeta}>
-            <View style={styles.metaChip}>
-              <Ionicons name="layers-outline" size={12} color="#10b981" />
-              <Text style={styles.metaText}>{item.quantity} {item.unit || item.sellingUnit || 'ชิ้น'}</Text>
-            </View>
-            {item.expiryDate && (
-              <View style={[styles.metaChip, { backgroundColor: '#1a2030' }]}>
-                <Ionicons name="time-outline" size={12} color="#60a5fa" />
-                <Text style={[styles.metaText, { color: '#60a5fa' }]}>
-                  {formatExpiryDate(item.expiryDate)?.split(' ')[0]}
-                </Text>
-              </View>
-            )}
-          </View>
-        </View>
-
-        <View style={styles.cardButtons}>
-          <TouchableOpacity style={styles.editBtn} onPress={() => navigation.navigate('CreateListing', { editItem: item })} activeOpacity={0.75}>
-            <Ionicons name="pencil-outline" size={15} color="#10b981" />
-            <Text style={styles.editBtnText}>แก้ไข</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.deleteBtn} onPress={() => handleDeleteListing(item.id)} activeOpacity={0.75}>
-            <Ionicons name="trash-outline" size={15} color="#f87171" />
-            <Text style={styles.deleteBtnText}>ลบ</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-    );
-  };
-
-  const handleRefresh = () => {
-    setRefreshing(true);
-    checkAuthAndLoadData();
-  };
-
-  const toggleDrawer = () => {
-    if (isDrawerOpen) {
-      Animated.parallel([
-        Animated.timing(slideAnim, { toValue: -width * 0.85, duration: 250, useNativeDriver: true }),
-        Animated.timing(fadeAnim, { toValue: 0, duration: 250, useNativeDriver: true })
-      ]).start(() => setIsDrawerOpen(false));
-    } else {
-      setIsDrawerOpen(true);
-      Animated.parallel([
-        Animated.timing(slideAnim, { toValue: 0, duration: 250, useNativeDriver: true }),
-        Animated.timing(fadeAnim, { toValue: 1, duration: 250, useNativeDriver: true })
-      ]).start();
-    }
-  };
-
-  const handleLogout = async () => {
-    Alert.alert('ออกจากระบบ', 'คุณต้องการออกจากระบบหรือไม่?', [
-      { text: 'ยกเลิก', style: 'cancel' },
-      { text: 'ออกจากระบบ', style: 'destructive', onPress: async () => { await auth.signOut(); navigation.replace('SignIn'); } }
-    ]);
-  };
-
-  const DrawerContent = () => (
-    <View style={styles.drawerWrapper}>
-      <View style={styles.drawerContent}>
-        <View style={styles.drawerTopHeader}>
-          <View style={styles.logoContainer}>
-            <View style={styles.logoCircle}><Ionicons name="leaf" size={24} color="#10b981" /></View>
-            <View><Text style={styles.appName}>Food Waste</Text><Text style={styles.appSlogan}>ร้านค้า</Text></View>
-          </View>
-          <TouchableOpacity onPress={toggleDrawer} style={styles.closeButton}><Ionicons name="close" size={24} color="#1f2937" /></TouchableOpacity>
-        </View>
-
-        <View style={styles.profileCard}>
-          <View style={styles.profileHeader}>
-            <Image source={storeData?.storeImage ? { uri: storeData.storeImage } : { uri: defaultAvatar }} style={styles.drawerAvatar} />
-            <View style={{ flex: 1 }}>
-              <Text style={styles.drawerName}>{storeData?.storeName || 'ร้านค้า'}</Text>
-              <Text style={styles.drawerRole}>โหมด: ร้านค้า</Text>
-            </View>
-          </View>
-          <View style={styles.modeContainer}>
-            <TouchableOpacity style={styles.modeButtonInactive} onPress={() => { toggleDrawer(); navigation.navigate('Home'); }}>
-              <Ionicons name="cart-outline" size={16} color="#6b7280" />
-              <Text style={styles.modeTextInactive}>โหมดลูกค้า</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.modeButtonActive} activeOpacity={1}>
-              <Ionicons name="storefront" size={16} color="#fff" />
-              <Text style={styles.modeTextActive}>โหมดร้านค้า</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-
-        <Text style={styles.sectionTitle}>เมนูหลัก</Text>
-        <TouchableOpacity style={styles.drawerMenuItem} onPress={() => { toggleDrawer(); navigation.navigate('MyShop'); }}>
-          <View style={styles.menuIconBox}><Ionicons name="home-outline" size={20} color="#10b981" /></View>
-          <Text style={styles.drawerMenuText}>หน้าหลัก</Text><Ionicons name="chevron-forward" size={18} color="#d1d5db" style={{marginLeft: 'auto'}} />
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.drawerMenuItem} onPress={() => { toggleDrawer(); navigation.navigate('StoreOrders'); }}>
-          <View style={styles.menuIconBox}><Ionicons name="receipt-outline" size={20} color="#f59e0b" /></View>
-          <Text style={styles.drawerMenuText}>คำสั่งซื้อของร้าน</Text><Ionicons name="chevron-forward" size={18} color="#d1d5db" style={{marginLeft: 'auto'}} />
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.drawerMenuItem} onPress={() => { toggleDrawer(); Alert.alert('กำลังพัฒนา', 'หน้า Dashboard'); }}>
-          <View style={styles.menuIconBox}><Ionicons name="notifications-outline" size={20} color="#3b82f6" /></View>
-          <Text style={styles.drawerMenuText}>Dashboard</Text><Ionicons name="chevron-forward" size={18} color="#d1d5db" style={{marginLeft: 'auto'}} />
-        </TouchableOpacity>
-
-        <Text style={styles.sectionTitle}>บัญชี</Text>
-        <TouchableOpacity style={styles.drawerMenuItem} onPress={() => { toggleDrawer(); Alert.alert('กำลังพัฒนา', 'หน้าโปรไฟล์'); }}>
-          <View style={styles.menuIconBox}><Ionicons name="person-outline" size={20} color="#3b82f6" /></View>
-          <Text style={styles.drawerMenuText}>โปรไฟล์</Text><Ionicons name="chevron-forward" size={18} color="#d1d5db" style={{marginLeft: 'auto'}} />
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.drawerLogout} onPress={handleLogout}>
-          <View style={[styles.menuIconBox, { backgroundColor: '#fee2e2' }]}><Ionicons name="log-out-outline" size={20} color="#ef4444" /></View>
-          <Text style={styles.drawerLogoutText}>ออกจากระบบ</Text>
-        </TouchableOpacity>
-      </View>
-    </View>
-  );
 
   return (
-    <View style={styles.container}>
+    <KeyboardAvoidingView
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      style={styles.container}
+    >
       <StatusBar barStyle="light-content" backgroundColor="#10b981" />
 
+      {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={toggleDrawer} style={styles.menuButton}>
-          <View style={styles.menuIconWrapper}>
-            <View style={styles.menuLine} />
-            <View style={[styles.menuLine, { width: 16 }]} />
-          </View>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
+          <Ionicons name="arrow-back" size={24} color="#fff" />
         </TouchableOpacity>
-        <View style={styles.headerCenter}>
-          <View style={styles.logoLeafWrap}><Ionicons name="leaf" size={14} color="#10b981" /></View>
-          <Text style={styles.headerTitle}>MY SHOP</Text>
-        </View>
-        <TouchableOpacity onPress={() => Alert.alert('กำลังพัฒนา', 'หน้า Store Profile')} style={styles.avatarWrap}>
-          <Image source={storeData?.storeImage ? { uri: storeData.storeImage } : { uri: defaultAvatar }} style={styles.avatar} />
-          <View style={styles.avatarOnline} />
-        </TouchableOpacity>
-      </View>
-
-      <View style={styles.bannerRow}>
-        <View>
-          <Text style={styles.bannerGreet}>สวัสดี 👋</Text>
-          <Text style={styles.bannerName}>{storeData?.storeName || 'ร้านค้าของคุณ'}</Text>
-        </View>
-        <View style={styles.statusBadge}>
-          <View style={styles.statusDot} />
-          <Text style={styles.statusText}>เปิดอยู่</Text>
-        </View>
-      </View>
-
-      <View style={styles.statsRow}>
-        <View style={[styles.statCard]}>
-          <Ionicons name="cube-outline" size={18} color="#10b981" />
-          <Text style={styles.statNumber}>{stats.posted}</Text>
-          <Text style={styles.statLabel}>โพสต์</Text>
-        </View>
-        <View style={[styles.statCard]}>
-          <Ionicons name="checkmark-circle-outline" size={18} color="#10b981" />
-          <Text style={[styles.statNumber]}>{stats.sold}</Text>
-          <Text style={styles.statLabel}>ขายแล้ว</Text>
-        </View>
-        <View style={[styles.statCard]}>
-          <Ionicons name="cash-outline" size={18} color="#10b981" />
-          <Text style={[styles.statNumber]}>{stats.revenue}฿</Text>
-          <Text style={styles.statLabel}>รายได้</Text>
-        </View>
-      </View>
-
-      <View style={styles.sectionHeader}>
-        <View style={styles.sectionAccent} />
-        <Text style={styles.sectionTitle}>สินค้าที่ขายอยู่</Text>
-        <Text style={styles.sectionCount}>{activeListings.length} รายการ</Text>
+        <Text style={styles.headerTitle}>{isEditMode ? 'แก้ไขสินค้า' : 'โพสต์สินค้าใหม่'}</Text>
+        <View style={{ width: 40 }} />
       </View>
 
       <ScrollView
         style={styles.content}
-        contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 20 }}
+        contentContainerStyle={{ paddingBottom: 40 }}
         showsVerticalScrollIndicator={false}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} colors={['#10b981']} tintColor="#10b981" />}
       >
-        {loading ? (
-          <View style={{ alignItems: 'center', marginTop: 60 }}>
-            <ActivityIndicator size="large" color="#10b981" />
-            <Text style={{ color: '#6b7280', marginTop: 12, fontSize: 13 }}>กำลังโหลด...</Text>
+        {/* Image Picker */}
+        <TouchableOpacity style={styles.imagePicker} onPress={pickImage} activeOpacity={0.8}>
+          {imageUri ? (
+            <>
+              <Image source={{ uri: imageUri }} style={styles.pickedImage} />
+              <View style={styles.imageEditBadge}>
+                <Ionicons name="camera" size={16} color="#fff" />
+                <Text style={styles.imageEditText}>เปลี่ยนรูป</Text>
+              </View>
+            </>
+          ) : (
+            <View style={styles.imagePlaceholder}>
+              <View style={styles.imagePlaceholderIcon}>
+                <Ionicons name="camera-outline" size={36} color="#10b981" />
+              </View>
+              <Text style={styles.imagePlaceholderTitle}>เพิ่มรูปสินค้า</Text>
+              <Text style={styles.imagePlaceholderSub}>แตะเพื่ออัปโหลดรูปภาพ</Text>
+            </View>
+          )}
+        </TouchableOpacity>
+
+        {/* Form */}
+        <View style={styles.formSection}>
+
+          {/* ชื่อสินค้า */}
+          <View style={styles.fieldGroup}>
+            <Text style={styles.fieldLabel}>
+              ชื่อสินค้า <Text style={styles.required}>*</Text>
+            </Text>
+            <TextInput
+              style={styles.input}
+              placeholder="เช่น ข้าวกล่อง, ขนมปัง, น้ำส้ม..."
+              placeholderTextColor="#9ca3af"
+              value={name}
+              onChangeText={setName}
+            />
           </View>
-        ) : activeListings.length > 0 ? (
-          activeListings.map(renderListingCard)
-        ) : (
-          <View style={styles.emptyState}>
-            <View style={styles.emptyIconWrap}><Ionicons name="basket-outline" size={44} color="#10b981" /></View>
-            <Text style={styles.emptyStateText}>ยังไม่มีสินค้า</Text>
-            <Text style={styles.emptyStateSubtext}>กดปุ่ม + NEW POST เพื่อเพิ่มสินค้า</Text>
+
+          {/* หมวดหมู่ */}
+          <View style={styles.fieldGroup}>
+            <Text style={styles.fieldLabel}>หมวดหมู่</Text>
+            <TouchableOpacity style={styles.selectInput} onPress={() => setShowCategoryModal(true)}>
+              <View style={styles.selectLeft}>
+                <Ionicons
+                  name={CATEGORY_OPTIONS.find(c => c.label === category)?.icon || 'cube-outline'}
+                  size={18}
+                  color="#10b981"
+                />
+                <Text style={styles.selectText}>{category}</Text>
+              </View>
+              <Ionicons name="chevron-down" size={18} color="#9ca3af" />
+            </TouchableOpacity>
           </View>
-        )}
-        <View style={{ height: 100 }} />
+
+          {/* ราคา */}
+          <View style={styles.fieldRow}>
+            <View style={[styles.fieldGroup, { flex: 1 }]}>
+              <Text style={styles.fieldLabel}>ราคาปกติ (฿)</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="0"
+                placeholderTextColor="#9ca3af"
+                keyboardType="numeric"
+                value={originalPrice}
+                onChangeText={setOriginalPrice}
+              />
+            </View>
+            <View style={[styles.fieldGroup, { flex: 1 }]}>
+              <Text style={styles.fieldLabel}>
+                ราคาขาย (฿) <Text style={styles.required}>*</Text>
+              </Text>
+              <TextInput
+                style={[styles.input, styles.inputHighlight]}
+                placeholder="0"
+                placeholderTextColor="#9ca3af"
+                keyboardType="numeric"
+                value={discountPrice}
+                onChangeText={setDiscountPrice}
+              />
+            </View>
+          </View>
+
+          {/* Discount preview */}
+          {discountPercent > 0 && (
+            <View style={styles.discountPreview}>
+              <Ionicons name="pricetag" size={14} color="#10b981" />
+              <Text style={styles.discountPreviewText}>
+                ลด {discountPercent}% จากราคาปกติ
+              </Text>
+            </View>
+          )}
+
+          {/* จำนวน + หน่วย */}
+          <View style={styles.fieldRow}>
+            <View style={[styles.fieldGroup, { flex: 1 }]}>
+              <Text style={styles.fieldLabel}>
+                จำนวน <Text style={styles.required}>*</Text>
+              </Text>
+              <TextInput
+                style={styles.input}
+                placeholder="0"
+                placeholderTextColor="#9ca3af"
+                keyboardType="numeric"
+                value={quantity}
+                onChangeText={setQuantity}
+              />
+            </View>
+            <View style={[styles.fieldGroup, { flex: 1 }]}>
+              <Text style={styles.fieldLabel}>หน่วย</Text>
+              <TouchableOpacity style={styles.selectInput} onPress={() => setShowUnitModal(true)}>
+                <Text style={styles.selectText}>{unit}</Text>
+                <Ionicons name="chevron-down" size={18} color="#9ca3af" />
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          {/* วันหมดอายุ */}
+          <View style={styles.fieldGroup}>
+            <Text style={styles.fieldLabel}>วันหมดอายุ / วันสุดท้ายที่ควรรับ</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="เช่น 25/12/2567 หรือ วันนี้เวลา 20:00"
+              placeholderTextColor="#9ca3af"
+              value={expiryDate}
+              onChangeText={setExpiryDate}
+            />
+          </View>
+
+          {/* รายละเอียด */}
+          <View style={styles.fieldGroup}>
+            <Text style={styles.fieldLabel}>รายละเอียดสินค้า</Text>
+            <TextInput
+              style={[styles.input, styles.inputMultiline]}
+              placeholder="บอกเล่าเกี่ยวกับสินค้า ส่วนผสม วิธีเก็บรักษา ฯลฯ"
+              placeholderTextColor="#9ca3af"
+              multiline
+              numberOfLines={4}
+              textAlignVertical="top"
+              value={description}
+              onChangeText={setDescription}
+            />
+          </View>
+
+          {/* หมายเหตุการรับสินค้า */}
+          <View style={styles.fieldGroup}>
+            <Text style={styles.fieldLabel}>หมายเหตุการรับสินค้า</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="เช่น รับที่หน้าร้าน, ติดต่อก่อนมารับ"
+              placeholderTextColor="#9ca3af"
+              value={pickupNote}
+              onChangeText={setPickupNote}
+            />
+          </View>
+
+        </View>
+
+        {/* Summary Card */}
+        {name.trim() && discountPrice ? (
+          <View style={styles.summaryCard}>
+            <Text style={styles.summaryTitle}>ตัวอย่างการแสดงผล</Text>
+            <View style={styles.summaryRow}>
+              <View style={styles.summaryImageWrap}>
+                {imageUri ? (
+                  <Image source={{ uri: imageUri }} style={styles.summaryImage} />
+                ) : (
+                  <View style={[styles.summaryImage, { backgroundColor: '#d1fae5', justifyContent: 'center', alignItems: 'center' }]}>
+                    <Ionicons name="fast-food-outline" size={24} color="#10b981" />
+                  </View>
+                )}
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.summaryName} numberOfLines={1}>{name}</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4 }}>
+                  {originalPrice ? (
+                    <Text style={styles.summaryOriginal}>฿{originalPrice}</Text>
+                  ) : null}
+                  <Text style={styles.summaryPrice}>฿{discountPrice}</Text>
+                  {discountPercent > 0 && (
+                    <View style={styles.summaryBadge}>
+                      <Text style={styles.summaryBadgeText}>-{discountPercent}%</Text>
+                    </View>
+                  )}
+                </View>
+                <Text style={styles.summaryMeta}>{quantity || '0'} {unit} · {category}</Text>
+              </View>
+            </View>
+          </View>
+        ) : null}
+
       </ScrollView>
 
-      {storeData?.status === 'approved' && (
-        <TouchableOpacity style={styles.newPostButton} onPress={() => navigation.navigate('CreateListing')} activeOpacity={0.85}>
-          <View style={styles.newPostInner}>
-            <Ionicons name="add" size={22} color="#fff" />
-            <Text style={styles.newPostButtonText}>โพสต์</Text>
+      {/* Submit Button */}
+      <View style={styles.footer}>
+        <TouchableOpacity
+          style={[styles.submitBtn, loading && { opacity: 0.7 }]}
+          onPress={handleSubmit}
+          disabled={loading}
+          activeOpacity={0.85}
+        >
+          {loading ? (
+            <ActivityIndicator color="#fff" />
+          ) : (
+            <>
+              <Ionicons name={isEditMode ? 'checkmark-circle-outline' : 'cloud-upload-outline'} size={20} color="#fff" />
+              <Text style={styles.submitBtnText}>
+                {isEditMode ? 'บันทึกการแก้ไข' : 'โพสต์สินค้า'}
+              </Text>
+            </>
+          )}
+        </TouchableOpacity>
+      </View>
+
+      {/* Unit Modal */}
+      <Modal visible={showUnitModal} transparent animationType="fade" onRequestClose={() => setShowUnitModal(false)}>
+        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setShowUnitModal(false)}>
+          <View style={styles.modalBox}>
+            <Text style={styles.modalTitle}>เลือกหน่วย</Text>
+            {UNIT_OPTIONS.map(u => (
+              <TouchableOpacity
+                key={u}
+                style={[styles.modalOption, u === unit && styles.modalOptionActive]}
+                onPress={() => { setUnit(u); setShowUnitModal(false); }}
+              >
+                <Text style={[styles.modalOptionText, u === unit && styles.modalOptionTextActive]}>{u}</Text>
+                {u === unit && <Ionicons name="checkmark" size={18} color="#10b981" />}
+              </TouchableOpacity>
+            ))}
           </View>
         </TouchableOpacity>
-      )}
+      </Modal>
 
-      {isDrawerOpen && (
-        <Modal transparent visible={isDrawerOpen} animationType="none">
-          <View style={styles.drawerOverlay}>
-            <TouchableWithoutFeedback onPress={toggleDrawer}>
-              <Animated.View style={[styles.drawerBackdrop, { opacity: fadeAnim }]} />
-            </TouchableWithoutFeedback>
-            <Animated.View style={[styles.drawerContainer, { transform: [{ translateX: slideAnim }] }]}>
-              <DrawerContent />
-            </Animated.View>
+      {/* Category Modal */}
+      <Modal visible={showCategoryModal} transparent animationType="fade" onRequestClose={() => setShowCategoryModal(false)}>
+        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setShowCategoryModal(false)}>
+          <View style={styles.modalBox}>
+            <Text style={styles.modalTitle}>เลือกหมวดหมู่</Text>
+            {CATEGORY_OPTIONS.map(c => (
+              <TouchableOpacity
+                key={c.label}
+                style={[styles.modalOption, c.label === category && styles.modalOptionActive]}
+                onPress={() => { setCategory(c.label); setShowCategoryModal(false); }}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                  <Ionicons name={c.icon} size={18} color={c.label === category ? '#10b981' : '#6b7280'} />
+                  <Text style={[styles.modalOptionText, c.label === category && styles.modalOptionTextActive]}>
+                    {c.label}
+                  </Text>
+                </View>
+                {c.label === category && <Ionicons name="checkmark" size={18} color="#10b981" />}
+              </TouchableOpacity>
+            ))}
           </View>
-        </Modal>
-      )}
-    </View>
+        </TouchableOpacity>
+      </Modal>
+
+    </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f0fdf8' },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: Platform.OS === 'ios' ? 58 : 50, paddingBottom: 14, backgroundColor: '#10b981', zIndex: 10 },
-  menuButton: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: 12 },
-  menuIconWrapper: { gap: 5, alignItems: 'flex-start' },
-  menuLine: { width: 20, height: 2, backgroundColor: '#fff', borderRadius: 2 },
-  headerCenter: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  logoLeafWrap: { width: 28, height: 28, backgroundColor: 'rgba(255,255,255,0.25)', borderRadius: 9, alignItems: 'center', justifyContent: 'center' },
-  headerTitle: { fontSize: 15, fontWeight: '800', color: '#fff', letterSpacing: 3 },
-  avatarWrap: { position: 'relative' },
-  avatar: { width: 40, height: 40, borderRadius: 20, borderWidth: 2, borderColor: '#fff', backgroundColor: '#d1fae5' },
-  avatarOnline: { position: 'absolute', bottom: 1, right: 1, width: 10, height: 10, borderRadius: 5, backgroundColor: '#fff', borderWidth: 2, borderColor: '#10b981' },
-  bannerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingTop: 18, paddingBottom: 14, backgroundColor: '#10b981', borderBottomLeftRadius: 24, borderBottomRightRadius: 24, marginBottom: 4 },
-  bannerGreet: { fontSize: 13, color: 'rgba(255,255,255,0.75)', marginBottom: 2 },
-  bannerName: { fontSize: 22, fontWeight: '800', color: '#fff', letterSpacing: -0.5 },
-  statusBadge: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: 20, paddingHorizontal: 12, paddingVertical: 7 },
-  statusDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: '#fff' },
-  statusText: { fontSize: 12, color: '#fff', fontWeight: '700' },
-  statsRow: { flexDirection: 'row', gap: 10, paddingHorizontal: 16, paddingVertical: 16 },
-  statCard: { flex: 1, borderRadius: 16, paddingVertical: 16, paddingHorizontal: 10, alignItems: 'center', gap: 4, backgroundColor: '#fff', shadowColor: '#10b981', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.1, shadowRadius: 8, elevation: 3 },
-  statNumber: { fontSize: 20, fontWeight: '800', color: '#10b981', marginTop: 2 },
-  statLabel: { fontSize: 11, color: '#6b7280', fontWeight: '500' },
-  sectionHeader: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingBottom: 10, gap: 10 },
-  sectionAccent: { width: 4, height: 18, backgroundColor: '#10b981', borderRadius: 2 },
-  sectionTitle: { fontSize: 14, fontWeight: '700', color: '#1f2937', flex: 1, letterSpacing: 0.3 },
-  sectionCount: { fontSize: 12, color: '#fff', backgroundColor: '#10b981', paddingHorizontal: 10, paddingVertical: 3, borderRadius: 20, fontWeight: '700' },
+  container: { flex: 1, backgroundColor: '#f9fafb' },
+
+  // Header
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingTop: Platform.OS === 'ios' ? 58 : 46,
+    paddingBottom: 14,
+    backgroundColor: '#10b981',
+  },
+  backBtn: {
+    width: 40, height: 40,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  headerTitle: { fontSize: 17, fontWeight: '800', color: '#fff', letterSpacing: 0.5 },
+
   content: { flex: 1 },
-  listingCard: { backgroundColor: '#fff', borderRadius: 16, marginBottom: 12, overflow: 'hidden', shadowColor: '#10b981', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.08, shadowRadius: 12, elevation: 3 },
-  listingImageContainer: { width: '100%', height: 160, backgroundColor: '#d1fae5', position: 'relative' },
-  listingImage: { width: '100%', height: '100%' },
-  placeholderImage: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#d1fae5' },
-  discountBadge: { position: 'absolute', top: 10, right: 10, backgroundColor: '#10b981', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 4 },
-  discountBadgeText: { fontSize: 12, fontWeight: '800', color: '#fff' },
-  cardBody: { padding: 14, gap: 8 },
-  listingName: { fontSize: 16, fontWeight: '700', color: '#1f2937', letterSpacing: -0.2 },
-  priceRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  originalPrice: { fontSize: 13, color: '#9ca3af', textDecorationLine: 'line-through' },
-  finalPrice: { fontSize: 18, fontWeight: '800', color: '#10b981' },
-  cardMeta: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
-  metaChip: { flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: '#ecfdf5', borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4, borderWidth: 1, borderColor: '#a7f3d0' },
-  metaText: { fontSize: 11, color: '#059669', fontWeight: '600' },
-  cardButtons: { flexDirection: 'row', borderTopWidth: 1, borderTopColor: '#f3f4f6' },
-  editBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 13, borderRightWidth: 1, borderRightColor: '#f3f4f6', backgroundColor: '#f9fafb' },
-  editBtnText: { fontSize: 13, fontWeight: '700', color: '#10b981' },
-  deleteBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 13, backgroundColor: '#f9fafb' },
-  deleteBtnText: { fontSize: 13, fontWeight: '700', color: '#ef4444' },
-  newPostButton: { marginHorizontal: 16, marginBottom: 20, borderRadius: 16, overflow: 'hidden', backgroundColor: '#10b981', shadowColor: '#10b981', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.35, shadowRadius: 16, elevation: 8 },
-  newPostInner: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 15 },
-  newPostButtonText: { fontSize: 15, fontWeight: '800', color: '#fff', letterSpacing: 1.5 },
-  emptyState: { alignItems: 'center', justifyContent: 'center', paddingVertical: 60, gap: 10 },
-  emptyIconWrap: { width: 80, height: 80, borderRadius: 40, backgroundColor: '#d1fae5', alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: '#10b981', marginBottom: 8 },
-  emptyStateText: { fontSize: 16, fontWeight: '700', color: '#1f2937' },
-  emptyStateSubtext: { fontSize: 13, color: '#6b7280' },
-  drawerOverlay: { flex: 1, flexDirection: 'row' },
-  drawerBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)' },
-  drawerContainer: { position: 'absolute', left: 0, top: 0, bottom: 0, width: width * 0.80, backgroundColor: '#fff', shadowColor: '#10b981', shadowOffset: { width: 4, height: 0 }, shadowOpacity: 0.15, shadowRadius: 20, elevation: 20, borderRightWidth: 1, borderRightColor: '#d1fae5' },
-  drawerWrapper: { flex: 1, paddingTop: Platform.OS === 'ios' ? 55 : 40 },
-  drawerContent: { flex: 1, paddingHorizontal: 20 },
-  drawerTopHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
-  logoContainer: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  logoCircle: { width: 42, height: 42, borderRadius: 14, backgroundColor: '#10b981', alignItems: 'center', justifyContent: 'center' },
-  appName: { fontSize: 16, fontWeight: '800', color: '#1f2937' },
-  appSlogan: { fontSize: 12, color: '#6b7280' },
-  closeButton: { width: 36, height: 36, borderRadius: 12, backgroundColor: '#f3f4f6', alignItems: 'center', justifyContent: 'center' },
-  profileCard: { backgroundColor: '#10b981', borderRadius: 16, padding: 15, marginBottom: 20 },
-  profileHeader: { flexDirection: 'row', alignItems: 'center', gap: 14, marginBottom: 14 },
-  modeContainer: { flexDirection: 'row', gap: 8 },
-  modeButtonActive: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, paddingVertical: 9, backgroundColor: '#fff', borderRadius: 10 },
-  modeButtonInactive: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, paddingVertical: 9, backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: 10 },
-  modeTextActive: { fontSize: 11, fontWeight: '700', color: '#10b981' },
-  modeTextInactive: { fontSize: 11, color: 'rgba(255,255,255,0.85)', fontWeight: '600' },
-  drawerAvatar: { width: 52, height: 52, borderRadius: 26, borderWidth: 2, borderColor: '#fff', backgroundColor: '#d1fae5' },
-  drawerName: { fontSize: 16, fontWeight: '700', color: '#fff' },
-  drawerRole: { fontSize: 12, color: 'rgba(255,255,255,0.8)', marginTop: 2 },
-  sectionTitle: { fontSize: 11, color: '#9ca3af', fontWeight: '700', letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 8, marginLeft: 4, marginTop: 8 },
-  drawerMenuItem: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#f9fafb', paddingVertical: 12, paddingHorizontal: 12, marginBottom: 6, borderRadius: 12, borderWidth: 1, borderColor: '#f3f4f6' },
-  menuIconBox: { width: 36, height: 36, borderRadius: 10, backgroundColor: '#ecfdf5', alignItems: 'center', justifyContent: 'center', marginRight: 14 },
-  drawerMenuText: { fontSize: 14, color: '#1f2937', fontWeight: '600', flex: 1 },
-  drawerLogout: { flexDirection: 'row', alignItems: 'center', gap: 14, marginTop: 16, marginBottom: 30, paddingHorizontal: 12, paddingVertical: 12, backgroundColor: '#fff1f2', borderRadius: 12, borderWidth: 1, borderColor: '#fecdd3' },
-  drawerLogoutText: { fontSize: 14, color: '#ef4444', fontWeight: '700' },
+
+  // Image Picker
+  imagePicker: {
+    width: '100%',
+    height: 220,
+    backgroundColor: '#fff',
+    position: 'relative',
+    overflow: 'hidden',
+  },
+  pickedImage: { width: '100%', height: '100%', resizeMode: 'cover' },
+  imageEditBadge: {
+    position: 'absolute', bottom: 12, right: 12,
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    paddingHorizontal: 12, paddingVertical: 6,
+    borderRadius: 20,
+  },
+  imageEditText: { color: '#fff', fontSize: 13, fontWeight: '600' },
+  imagePlaceholder: {
+    flex: 1, alignItems: 'center', justifyContent: 'center', gap: 8,
+    borderBottomWidth: 1, borderBottomColor: '#f3f4f6',
+  },
+  imagePlaceholderIcon: {
+    width: 70, height: 70, borderRadius: 35,
+    backgroundColor: '#f0fdf4',
+    alignItems: 'center', justifyContent: 'center',
+    borderWidth: 2, borderColor: '#a7f3d0',
+    marginBottom: 4,
+  },
+  imagePlaceholderTitle: { fontSize: 15, fontWeight: '700', color: '#1f2937' },
+  imagePlaceholderSub: { fontSize: 13, color: '#9ca3af' },
+
+  // Form
+  formSection: { padding: 16, gap: 4 },
+  fieldGroup: { marginBottom: 16 },
+  fieldRow: { flexDirection: 'row', gap: 12, marginBottom: 0 },
+  fieldLabel: { fontSize: 13, fontWeight: '700', color: '#374151', marginBottom: 8 },
+  required: { color: '#ef4444' },
+  input: {
+    backgroundColor: '#fff',
+    borderWidth: 1, borderColor: '#e5e7eb',
+    borderRadius: 12,
+    paddingHorizontal: 14, paddingVertical: 12,
+    fontSize: 15, color: '#1f2937',
+  },
+  inputHighlight: {
+    borderColor: '#10b981',
+    borderWidth: 1.5,
+  },
+  inputMultiline: { minHeight: 100, textAlignVertical: 'top' },
+  selectInput: {
+    backgroundColor: '#fff',
+    borderWidth: 1, borderColor: '#e5e7eb',
+    borderRadius: 12,
+    paddingHorizontal: 14, paddingVertical: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  selectLeft: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  selectText: { fontSize: 15, color: '#1f2937' },
+
+  // Discount Preview
+  discountPreview: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    backgroundColor: '#f0fdf4',
+    paddingHorizontal: 12, paddingVertical: 8,
+    borderRadius: 10, marginBottom: 16,
+    borderWidth: 1, borderColor: '#a7f3d0',
+  },
+  discountPreviewText: { fontSize: 13, color: '#059669', fontWeight: '600' },
+
+  // Summary Card
+  summaryCard: {
+    marginHorizontal: 16, marginBottom: 16,
+    backgroundColor: '#fff',
+    borderRadius: 16, padding: 16,
+    borderWidth: 1, borderColor: '#e5e7eb',
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05, shadowRadius: 4, elevation: 2,
+  },
+  summaryTitle: { fontSize: 11, fontWeight: '700', color: '#9ca3af', letterSpacing: 1, textTransform: 'uppercase', marginBottom: 12 },
+  summaryRow: { flexDirection: 'row', gap: 12, alignItems: 'center' },
+  summaryImageWrap: { borderRadius: 10, overflow: 'hidden' },
+  summaryImage: { width: 64, height: 64, borderRadius: 10 },
+  summaryName: { fontSize: 15, fontWeight: '700', color: '#1f2937' },
+  summaryOriginal: { fontSize: 12, color: '#9ca3af', textDecorationLine: 'line-through' },
+  summaryPrice: { fontSize: 18, fontWeight: '800', color: '#10b981' },
+  summaryBadge: { backgroundColor: '#10b981', borderRadius: 6, paddingHorizontal: 7, paddingVertical: 2 },
+  summaryBadgeText: { fontSize: 11, fontWeight: '800', color: '#fff' },
+  summaryMeta: { fontSize: 12, color: '#6b7280', marginTop: 4 },
+
+  // Footer
+  footer: {
+    padding: 16,
+    paddingBottom: Platform.OS === 'ios' ? 32 : 16,
+    backgroundColor: '#fff',
+    borderTopWidth: 1, borderTopColor: '#f3f4f6',
+  },
+  submitBtn: {
+    backgroundColor: '#10b981',
+    borderRadius: 14,
+    paddingVertical: 15,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    shadowColor: '#10b981', shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.3, shadowRadius: 12, elevation: 6,
+  },
+  submitBtnText: { fontSize: 16, fontWeight: '800', color: '#fff', letterSpacing: 0.5 },
+
+  // Modal
+  modalOverlay: {
+    flex: 1, backgroundColor: 'rgba(0,0,0,0.45)',
+    justifyContent: 'center', alignItems: 'center', padding: 24,
+  },
+  modalBox: {
+    backgroundColor: '#fff', borderRadius: 20,
+    padding: 20, width: '100%', maxWidth: 340,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.15, shadowRadius: 20, elevation: 10,
+  },
+  modalTitle: { fontSize: 16, fontWeight: '800', color: '#1f2937', marginBottom: 16 },
+  modalOption: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingVertical: 12, paddingHorizontal: 4,
+    borderBottomWidth: 1, borderBottomColor: '#f3f4f6',
+  },
+  modalOptionActive: { backgroundColor: '#f0fdf4', borderRadius: 8, paddingHorizontal: 8, marginHorizontal: -4 },
+  modalOptionText: { fontSize: 15, color: '#374151' },
+  modalOptionTextActive: { color: '#10b981', fontWeight: '700' },
 });

@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import {
   View,
   Text,
@@ -32,6 +32,8 @@ export default function MyShopScreen({ navigation }) {
   const [activeTab, setActiveTab] = useState('active');
   const [stats, setStats] = useState({ posted: 0, sold: 0, revenue: 0 });
   const [statusChecked, setStatusChecked] = useState(false);
+  const [isStoreOpen, setIsStoreOpen] = useState(false);
+  const [username, setUsername] = useState('');
 
   // Drawer states
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
@@ -39,6 +41,26 @@ export default function MyShopScreen({ navigation }) {
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
   const defaultAvatar = Image.resolveAssetSource(require('../../assets/icon.png')).uri;
+
+  // โหลด username จาก users collection
+  useEffect(() => {
+    const loadUsername = async () => {
+      try {
+        const user = auth.currentUser;
+        if (!user) return;
+        const userDoc = await getDoc(doc(db, 'users', user.uid));
+        if (userDoc.exists()) {
+          const data = userDoc.data();
+          setUsername(data.username || data.displayName || user.displayName || 'Username');
+        } else {
+          setUsername(user.displayName || 'Username');
+        }
+      } catch (e) {
+        setUsername(auth.currentUser?.displayName || 'Username');
+      }
+    };
+    loadUsername();
+  }, []);
 
   useFocusEffect(
     useCallback(() => {
@@ -103,6 +125,37 @@ export default function MyShopScreen({ navigation }) {
     }
   };
 
+  const checkStoreOpenStatus = (businessHours) => {
+    if (!businessHours) return false;
+
+    const dayMap = {
+      0: 'sun', 1: 'mon', 2: 'tue', 3: 'wed', 4: 'thu', 5: 'fri', 6: 'sat'
+    };
+
+    const now = new Date();
+    const dayKey = dayMap[now.getDay()];
+    const todayHours = businessHours[dayKey];
+
+    if (!todayHours || !todayHours.isOpen) return false;
+
+    const { openTime, closeTime } = todayHours;
+    if (!openTime || !closeTime) return false;
+
+    const [openH, openM] = openTime.split(':').map(Number);
+    const [closeH, closeM] = closeTime.split(':').map(Number);
+
+    const currentMinutes = now.getHours() * 60 + now.getMinutes();
+    const openMinutes = openH * 60 + openM;
+    const closeMinutes = closeH * 60 + closeM;
+
+    // รองรับกรณีข้ามเที่ยงคืน เช่น 22:00 - 02:00
+    if (closeMinutes < openMinutes) {
+      return currentMinutes >= openMinutes || currentMinutes < closeMinutes;
+    }
+
+    return currentMinutes >= openMinutes && currentMinutes < closeMinutes;
+  };
+
   const loadStoreData = async () => {
     try {
       const user = auth.currentUser;
@@ -125,6 +178,7 @@ export default function MyShopScreen({ navigation }) {
         if (storeInfo.status === 'approved') {
           console.log('✅ Store is APPROVED');
           setStoreData(storeInfo);
+          setIsStoreOpen(checkStoreOpenStatus(storeInfo.businessHours));
           setStatusChecked(true);
           
         } else if (storeInfo.status === 'pending') {
@@ -389,7 +443,13 @@ export default function MyShopScreen({ navigation }) {
               <Ionicons name="layers-outline" size={12} color="#10b981" />
               <Text style={styles.metaText}>{item.quantity} {item.unit}</Text>
             </View>
-{item.expiryDate ? (
+            {item.category ? (
+              <View style={[styles.metaChip, { backgroundColor: '#eff6ff', borderColor: '#bfdbfe' }]}>
+                <Ionicons name="pricetag-outline" size={12} color="#3b82f6" />
+                <Text style={[styles.metaText, { color: '#3b82f6' }]}>{item.category}</Text>
+              </View>
+            ) : null}
+            {item.expiryDate ? (
               <View style={[styles.metaChip, { backgroundColor: '#1a2030' }]}>
                 <Ionicons name="time-outline" size={12} color="#60a5fa" />
                 <Text style={[styles.metaText, { color: '#60a5fa' }]}>
@@ -471,8 +531,9 @@ export default function MyShopScreen({ navigation }) {
   };
 
   const DrawerContent = () => (
-    <View style={styles.drawerWrapper}>
-      <View style={styles.drawerContent}>
+    <ScrollView contentContainerStyle={styles.drawerScrollContent} showsVerticalScrollIndicator={false}>
+      <View style={styles.drawerContentPadding}>
+
         {/* Header */}
         <View style={styles.drawerTopHeader}>
           <View style={styles.logoContainer}>
@@ -492,107 +553,106 @@ export default function MyShopScreen({ navigation }) {
         {/* Profile Card */}
         <View style={styles.profileCard}>
           <View style={styles.profileHeader}>
-            <Image 
-              source={storeData?.storeImage ? { uri: storeData.storeImage } : { uri: defaultAvatar }} 
-              style={styles.drawerAvatar} 
+            <Image
+              source={storeData?.storeImage ? { uri: storeData.storeImage } : { uri: defaultAvatar }}
+              style={styles.drawerAvatar}
             />
             <View style={{ flex: 1 }}>
-              <Text style={styles.drawerName}>{storeData?.storeName || 'ร้านค้า'}</Text>
+              <Text style={styles.drawerName}>{username}</Text>
               <Text style={styles.drawerRole}>โหมด: ร้านค้า</Text>
             </View>
           </View>
-          
+
           {/* Mode Switcher */}
           <View style={styles.modeContainer}>
-            <TouchableOpacity 
+            <TouchableOpacity
               style={styles.modeButtonInactive}
-              onPress={() => {
-                toggleDrawer();
-                navigation.navigate('Home');
-              }}
+              onPress={() => { toggleDrawer(); navigation.navigate('Home'); }}
             >
               <Ionicons name="cart-outline" size={16} color="#6b7280" />
               <Text style={styles.modeTextInactive}>โหมดลูกค้า</Text>
             </TouchableOpacity>
-            <TouchableOpacity 
-              style={styles.modeButtonActive}
-              activeOpacity={1}
-            >
+            <TouchableOpacity style={styles.modeButtonActive} activeOpacity={1}>
               <Ionicons name="storefront" size={16} color="#fff" />
               <Text style={styles.modeTextActive}>โหมดร้านค้า</Text>
             </TouchableOpacity>
           </View>
         </View>
 
-        {/* Menu Section */}
-        <Text style={styles.sectionTitle}>เมนูหลัก</Text>
+        {/* Main Menu */}
+        <Text style={styles.sectionLabel}>เมนูหลัก</Text>
+        <TouchableOpacity style={styles.drawerMenuItem} onPress={() => { toggleDrawer(); navigation.navigate('MyShop'); }}>
+          <View style={[styles.menuIconBox, { backgroundColor: '#d1fae5' }]}><Ionicons name="home-outline" size={20} color="#10b981" /></View>
+          <Text style={styles.drawerMenuText}>หน้าหลัก</Text>
+          <Ionicons name="chevron-forward" size={18} color="#9ca3af" style={{ marginLeft: 'auto' }} />
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.drawerMenuItem} onPress={() => { toggleDrawer(); navigation.navigate('StoreOrders'); }}>
+          <View style={[styles.menuIconBox, { backgroundColor: '#fef3c7' }]}><Ionicons name="receipt-outline" size={20} color="#f59e0b" /></View>
+          <Text style={styles.drawerMenuText}>คำสั่งซื้อของร้าน</Text>
+          <Ionicons name="chevron-forward" size={18} color="#9ca3af" style={{ marginLeft: 'auto' }} />
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.drawerMenuItem} onPress={() => { toggleDrawer(); navigation.navigate('StoreDashboard'); }}>
+          <View style={[styles.menuIconBox, { backgroundColor: '#eff6ff' }]}><Ionicons name="bar-chart-outline" size={20} color="#3b82f6" /></View>
+          <Text style={styles.drawerMenuText}>แดชบอร์ด</Text>
+          <Ionicons name="chevron-forward" size={18} color="#9ca3af" style={{ marginLeft: 'auto' }} />
+        </TouchableOpacity>
         
-        <TouchableOpacity 
-          style={styles.drawerMenuItem}
-          onPress={() => {
-            toggleDrawer();
-            navigation.navigate('MyShop');
-          }}
-        >
-          <View style={styles.menuIconBox}>
-            <Ionicons name="home-outline" size={20} color="#10b981" />
-          </View>
-          <Text style={styles.drawerMenuText}>หน้าหลัก</Text><Ionicons name="chevron-forward" size={18} color="#d1d5db" style={{marginLeft: 'auto'}} />
+        <TouchableOpacity style={styles.drawerMenuItem} onPress={() => { toggleDrawer(); navigation.navigate('StoreDashboard'); }}>
+          <View style={[styles.menuIconBox, { backgroundColor: '#eff6ff' }]}><Ionicons name="notifications-outline" size={20} color="#3b82f6" /></View>
+          <Text style={styles.drawerMenuText}>การแจ้งเตือนร้านค้า</Text>
+          <Ionicons name="chevron-forward" size={18} color="#9ca3af" style={{ marginLeft: 'auto' }} />
         </TouchableOpacity>
 
-        <TouchableOpacity 
-          style={styles.drawerMenuItem}
-          onPress={() => {
-            toggleDrawer();
-            navigation.navigate('StoreOrders');
-          }}
-        >
-          <View style={styles.menuIconBox}>
-            <Ionicons name="receipt-outline" size={20} color="#f59e0b" />
-          </View>
-          <Text style={styles.drawerMenuText}>คำสั่งซื้อของร้าน</Text><Ionicons name="chevron-forward" size={18} color="#d1d5db" style={{marginLeft: 'auto'}} />
+
+        {/* Account Menu */}
+        <Text style={styles.sectionLabel}>บัญชี</Text>
+        <TouchableOpacity style={styles.drawerMenuItem} onPress={() => { toggleDrawer(); Alert.alert('กำลังพัฒนา', 'หน้าโปรไฟล์'); }}>
+          <View style={[styles.menuIconBox, { backgroundColor: '#f3e8ff' }]}><Ionicons name="person-outline" size={20} color="#a855f7" /></View>
+          <Text style={styles.drawerMenuText}>โปรไฟล์</Text>
+          <Ionicons name="chevron-forward" size={18} color="#9ca3af" style={{ marginLeft: 'auto' }} />
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.drawerMenuItem} onPress={() => { toggleDrawer(); navigation.navigate('StoreSettings'); }}>
+          <View style={[styles.menuIconBox, { backgroundColor: '#f3f4f6' }]}><Ionicons name="settings-outline" size={20} color="#6b7280" /></View>
+          <Text style={styles.drawerMenuText}>แก้ไขข้อมูลร้านค้า</Text>
+          <Ionicons name="chevron-forward" size={18} color="#9ca3af" style={{ marginLeft: 'auto' }} />
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.drawerMenuItem} onPress={() => { toggleDrawer(); Alert.alert('ยกเลิก', 'ยืนยันการยกเลิกการเป็นร้านค้า?'); }}>
+          <View style={[styles.menuIconBox, { backgroundColor: '#fee2e2' }]}><Ionicons name="close-circle-outline" size={20} color="#ef4444" /></View>
+          <Text style={styles.drawerMenuText}>ยกเลิกการเป็นร้านค้า</Text>
+          <Ionicons name="chevron-forward" size={18} color="#9ca3af" style={{ marginLeft: 'auto' }} />
         </TouchableOpacity>
 
-        <TouchableOpacity 
-          style={styles.drawerMenuItem}
-          onPress={() => {
-            toggleDrawer();
-            navigation.navigate('StoreDashboard');
-          }}
-        >
-          <View style={styles.menuIconBox}>
-            <Ionicons name="notifications-outline" size={20} color="#3b82f6" />
+        {/* Store Status Card */}
+        <View style={styles.storeStatusCard}>
+          <View style={styles.storeStatusHeader}>
+            <View style={styles.storeIconCircle}><Ionicons name="storefront" size={20} color="#10b981" /></View>
+            <View>
+              <Text style={styles.storeStatusName}>{storeData?.storeName || 'ชื่อร้านค้า'}</Text>
+              <Text style={styles.storeStatusText}>สถานะ: {isStoreOpen ? 'เปิดทำการ' : 'ปิดทำการ'}</Text>
+            </View>
           </View>
-          <Text style={styles.drawerMenuText}>Dashboard</Text><Ionicons name="chevron-forward" size={18} color="#d1d5db" style={{marginLeft: 'auto'}} />
-        </TouchableOpacity>
-
-        <Text style={styles.sectionTitle}>บัญชี</Text>
-
-        <TouchableOpacity 
-          style={styles.drawerMenuItem}
-          onPress={() => {
-            toggleDrawer();
-            navigation.navigate('StoreSettings');
-          }}
-        >
-          <View style={styles.menuIconBox}>
-            <Ionicons name="person-outline" size={20} color="#3b82f6" />
+          <View style={styles.storeStatRow}>
+            <View style={styles.storeStatBox}>
+              <Text style={styles.storeStatBoxTitle}>สินค้าโพสต์</Text>
+              <Text style={styles.storeStatBoxValue}>{stats.posted} รายการ</Text>
+            </View>
+            <View style={styles.storeStatBox}>
+              <Text style={styles.storeStatBoxTitle}>ยอดขายสะสม</Text>
+              <Text style={styles.storeStatBoxValue}>{stats.sold} ชิ้น</Text>
+            </View>
           </View>
-          <Text style={styles.drawerMenuText}>โปรไฟล์</Text><Ionicons name="chevron-forward" size={18} color="#d1d5db" style={{marginLeft: 'auto'}} />
-        </TouchableOpacity>
+        </View>
 
         {/* Logout */}
-        <TouchableOpacity 
-          style={styles.drawerLogout}
-          onPress={handleLogout}
-        >
+        <TouchableOpacity style={styles.drawerLogout} onPress={handleLogout}>
           <View style={[styles.menuIconBox, { backgroundColor: '#fee2e2' }]}>
             <Ionicons name="log-out-outline" size={20} color="#ef4444" />
           </View>
           <Text style={styles.drawerLogoutText}>ออกจากระบบ</Text>
         </TouchableOpacity>
+
       </View>
-    </View>
+    </ScrollView>
   );
 
   return (
@@ -604,7 +664,8 @@ export default function MyShopScreen({ navigation }) {
         <TouchableOpacity onPress={toggleDrawer} style={styles.menuButton}>
           <View style={styles.menuIconWrapper}>
             <View style={styles.menuLine} />
-            <View style={[styles.menuLine, { width: 16 }]} />
+            <View style={styles.menuLine} />
+            <View style={styles.menuLine} />
           </View>
         </TouchableOpacity>
 
@@ -612,7 +673,7 @@ export default function MyShopScreen({ navigation }) {
           <View style={styles.logoLeafWrap}>
             <Ionicons name="leaf" size={14} color="#10b981" />
           </View>
-          <Text style={styles.headerTitle}>MY SHOP</Text>
+          <Text style={styles.headerTitle}>ร้านค้าของฉัน</Text>
         </View>
 
         <TouchableOpacity onPress={() => navigation.navigate('StoreProfile')} style={styles.avatarWrap}>
@@ -630,9 +691,9 @@ export default function MyShopScreen({ navigation }) {
           <Text style={styles.bannerGreet}>สวัสดี 👋</Text>
           <Text style={styles.bannerName}>{storeData?.storeName || 'ร้านค้าของคุณ'}</Text>
         </View>
-        <View style={styles.statusBadge}>
-          <View style={styles.statusDot} />
-          <Text style={styles.statusText}>เปิดอยู่</Text>
+        <View style={[styles.statusBadge, !isStoreOpen && styles.statusBadgeClosed]}>
+          <View style={[styles.statusDot, !isStoreOpen && styles.statusDotClosed]} />
+          <Text style={styles.statusText}>{isStoreOpen ? 'เปิดอยู่' : 'ปิดอยู่'}</Text>
         </View>
       </View>
 
@@ -709,6 +770,26 @@ export default function MyShopScreen({ navigation }) {
         </TouchableOpacity>
       )}
 
+      {/* Bottom Nav */}
+      <View style={styles.bottomNav}>
+        <TouchableOpacity style={styles.navItem}>
+          <Ionicons name="storefront" size={24} color="#1f2937" />
+          <Text style={[styles.navLabel, styles.navLabelActive]}>ร้านค้าของฉัน</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.navItem} onPress={() => navigation.navigate('StoreOrders')}>
+          <Ionicons name="list-outline" size={24} color="#9ca3af" />
+          <Text style={styles.navLabel}>ออร์เดอร์</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.navItem} onPress={() => Alert.alert('กำลังพัฒนา')}>
+          <Ionicons name="notifications-outline" size={24} color="#9ca3af" />
+          <Text style={styles.navLabel}>แจ้งเตือน</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.navItem} onPress={() => Alert.alert('กำลังพัฒนา')}>
+          <Ionicons name="person-outline" size={24} color="#9ca3af" />
+          <Text style={styles.navLabel}>โปรไฟล์</Text>
+        </TouchableOpacity>
+      </View>
+
       {/* Drawer Modal */}
       {isDrawerOpen && (
         <Modal transparent visible={isDrawerOpen} animationType="none">
@@ -749,11 +830,9 @@ const styles = StyleSheet.create({
     height: 40,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    borderRadius: 12,
   },
-  menuIconWrapper: { gap: 5, alignItems: 'flex-start' },
-  menuLine: { width: 20, height: 2, backgroundColor: '#fff', borderRadius: 2 },
+  menuIconWrapper: { gap: 4, alignItems: 'flex-start' },
+  menuLine: { width: 20, height: 2.5, backgroundColor: '#fff', borderRadius: 2 },
   headerCenter: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   logoLeafWrap: {
     width: 28,
@@ -814,7 +893,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 7,
   },
+  statusBadgeClosed: {
+    backgroundColor: 'rgba(0,0,0,0.2)',
+  },
   statusDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: '#fff' },
+  statusDotClosed: { backgroundColor: '#fca5a5' },
   statusText: { fontSize: 12, color: '#fff', fontWeight: '700' },
 
   // ─── Stats ─────────────────────────────────────────────────────
@@ -969,10 +1052,22 @@ const styles = StyleSheet.create({
   },
   deleteBtnText: { fontSize: 13, fontWeight: '700', color: '#ef4444' },
 
+  // ─── Bottom Nav ────────────────────────────────────────────────
+  bottomNav: {
+    position: 'absolute', bottom: 0, left: 0, right: 0,
+    flexDirection: 'row',
+    backgroundColor: '#fff',
+    borderTopWidth: 1, borderTopColor: '#f3f4f6',
+    paddingVertical: 12, paddingHorizontal: 20,
+  },
+  navItem: { flex: 1, alignItems: 'center', gap: 4 },
+  navLabel: { fontSize: 11, color: '#9ca3af' },
+  navLabelActive: { color: '#1f2937', fontWeight: '600' },
+
   // ─── New Post Button ───────────────────────────────────────────
   newPostButton: {
     marginHorizontal: 16,
-    marginBottom: 20,
+    marginBottom: 80,
     borderRadius: 16,
     overflow: 'hidden',
     backgroundColor: '#10b981',
@@ -1018,7 +1113,7 @@ const styles = StyleSheet.create({
   drawerContainer: {
     position: 'absolute',
     left: 0, top: 0, bottom: 0,
-    width: width * 0.80,
+    width: width * 0.85,
     backgroundColor: '#fff',
     shadowColor: '#10b981',
     shadowOffset: { width: 4, height: 0 },
@@ -1028,6 +1123,12 @@ const styles = StyleSheet.create({
     borderRightWidth: 1,
     borderRightColor: '#d1fae5',
   },
+  drawerScrollContent: {
+    flexGrow: 1,
+    paddingTop: Platform.OS === 'ios' ? 50 : 30,
+    paddingBottom: 40,
+  },
+  drawerContentPadding: { paddingHorizontal: 20 },
   drawerWrapper: {
     flex: 1,
     paddingTop: Platform.OS === 'ios' ? 55 : 40,
@@ -1044,7 +1145,7 @@ const styles = StyleSheet.create({
     width: 42,
     height: 42,
     borderRadius: 14,
-    backgroundColor: '#10b981',
+    backgroundColor: '#f0fdf4',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1056,9 +1157,16 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
   },
   profileCard: {
-    backgroundColor: '#10b981',
+    backgroundColor: '#fff',
     borderRadius: 16,
     padding: 15,
+    borderWidth: 1,
+    borderColor: '#f3f4f6',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 2,
     marginBottom: 20,
   },
   profileHeader: {
@@ -1070,32 +1178,30 @@ const styles = StyleSheet.create({
   modeContainer: { flexDirection: 'row', gap: 8 },
   modeButtonActive: {
     flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-    gap: 5, paddingVertical: 9, backgroundColor: '#fff', borderRadius: 10,
+    gap: 5, paddingVertical: 9, backgroundColor: '#10b981', borderRadius: 10,
   },
   modeButtonInactive: {
     flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-    gap: 5, paddingVertical: 9, backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: 10,
+    gap: 5, paddingVertical: 9, backgroundColor: '#f3f4f6', borderRadius: 10,
   },
-  modeTextActive: { fontSize: 11, fontWeight: '700', color: '#10b981' },
-  modeTextInactive: { fontSize: 11, color: 'rgba(255,255,255,0.85)', fontWeight: '600' },
+  modeTextActive: { fontSize: 11, fontWeight: '700', color: '#fff' },
+  modeTextInactive: { fontSize: 11, color: '#6b7280', fontWeight: '600' },
   drawerAvatar: {
     width: 52, height: 52, borderRadius: 26,
-    borderWidth: 2, borderColor: '#fff',
+    borderWidth: 2, borderColor: '#10b981',
     backgroundColor: '#d1fae5',
   },
-  drawerName: { fontSize: 16, fontWeight: '700', color: '#fff' },
-  drawerRole: { fontSize: 12, color: 'rgba(255,255,255,0.8)', marginTop: 2 },
-  sectionTitle: {
+  drawerName: { fontSize: 16, fontWeight: '700', color: '#1f2937' },
+  drawerRole: { fontSize: 12, color: '#6b7280', marginTop: 2 },
+  sectionLabel: {
     fontSize: 11, color: '#9ca3af', fontWeight: '700',
     letterSpacing: 1.5, textTransform: 'uppercase',
     marginBottom: 8, marginLeft: 4, marginTop: 8,
   },
   drawerMenuItem: {
     flexDirection: 'row', alignItems: 'center',
-    backgroundColor: '#f9fafb',
-    paddingVertical: 12, paddingHorizontal: 12,
-    marginBottom: 6, borderRadius: 12,
-    borderWidth: 1, borderColor: '#f3f4f6',
+    paddingVertical: 10, paddingHorizontal: 5,
+    marginBottom: 4,
   },
   menuIconBox: {
     width: 36, height: 36, borderRadius: 10,
@@ -1103,6 +1209,29 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center', marginRight: 14,
   },
   drawerMenuText: { fontSize: 14, color: '#1f2937', fontWeight: '600', flex: 1 },
+  storeStatusCard: {
+    backgroundColor: '#f9fafb',
+    borderRadius: 16, padding: 16,
+    marginTop: 15, marginBottom: 20,
+    borderWidth: 1, borderColor: '#f3f4f6',
+  },
+  storeStatusHeader: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 12 },
+  storeIconCircle: {
+    width: 40, height: 40, borderRadius: 20,
+    backgroundColor: '#d1fae5',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  storeStatusName: { fontSize: 15, fontWeight: 'bold', color: '#1f2937' },
+  storeStatusText: { fontSize: 12, color: '#10b981', marginTop: 2, fontWeight: '600' },
+  storeStatRow: { flexDirection: 'row', gap: 10 },
+  storeStatBox: {
+    flex: 1, backgroundColor: '#fff', paddingVertical: 12,
+    borderRadius: 12, alignItems: 'center',
+    shadowColor: '#000', shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05, shadowRadius: 2, elevation: 1,
+  },
+  storeStatBoxTitle: { fontSize: 11, color: '#6b7280', marginBottom: 4 },
+  storeStatBoxValue: { fontSize: 14, color: '#1f2937', fontWeight: 'bold' },
   drawerLogout: {
     flexDirection: 'row', alignItems: 'center',
     gap: 14, marginTop: 16, marginBottom: 30,

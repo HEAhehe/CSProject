@@ -237,6 +237,7 @@ export default function CartScreen({ navigation }) {
               const orderType = itemsInOrder[0].deliveryMethod || 'pickup';
               const newOrderRef = doc(collection(db, 'orders'));
 
+              // ✅ เพิ่มชื่อที่อยู่, รายละเอียด, และเบอร์โทร
               const orderData = {
                 id: newOrderRef.id,
                 userId: user.uid,
@@ -260,8 +261,8 @@ export default function CartScreen({ navigation }) {
                 customerAddress: userData?.address || null,
                 customerLat: userData?.latitude || null,
                 customerLng: userData?.longitude || null,
-                customerPhone: userData?.phone || null,
-                closingTime: closingTime || '20:00',
+                customerPhone: userData?.phoneNumber || userData?.phone || userData?.tel || userData?.mobile || null,
+                closingTime: closingTime,
                 createdAt: new Date().toISOString()
               };
 

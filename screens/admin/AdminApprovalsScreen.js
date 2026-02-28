@@ -1,26 +1,36 @@
 import React, { useState, useCallback } from 'react';
 import {
-  View, Text, StyleSheet, FlatList, TouchableOpacity, StatusBar,
-  Modal, TextInput, Alert, RefreshControl, ActivityIndicator
+  View,
+  Text,
+  StyleSheet,
+  FlatList,
+  TouchableOpacity,
+  StatusBar,
+  Modal,
+  TextInput,
+  Alert,
+  RefreshControl,
+  ActivityIndicator
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { db, auth } from '../../firebase.config';
-// ✅ เพิ่ม addDoc สำหรับการส่งแจ้งเตือน
-import { collection, getDocs, doc, updateDoc, query, addDoc } from 'firebase/firestore';
+import { collection, getDocs, doc, updateDoc, query } from 'firebase/firestore';
 
 export default function AdminApprovalsScreen({ navigation }) {
-  const [selectedTab, setSelectedTab] = useState('pending');
+  const [selectedTab, setSelectedTab] = useState('pending'); // pending, approved, rejected
   const [modalVisible, setModalVisible] = useState(false);
   const [selectedRequest, setSelectedRequest] = useState(null);
   const [rejectReason, setRejectReason] = useState('');
-  const [actionType, setActionType] = useState('');
+  const [actionType, setActionType] = useState(''); // 'approve' or 'reject'
 
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
-  useFocusEffect(useCallback(() => { fetchRequests(); }, []));
+  useFocusEffect(
+    useCallback(() => { fetchRequests(); }, [])
+  );
 
   const fetchRequests = async () => {
     try {
@@ -42,12 +52,22 @@ export default function AdminApprovalsScreen({ navigation }) {
     }
   };
 
-  const onRefresh = () => { setRefreshing(true); fetchRequests(); };
+  const onRefresh = () => {
+    setRefreshing(true);
+    fetchRequests();
+  };
+
   const filteredRequests = requests.filter(req => (req.status || 'pending') === selectedTab);
 
-  const getRequestTypeColor = (type) => type === 'store_update' ? '#8b5cf6' : '#3b82f6';
+  const getRequestTypeColor = (type) => {
+    if (type === 'store_update') return '#8b5cf6'; // ม่วง
+    return '#3b82f6'; // ฟ้า (ลงทะเบียนใหม่)
+  };
 
-  const handleRequestPress = (request) => { setSelectedRequest(request); setModalVisible(true); };
+  const handleRequestPress = (request) => {
+    setSelectedRequest(request);
+    setModalVisible(true);
+  };
 
   const confirmAction = () => {
     Alert.alert(
@@ -148,6 +168,17 @@ export default function AdminApprovalsScreen({ navigation }) {
             <Text style={styles.requestUser}>โดย: {item.userName || 'ไม่ระบุชื่อ'}</Text>
           </View>
         </View>
+
+        {/* ✅ แสดงเหตุผลปฏิเสธใน card */}
+        {item.status === 'rejected' && item.rejectReason ? (
+          <View style={styles.rejectReasonCard}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 4 }}>
+              <Ionicons name="close-circle" size={13} color="#ef4444" />
+              <Text style={styles.rejectReasonCardTitle}>เหตุผลที่ปฏิเสธ</Text>
+            </View>
+            <Text style={styles.rejectReasonCardText}>{item.rejectReason}</Text>
+          </View>
+        ) : null}
       </TouchableOpacity>
     );
   };
@@ -176,7 +207,13 @@ export default function AdminApprovalsScreen({ navigation }) {
       {loading ? (
         <View style={styles.center}><ActivityIndicator size="large" color="#1f2937" /></View>
       ) : filteredRequests.length > 0 ? (
-        <FlatList data={filteredRequests} renderItem={renderRequest} keyExtractor={(item) => item.id} contentContainerStyle={styles.requestsList} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />} />
+        <FlatList
+          data={filteredRequests}
+          renderItem={renderRequest}
+          keyExtractor={(item) => item.id}
+          contentContainerStyle={styles.requestsList}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+        />
       ) : (
         <View style={styles.emptyState}>
           <Ionicons name="folder-open-outline" size={64} color="#d1d5db" />
@@ -184,38 +221,65 @@ export default function AdminApprovalsScreen({ navigation }) {
         </View>
       )}
 
+      {/* Modal */}
       <Modal animationType="slide" transparent={true} visible={modalVisible}>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>รายละเอียดคำขอ</Text>
-              <TouchableOpacity onPress={() => { setModalVisible(false); setRejectReason(''); }}><Ionicons name="close" size={24} color="#1f2937" /></TouchableOpacity>
+              <TouchableOpacity onPress={() => { setModalVisible(false); setRejectReason(''); }}>
+                <Ionicons name="close" size={24} color="#1f2937" />
+              </TouchableOpacity>
             </View>
+
             {selectedRequest && (
               <View style={{flex: 1}}>
                 <ScrollView style={styles.modalBody} showsVerticalScrollIndicator={false}>
-                  <View style={styles.infoRow}><Text style={styles.label}>ประเภท:</Text><Text style={styles.value}>{selectedRequest.type === 'store_update' ? 'แก้ไขข้อมูลร้าน' : 'เปิดร้านใหม่'}</Text></View>
-                  <View style={styles.infoRow}><Text style={styles.label}>ผู้ขอ:</Text><Text style={styles.value}>{selectedRequest.userName}</Text></View>
+                  <View style={styles.infoRow}>
+                    <Text style={styles.label}>ประเภท:</Text>
+                    <Text style={styles.value}>{selectedRequest.type === 'store_update' ? 'แก้ไขข้อมูลร้าน' : 'เปิดร้านใหม่'}</Text>
+                  </View>
+                  <View style={styles.infoRow}>
+                    <Text style={styles.label}>ผู้ขอ:</Text>
+                    <Text style={styles.value}>{selectedRequest.userName}</Text>
+                  </View>
+
                   <View style={styles.divider} />
                   <Text style={styles.sectionHeader}>{selectedRequest.type === 'store_update' ? 'ข้อมูลที่ขอแก้ไขใหม่' : 'ข้อมูลร้านค้า'}</Text>
+
                   {selectedRequest.details && Object.entries(selectedRequest.details).map(([key, value]) => (
-                    <View key={key} style={styles.infoRow}><Text style={styles.label}>{key}:</Text><Text style={styles.value}>{String(value)}</Text></View>
+                    <View key={key} style={styles.infoRow}>
+                      <Text style={styles.label}>{key}:</Text>
+                      <Text style={styles.value}>{String(value)}</Text>
+                    </View>
                   ))}
+
                   {selectedRequest.status === 'pending' && (
                     <View style={styles.rejectInputContainer}>
                       <Text style={styles.label}>เหตุผล (กรณีปฏิเสธ):</Text>
                       <TextInput style={styles.reasonInput} placeholder="ระบุเหตุผลที่นี่..." value={rejectReason} onChangeText={setRejectReason} multiline />
                     </View>
                   )}
+
                   {selectedRequest.status === 'rejected' && selectedRequest.rejectReason && (
-                    <View style={styles.rejectReasonBox}><Text style={styles.rejectReasonTitle}>เหตุผลที่ปฏิเสธ:</Text><Text style={styles.rejectReasonText}>{selectedRequest.rejectReason}</Text></View>
+                    <View style={styles.rejectReasonBox}>
+                      <Text style={styles.rejectReasonTitle}>เหตุผลที่ปฏิเสธ:</Text>
+                      <Text style={styles.rejectReasonText}>{selectedRequest.rejectReason}</Text>
+                    </View>
                   )}
                   <View style={{height: 40}} />
                 </ScrollView>
+
                 {selectedRequest.status === 'pending' && (
                   <View style={styles.modalActions}>
-                    <TouchableOpacity style={styles.rejectButton} onPress={handleReject}><Ionicons name="close-circle" size={20} color="#fff" /><Text style={styles.buttonText}>ปฏิเสธ</Text></TouchableOpacity>
-                    <TouchableOpacity style={styles.approveButton} onPress={handleApprove}><Ionicons name="checkmark-circle" size={20} color="#fff" /><Text style={styles.buttonText}>อนุมัติ</Text></TouchableOpacity>
+                    <TouchableOpacity style={styles.rejectButton} onPress={handleReject}>
+                      <Ionicons name="close-circle" size={20} color="#fff" />
+                      <Text style={styles.buttonText}>ปฏิเสธ</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.approveButton} onPress={handleApprove}>
+                      <Ionicons name="checkmark-circle" size={20} color="#fff" />
+                      <Text style={styles.buttonText}>อนุมัติ</Text>
+                    </TouchableOpacity>
                   </View>
                 )}
               </View>
@@ -234,27 +298,35 @@ const styles = StyleSheet.create({
   backButton: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
   headerTitle: { fontSize: 16, fontWeight: '600', color: '#1f2937' },
   placeholder: { width: 40 },
+
   tabsContainer: { flexDirection: 'row', paddingHorizontal: 20, paddingVertical: 12, gap: 8 },
   tab: { flex: 1, paddingVertical: 8, alignItems: 'center', borderBottomWidth: 2, borderBottomColor: 'transparent' },
   tabActive: { borderBottomColor: '#1f2937' },
   tabText: { fontSize: 12, color: '#9ca3af', fontWeight: '500' },
   tabTextActive: { color: '#1f2937', fontWeight: '600' },
+
   requestsList: { paddingHorizontal: 20, paddingBottom: 100 },
   requestCard: { backgroundColor: '#f9fafb', borderRadius: 12, padding: 16, marginBottom: 12, borderWidth: 1, borderColor: '#e5e7eb' },
   requestHeader: { flexDirection: 'row', alignItems: 'center' },
   typeIcon: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', marginRight: 12 },
   requestInfo: { flex: 1 },
+
+  // ✅ ป้ายกำกับแยกสีให้ชัดเจน
   typeBadge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
   typeUpdateBg: { backgroundColor: '#ede9fe' },
   typeRegisterBg: { backgroundColor: '#dbeafe' },
   typeBadgeText: { fontSize: 10, fontWeight: 'bold' },
   typeUpdateText: { color: '#8b5cf6' },
   typeRegisterText: { color: '#3b82f6' },
+
   storeNameTitle: { fontSize: 15, fontWeight: 'bold', color: '#1f2937', marginBottom: 2 },
   requestUser: { fontSize: 13, color: '#6b7280' },
   requestDate: { fontSize: 11, color: '#9ca3af' },
+
   emptyState: { flex: 1, alignItems: 'center', justifyContent: 'center', marginTop: 100 },
   emptyText: { fontSize: 16, color: '#9ca3af', marginTop: 16 },
+
+  // Modal
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
   modalContent: { backgroundColor: '#fff', borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: '85%', minHeight: '50%' },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 20, borderBottomWidth: 1, borderBottomColor: '#f3f4f6' },
@@ -265,13 +337,21 @@ const styles = StyleSheet.create({
   value: { fontSize: 14, fontWeight: '500', color: '#1f2937', maxWidth: '60%', textAlign: 'right' },
   divider: { height: 1, backgroundColor: '#f3f4f6', marginVertical: 15 },
   sectionHeader: { fontSize: 16, fontWeight: '600', color: '#1f2937', marginBottom: 15 },
+
   rejectInputContainer: { marginTop: 20 },
   reasonInput: { backgroundColor: '#f9fafb', borderRadius: 8, padding: 12, marginTop: 8, minHeight: 80, textAlignVertical: 'top', borderWidth: 1, borderColor: '#e5e7eb' },
   rejectReasonBox: { backgroundColor: '#fee2e2', padding: 12, borderRadius: 8, marginTop: 15 },
   rejectReasonTitle: { color: '#ef4444', fontWeight: '600', marginBottom: 4 },
   rejectReasonText: { color: '#7f1d1d' },
+
+  // ✅ ในรายการ card
+  rejectReasonCard: { marginTop: 10, backgroundColor: '#fff1f2', borderRadius: 8, padding: 10, borderLeftWidth: 3, borderLeftColor: '#ef4444' },
+  rejectReasonCardTitle: { fontSize: 11, fontWeight: '700', color: '#ef4444' },
+  rejectReasonCardText: { fontSize: 13, color: '#7f1d1d', marginTop: 2, lineHeight: 18 },
+
   modalActions: { flexDirection: 'row', padding: 20, gap: 12, borderTopWidth: 1, borderTopColor: '#f3f4f6' },
   rejectButton: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, padding: 14, borderRadius: 8, backgroundColor: '#ef4444' },
   approveButton: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, padding: 14, borderRadius: 8, backgroundColor: '#10b981' },
   buttonText: { color: '#fff', fontWeight: '600', fontSize: 15 },
+
 });

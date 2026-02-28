@@ -22,7 +22,7 @@ import MapView, { Marker } from 'react-native-maps';
 import * as Location from 'expo-location';
 import { db, auth } from '../../firebase.config';
 // ✅ เปลี่ยนจาก updateDoc เป็น addDoc และ collection เพื่อสร้างคำขอ
-import { doc, getDoc, collection, addDoc } from 'firebase/firestore';
+import { doc, getDoc, collection, addDoc, query, where, getDocs } from 'firebase/firestore';
 
 const { width } = Dimensions.get('window');
 
@@ -39,6 +39,8 @@ const daysOfWeek = [
 export default function StoreSettingsScreen({ navigation }) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [requestStatus, setRequestStatus] = useState(null); // null | 'pending' | 'approved' | 'rejected'
+  const [rejectReason, setRejectReason] = useState('');
 
   // ข้อมูลทั่วไป
   const [storeName, setStoreName] = useState('');
@@ -75,7 +77,42 @@ export default function StoreSettingsScreen({ navigation }) {
 
   useEffect(() => {
     loadStoreData();
+    checkRequestStatus();
   }, []);
+
+  const checkRequestStatus = async () => {
+    try {
+      const user = auth.currentUser;
+      if (!user) return;
+
+      const q = query(
+        collection(db, 'approval_requests'),
+        where('userId', '==', user.uid),
+        where('type', '==', 'store_update')
+      );
+      const snapshot = await getDocs(q);
+      if (!snapshot.empty) {
+        // Sort by requestDate desc in JS แทน orderBy ใน Firestore
+        const sorted = snapshot.docs
+          .map(d => d.data())
+          .sort((a, b) => new Date(b.requestDate) - new Date(a.requestDate));
+
+        const latestStatus = sorted[0].status;
+        if (latestStatus === 'pending') {
+          setRequestStatus('pending');
+        } else if (latestStatus === 'approved') {
+          setRequestStatus('approved');
+        } else if (latestStatus === 'rejected') {
+          setRequestStatus('rejected');
+          setRejectReason(sorted[0].rejectReason || '');
+        } else {
+          setRequestStatus(null);
+        }
+      }
+    } catch (error) {
+      console.error('Error checking request status:', error);
+    }
+  };
 
   const loadStoreData = async () => {
     try {
@@ -272,7 +309,7 @@ export default function StoreSettingsScreen({ navigation }) {
       Alert.alert(
         'ส่งคำขอสำเร็จ 📝',
         'จะอมนุมัติภายใน 1-2 วันทำการ',
-        [{ text: 'ตกลง', onPress: () => navigation.goBack() }]
+        [{ text: 'ตกลง', onPress: () => { setRequestStatus('pending'); } }]
       );
 
     } catch (error) {
@@ -310,6 +347,42 @@ export default function StoreSettingsScreen({ navigation }) {
         <Text style={styles.headerTitle}>ตั้งค่าร้านค้า</Text>
         <View style={{ width: 40 }} />
       </View>
+
+      {/* 🔔 Status Banner */}
+      {requestStatus === 'pending' && (
+        <View style={styles.bannerPending}>
+          <Ionicons name="time-outline" size={20} color="#92400e" />
+          <View style={{ flex: 1, marginLeft: 10 }}>
+            <Text style={styles.bannerTitle}>รอการอนุมัติจากแอดมิน</Text>
+            <Text style={styles.bannerSubtitle}>คำขอแก้ไขข้อมูลร้านค้าของคุณกำลังอยู่ระหว่างตรวจสอบ ใช้เวลา 1-2 วันทำการ</Text>
+          </View>
+        </View>
+      )}
+
+      {requestStatus === 'approved' && (
+        <View style={styles.bannerApproved}>
+          <Ionicons name="checkmark-circle" size={20} color="#065f46" />
+          <View style={{ flex: 1, marginLeft: 10 }}>
+            <Text style={styles.bannerApprovedTitle}>อนุมัติการแก้ไขร้านค้าแล้ว ✓</Text>
+            <Text style={styles.bannerApprovedSubtitle}>ข้อมูลร้านค้าของคุณได้รับการอัปเดตเรียบร้อยแล้ว</Text>
+          </View>
+        </View>
+      )}
+
+      {requestStatus === 'rejected' && (
+        <View style={styles.bannerRejected}>
+          <Ionicons name="close-circle" size={20} color="#991b1b" />
+          <View style={{ flex: 1, marginLeft: 10 }}>
+            <Text style={styles.bannerRejectedTitle}>คำขอถูกปฏิเสธ ✗</Text>
+            {rejectReason ? (
+              <Text style={styles.bannerRejectedSubtitle}>เหตุผล: {rejectReason}</Text>
+            ) : (
+              <Text style={styles.bannerRejectedSubtitle}>กรุณาติดต่อผู้ดูแลระบบเพื่อขอข้อมูลเพิ่มเติม</Text>
+            )}
+            <Text style={[styles.bannerRejectedSubtitle, { marginTop: 4, fontWeight: '600' }]}>คุณสามารถแก้ไขและส่งคำขอใหม่ได้เลย</Text>
+          </View>
+        </View>
+      )}
 
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
         <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
@@ -393,9 +466,20 @@ export default function StoreSettingsScreen({ navigation }) {
 
       {/* 💾 ปุ่มบันทึก */}
       <View style={styles.footer}>
-        <TouchableOpacity style={[styles.saveButton, saving && {opacity: 0.7}]} onPress={handleSave} disabled={saving}>
-          {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.saveButtonText}>ส่งคำขอแก้ไขข้อมูล</Text>}
-        </TouchableOpacity>
+        {requestStatus === 'pending' ? (
+          <View style={styles.saveButtonDisabled}>
+            <Ionicons name="time-outline" size={18} color="#92400e" />
+            <Text style={styles.saveButtonDisabledText}>รอแอดมินอนุมัติ...</Text>
+          </View>
+        ) : (
+          <TouchableOpacity
+            style={[styles.saveButton, saving && { opacity: 0.7 }]}
+            onPress={handleSave}
+            disabled={saving}
+          >
+            {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.saveButtonText}>ส่งคำขอแก้ไขข้อมูล</Text>}
+          </TouchableOpacity>
+        )}
       </View>
 
       {/* 🕒 Modal เวลาทำการ */}
@@ -507,9 +591,23 @@ const styles = StyleSheet.create({
 
   warningText: { fontSize: 12, color: '#f59e0b', textAlign: 'center', marginTop: 10, paddingHorizontal: 20 },
 
+  bannerPending: { flexDirection: 'row', alignItems: 'flex-start', backgroundColor: '#fef3c7', borderLeftWidth: 4, borderLeftColor: '#f59e0b', paddingHorizontal: 16, paddingVertical: 12, marginHorizontal: 0 },
+  bannerTitle: { fontSize: 14, fontWeight: '700', color: '#92400e', marginBottom: 2 },
+  bannerSubtitle: { fontSize: 12, color: '#92400e', lineHeight: 18 },
+
+  bannerApproved: { flexDirection: 'row', alignItems: 'flex-start', backgroundColor: '#d1fae5', borderLeftWidth: 4, borderLeftColor: '#10b981', paddingHorizontal: 16, paddingVertical: 12, marginHorizontal: 0 },
+  bannerApprovedTitle: { fontSize: 14, fontWeight: '700', color: '#065f46', marginBottom: 2 },
+  bannerApprovedSubtitle: { fontSize: 12, color: '#065f46', lineHeight: 18 },
+
+  bannerRejected: { flexDirection: 'row', alignItems: 'flex-start', backgroundColor: '#fee2e2', borderLeftWidth: 4, borderLeftColor: '#ef4444', paddingHorizontal: 16, paddingVertical: 12, marginHorizontal: 0 },
+  bannerRejectedTitle: { fontSize: 14, fontWeight: '700', color: '#991b1b', marginBottom: 2 },
+  bannerRejectedSubtitle: { fontSize: 12, color: '#991b1b', lineHeight: 18 },
+
   footer: { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: '#fff', padding: 20, paddingBottom: Platform.OS === 'ios' ? 35 : 20, borderTopWidth: 1, borderTopColor: '#f3f4f6' },
   saveButton: { backgroundColor: '#10b981', paddingVertical: 15, borderRadius: 12, alignItems: 'center' },
   saveButtonText: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
+  saveButtonDisabled: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: '#fef3c7', paddingVertical: 15, borderRadius: 12, borderWidth: 1.5, borderColor: '#f59e0b' },
+  saveButtonDisabledText: { color: '#92400e', fontSize: 16, fontWeight: '600' },
 
   // Styles สำหรับ Modal ต่างๆ
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
@@ -541,4 +639,5 @@ const styles = StyleSheet.create({
   instructionOverlay: { position: 'absolute', top: 80, left: 20, right: 20, alignItems: 'center' },
   instructionBox: { backgroundColor: 'rgba(0, 0, 0, 0.75)', paddingHorizontal: 20, paddingVertical: 12, borderRadius: 25 },
   instructionText: { color: '#FFFFFF', fontSize: 14, fontWeight: '500' }
+  
 });
