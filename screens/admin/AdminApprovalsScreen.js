@@ -15,7 +15,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { db, auth } from '../../firebase.config';
-import { collection, getDocs, doc, updateDoc, query } from 'firebase/firestore';
+import { collection, getDocs, doc, updateDoc, query, addDoc } from 'firebase/firestore';
 
 export default function AdminApprovalsScreen({ navigation }) {
   const [selectedTab, setSelectedTab] = useState('pending'); // pending, approved, rejected
@@ -60,8 +60,8 @@ export default function AdminApprovalsScreen({ navigation }) {
   const filteredRequests = requests.filter(req => (req.status || 'pending') === selectedTab);
 
   const getRequestTypeColor = (type) => {
-    if (type === 'store_update') return '#8b5cf6'; // ม่วง
-    return '#3b82f6'; // ฟ้า (ลงทะเบียนใหม่)
+    if (type === 'store_update') return '#8b5cf6';
+    return '#3b82f6';
   };
 
   const handleRequestPress = (request) => {
@@ -69,79 +69,108 @@ export default function AdminApprovalsScreen({ navigation }) {
     setModalVisible(true);
   };
 
-  const confirmAction = () => {
-    Alert.alert(
-      actionType === 'approve' ? 'ยืนยันการอนุมัติ' : 'ยืนยันการปฏิเสธ',
-      `คุณต้องการ${actionType === 'approve' ? 'อนุมัติ' : 'ปฏิเสธ'}คำขอนี้หรือไม่?`,
-      [
-        { text: 'ยกเลิก', style: 'cancel' },
-        { text: 'ยืนยัน', onPress: async () => await processAction() },
-      ]
-    );
-  };
-
-  const handleApprove = () => { setActionType('approve'); confirmAction(); };
-  const handleReject = () => {
-    if (!rejectReason.trim()) { Alert.alert('ข้อผิดพลาด', 'กรุณาระบุเหตุผลในการปฏิเสธ'); return; }
-    setActionType('reject'); confirmAction();
-  };
-
-  const processAction = async () => {
-    if (!selectedRequest) return;
+  // ── processAction รับ request โดยตรง ไม่อ่านจาก state ──────────
+  const processAction = async (action, request, reason) => {
+    if (!request) return;
     try {
       const updateData = {
-        status: actionType === 'approve' ? 'approved' : 'rejected',
+        status: action === 'approve' ? 'approved' : 'rejected',
         approvedBy: auth.currentUser?.email || 'Admin',
         approvedDate: new Date().toISOString(),
       };
 
-      if (actionType === 'reject') updateData.rejectReason = rejectReason;
-      await updateDoc(doc(db, 'approval_requests', selectedRequest.id), updateData);
+      if (action === 'reject') updateData.rejectReason = reason;
+      await updateDoc(doc(db, 'approval_requests', request.id), updateData);
 
-      if (!selectedRequest.userId) return;
-      const storeRef = doc(db, 'stores', selectedRequest.userId);
-      const notifRef = collection(db, 'notifications'); // 🔔 โฟลเดอร์เก็บแจ้งเตือน
+      const storeUserId = request.userId || request.uid || request.storeId;
+      if (!storeUserId) {
+        setModalVisible(false); setRejectReason(''); setSelectedRequest(null);
+        fetchRequests();
+        Alert.alert('สำเร็จ', `${action === 'approve' ? 'อนุมัติ' : 'ปฏิเสธ'}คำขอแล้ว`);
+        return;
+      }
 
-      if (selectedRequest.type === 'store_registration') {
-        if (actionType === 'approve') {
+      const storeRef = doc(db, 'stores', storeUserId);
+      const notifRef = collection(db, 'notifications');
+
+      if (request.type === 'store_registration') {
+        if (action === 'approve') {
           await updateDoc(storeRef, { status: 'approved', isActive: true, approvedBy: auth.currentUser?.email, approvedDate: new Date().toISOString() });
-          await updateDoc(doc(db, 'users', selectedRequest.userId), { currentRole: 'store', hasStorePending: false });
-
-          // 🔔 ส่งแจ้งเตือน: อนุมัติผ่าน
+          await updateDoc(doc(db, 'users', storeUserId), { currentRole: 'store', hasStorePending: false });
           await addDoc(notifRef, {
-             userId: selectedRequest.userId,
-             title: 'ยินดีด้วย! ร้านค้าอนุมัติแล้ว 🎉',
-             message: 'คุณสามารถเริ่มโพสต์ขายอาหารเพื่อช่วยลด Food Waste ได้เลย',
-             type: 'store_approved',
-             isRead: false,
-             createdAt: new Date().toISOString()
+            userId: storeUserId,
+            title: 'ยินดีด้วย! ร้านค้าอนุมัติแล้ว 🎉',
+            message: 'คุณสามารถเริ่มโพสต์ขายอาหารเพื่อช่วยลด Food Waste ได้เลย',
+            type: 'store_approved',
+            isRead: false,
+            createdAt: new Date().toISOString()
           });
         } else {
-          await updateDoc(storeRef, { status: 'rejected', isActive: false, rejectReason, rejectedBy: auth.currentUser?.email, rejectedDate: new Date().toISOString() });
-          await updateDoc(doc(db, 'users', selectedRequest.userId), { hasStorePending: false });
-
-          // 🔔 ส่งแจ้งเตือน: ไม่อนุมัติ
+          await updateDoc(storeRef, { status: 'rejected', isActive: false, rejectReason: reason, rejectedBy: auth.currentUser?.email, rejectedDate: new Date().toISOString() });
+          await updateDoc(doc(db, 'users', storeUserId), { hasStorePending: false });
           await addDoc(notifRef, {
-             userId: selectedRequest.userId,
-             title: 'คำขอเปิดร้านถูกปฏิเสธ ❌',
-             message: `เหตุผล: ${rejectReason}`,
-             type: 'store_rejected',
-             isRead: false,
-             createdAt: new Date().toISOString()
+            userId: storeUserId,
+            title: 'คำขอเปิดร้านถูกปฏิเสธ ❌',
+            message: `เหตุผล: ${reason}`,
+            type: 'store_rejected',
+            isRead: false,
+            createdAt: new Date().toISOString()
           });
         }
-      } else if (selectedRequest.type === 'store_update') {
-        if (actionType === 'approve' && selectedRequest.newData) {
-          await updateDoc(storeRef, { ...selectedRequest.newData, updatedAt: new Date().toISOString() });
+      } else if (request.type === 'store_update') {
+        if (action === 'approve' && request.newData) {
+          await updateDoc(storeRef, { ...request.newData, updatedAt: new Date().toISOString() });
         }
+
+        const storeName = request.storeName || 'ร้านค้าของคุณ';
+        const notifPayload = action === 'approve'
+          ? {
+              storeId: storeUserId,
+              title: 'แก้ไขข้อมูลร้านได้รับการอนุมัติ ✅',
+              message: `แอดมินอนุมัติการแก้ไขข้อมูลร้าน "${storeName}" เรียบร้อยแล้ว ข้อมูลได้รับการอัปเดตแล้ว`,
+              type: 'store_edit_approved',
+              isRead: false,
+              createdAt: new Date().toISOString()
+            }
+          : {
+              storeId: storeUserId,
+              title: 'แก้ไขข้อมูลร้านถูกปฏิเสธ ❌',
+              message: `แอดมินไม่อนุมัติการแก้ไขข้อมูลร้าน "${storeName}"`,
+              cancelReason: reason,
+              type: 'store_edit_rejected',
+              isRead: false,
+              createdAt: new Date().toISOString()
+            };
+
+        await addDoc(collection(db, 'store_notifications'), notifPayload);
       }
 
       setModalVisible(false); setRejectReason(''); setSelectedRequest(null);
       fetchRequests();
-      Alert.alert('สำเร็จ', `${actionType === 'approve' ? 'อนุมัติ' : 'ปฏิเสธ'}คำขอแล้ว`);
+      Alert.alert('สำเร็จ', `${action === 'approve' ? 'อนุมัติ' : 'ปฏิเสธ'}คำขอแล้ว`);
     } catch (error) {
       Alert.alert('ข้อผิดพลาด', `ไม่สามารถทำรายการได้: ${error.message}`);
     }
+  };
+
+  const confirmAction = (action) => {
+    // จับ request และ reason ณ ขณะนี้ก่อนที่ Alert จะเปิด
+    const requestSnapshot = selectedRequest;
+    const reasonSnapshot = rejectReason;
+    Alert.alert(
+      action === 'approve' ? 'ยืนยันการอนุมัติ' : 'ยืนยันการปฏิเสธ',
+      `คุณต้องการ${action === 'approve' ? 'อนุมัติ' : 'ปฏิเสธ'}คำขอนี้หรือไม่?`,
+      [
+        { text: 'ยกเลิก', style: 'cancel' },
+        { text: 'ยืนยัน', onPress: () => processAction(action, requestSnapshot, reasonSnapshot) },
+      ]
+    );
+  };
+
+  const handleApprove = () => { setActionType('approve'); confirmAction('approve'); };
+  const handleReject = () => {
+    if (!rejectReason.trim()) { Alert.alert('ข้อผิดพลาด', 'กรุณาระบุเหตุผลในการปฏิเสธ'); return; }
+    setActionType('reject'); confirmAction('reject');
   };
 
   const renderRequest = ({ item }) => {

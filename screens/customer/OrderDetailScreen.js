@@ -146,13 +146,14 @@ export default function OrderDetailScreen({ navigation, route }) {
                 });
 
                 if (storeId) {
-                    const notifRef = doc(collection(db, 'notifications'));
-                    transaction.set(notifRef, {
-                        userId: storeId,
+                    const storeNotifRef = doc(collection(db, 'store_notifications'));
+                    transaction.set(storeNotifRef, {
+                        storeId: storeId,
                         title: 'ลูกค้ายกเลิกออเดอร์ ❌',
-                        message: `ออเดอร์ #${currentOrder.id.slice(0, 6).toUpperCase()} ถูกลูกค้ายกเลิก (สาเหตุ: ${reasonToSave}) จำนวนสินค้าถูกคืนเข้าสต๊อกเรียบร้อยแล้ว`,
-                        type: 'order_cancelled',
+                        message: `ออเดอร์ #${currentOrder.id.slice(0, 6).toUpperCase()} ถูกลูกค้ายกเลิก จำนวนสินค้าถูกคืนเข้าสต๊อกเรียบร้อยแล้ว`,
+                        type: 'order_cancelled_by_customer',
                         orderId: currentOrder.id,
+                        cancelReason: reasonToSave,
                         isRead: false,
                         createdAt: new Date().toISOString()
                     });

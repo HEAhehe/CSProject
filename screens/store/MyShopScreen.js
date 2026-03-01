@@ -18,7 +18,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { auth, db } from '../../firebase.config';
-import { collection, getDocs, query, where, deleteDoc, doc, updateDoc, getDoc, writeBatch } from 'firebase/firestore';
+import { collection, getDocs, query, where, deleteDoc, doc, updateDoc, getDoc, writeBatch, onSnapshot } from 'firebase/firestore';
 import { useFocusEffect } from '@react-navigation/native';
 
 const { width } = Dimensions.get('window');
@@ -35,12 +35,29 @@ export default function MyShopScreen({ navigation }) {
   const [isStoreOpen, setIsStoreOpen] = useState(false);
   const [username, setUsername] = useState('');
 
+  const [unreadNotifCount, setUnreadNotifCount] = useState(0);
+
   // Drawer states
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const slideAnim = useRef(new Animated.Value(-width * 0.85)).current;
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
   const defaultAvatar = Image.resolveAssetSource(require('../../assets/icon.png')).uri;
+
+  // ─── Real-time unread notification count ──────────────────────
+  useEffect(() => {
+    const user = auth.currentUser;
+    if (!user) return;
+    const q = query(
+      collection(db, 'store_notifications'),
+      where('storeId', '==', user.uid),
+      where('isRead', '==', false)
+    );
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      setUnreadNotifCount(snapshot.size);
+    });
+    return () => unsubscribe();
+  }, []);
 
   // โหลด username จาก users collection
   useEffect(() => {
@@ -648,7 +665,7 @@ export default function MyShopScreen({ navigation }) {
           <Ionicons name="chevron-forward" size={18} color="#9ca3af" style={{ marginLeft: 'auto' }} />
         </TouchableOpacity>
         
-        <TouchableOpacity style={styles.drawerMenuItem} onPress={() => { toggleDrawer(); navigation.navigate('StoreDashboard'); }}>
+        <TouchableOpacity style={styles.drawerMenuItem} onPress={() => { toggleDrawer(); navigation.navigate('StoreNotifications'); }}>
           <View style={[styles.menuIconBox, { backgroundColor: '#eff6ff' }]}><Ionicons name="notifications-outline" size={20} color="#3b82f6" /></View>
           <Text style={styles.drawerMenuText}>การแจ้งเตือนร้านค้า</Text>
           <Ionicons name="chevron-forward" size={18} color="#9ca3af" style={{ marginLeft: 'auto' }} />
@@ -830,8 +847,15 @@ export default function MyShopScreen({ navigation }) {
           <Ionicons name="list-outline" size={24} color="#9ca3af" />
           <Text style={styles.navLabel}>ออร์เดอร์</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.navItem} onPress={() => Alert.alert('กำลังพัฒนา')}>
-          <Ionicons name="notifications-outline" size={24} color="#9ca3af" />
+        <TouchableOpacity style={styles.navItem} onPress={() => navigation.navigate('StoreNotifications')}>
+          <View style={{ position: 'relative' }}>
+            <Ionicons name="notifications-outline" size={24} color="#9ca3af" />
+            {unreadNotifCount > 0 && (
+              <View style={styles.notifBadge}>
+                <Text style={styles.notifBadgeText}>{unreadNotifCount > 99 ? '99+' : unreadNotifCount}</Text>
+              </View>
+            )}
+          </View>
           <Text style={styles.navLabel}>แจ้งเตือน</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.navItem} onPress={() => navigation.navigate('StoreProfile')}>
@@ -1094,6 +1118,15 @@ const styles = StyleSheet.create({
   navItem: { flex: 1, alignItems: 'center', gap: 4 },
   navLabel: { fontSize: 11, color: '#9ca3af' },
   navLabelActive: { color: '#1f2937', fontWeight: '600' },
+  notifBadge: {
+    position: 'absolute', top: -4, right: -8,
+    backgroundColor: '#ef4444', borderRadius: 10,
+    minWidth: 18, height: 18,
+    justifyContent: 'center', alignItems: 'center',
+    borderWidth: 1.5, borderColor: '#fff',
+    paddingHorizontal: 4, zIndex: 5,
+  },
+  notifBadgeText: { color: '#fff', fontSize: 10, fontWeight: 'bold' },
 
   // ─── New Post Button ───────────────────────────────────────────
   newPostButton: {

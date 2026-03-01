@@ -37,6 +37,7 @@ import StoreOrdersScreen from './screens/store/StoreOrdersScreen';
 import StoreDashboardScreen from './screens/store/StoreDashboardScreen';
 import StoreSettingsScreen from './screens/store/StoreSettingsScreen';
 import StoreProfileScreen from './screens/store/StoreProfileScreen';
+import StoreNotificationsScreen from './screens/store/StoreNotificationsScreen';
 // --- 📂 ADMIN Screens ---
 import AdminHomeScreen from './screens/admin/AdminHomeScreen';
 import AdminApprovalsScreen from './screens/admin/AdminApprovalsScreen';
@@ -102,7 +103,7 @@ export default function App() {
             <Stack.Screen name="StoreOrders" component={StoreOrdersScreen} />
             <Stack.Screen name="StoreSettings" component={StoreSettingsScreen} />
             <Stack.Screen name="StoreProfile" component={StoreProfileScreen} />
-
+            <Stack.Screen name="StoreNotifications" component={StoreNotificationsScreen} />
             <Stack.Screen name="RegisterStoreStep1" component={RegisterStoreStep1Screen} />
             <Stack.Screen name="RegisterStoreStep2" component={RegisterStoreStep2Screen} />
             <Stack.Screen name="RegisterStoreStep3" component={RegisterStoreStep3Screen} />

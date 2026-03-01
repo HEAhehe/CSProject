@@ -242,33 +242,32 @@ export default function CartScreen({ navigation }) {
                 id: newOrderRef.id,
                 userId: user.uid,
                 storeId: storeId,
-                storeName: itemsInOrder[0]?.storeName || 'ร้านค้า',
+                storeName: itemsInOrder[0].storeName || 'ร้านค้า',
                 items: itemsInOrder.map(i => ({
-                  foodId: i.foodId || i.id || 'unknown_id',
-                  foodName: i.foodName || 'ไม่ระบุชื่อสินค้า',
-                  quantity: i.quantity || 1,
-                  price: i.price || 0,
+                  foodId: i.foodId,
+                  foodName: i.foodName,
+                  quantity: i.quantity,
+                  price: i.price,
                   weight: Number(i.weight) || 0.4,
                   imageUrl: i.imageUrl || null
                 })),
-                foodName: itemsInOrder.length > 1 ? `${itemsInOrder[0]?.foodName || 'สินค้า'} และอื่นๆ` : (itemsInOrder[0]?.foodName || 'สินค้า'),
-                totalPrice: itemsInOrder.reduce((sum, i) => sum + ((i.price || 0) * (i.quantity || 1)), 0),
-                quantity: itemsInOrder.reduce((sum, i) => sum + (i.quantity || 1), 0),
-                totalOrderWeight: orderWeight || 0,
+                foodName: itemsInOrder.length > 1 ? `${itemsInOrder[0].foodName} และอื่นๆ` : itemsInOrder[0].foodName,
+                totalPrice: itemsInOrder.reduce((sum, i) => sum + (i.price * i.quantity), 0),
+                quantity: itemsInOrder.reduce((sum, i) => sum + i.quantity, 0),
+                totalOrderWeight: orderWeight,
                 status: 'pending',
                 orderType: orderType,
-                customerAddressTitle: userData?.addressTitle || null,
-                customerAddress: userData?.address || null,
+                customerAddressTitle: userData?.addressTitle || '',
+                customerAddress: userData?.address || '',
                 customerLat: userData?.latitude || null,
                 customerLng: userData?.longitude || null,
-                customerPhone: userData?.phoneNumber || userData?.phone || userData?.tel || userData?.mobile || null,
+                customerPhone: userData?.phone || 'ไม่ระบุเบอร์โทร',
                 closingTime: closingTime,
                 createdAt: new Date().toISOString()
               };
 
-              const cleanOrderData = JSON.parse(JSON.stringify(orderData));
-              lastCreatedOrder = cleanOrderData;
-              transaction.set(newOrderRef, cleanOrderData);
+              lastCreatedOrder = orderData;
+              transaction.set(newOrderRef, orderData);
             });
 
             for (const item of itemsInOrder) {

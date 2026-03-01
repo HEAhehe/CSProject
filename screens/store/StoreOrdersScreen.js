@@ -22,7 +22,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { auth, db } from '../../firebase.config';
-import { collection, query, where, updateDoc, doc, getDoc, getDocs, increment, runTransaction, onSnapshot, writeBatch } from 'firebase/firestore';
+import { collection, query, where, updateDoc, doc, getDoc, getDocs, increment, runTransaction, onSnapshot, writeBatch, setDoc } from 'firebase/firestore';
 import * as Clipboard from 'expo-clipboard';
 
 const { width } = Dimensions.get('window');
@@ -43,6 +43,7 @@ export default function StoreOrdersScreen({ navigation }) {
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
   const [cancelModalVisible, setCancelModalVisible] = useState(false);
+  const seenOrderIds = useRef(null); // null = ยังไม่ initialise รอบแรก
   const [cancelOrderId, setCancelOrderId] = useState(null);
   const [cancelReason, setCancelReason] = useState('');
 
@@ -131,6 +132,36 @@ export default function StoreOrdersScreen({ navigation }) {
       enrichedOrders.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
       setAllOrders(enrichedOrders);
 
+      // ─── ตรวจจับออร์เดอร์ใหม่ และเขียน store_notifications ───
+      const currentIds = new Set(allOrdersList.map(o => o.id));
+      if (seenOrderIds.current === null) {
+        // รอบแรก — จำ id ปัจจุบันทั้งหมดไว้ ไม่ส่ง notification
+        seenOrderIds.current = currentIds;
+      } else {
+        // รอบถัดไป — หา id ที่เพิ่งเข้ามาใหม่
+        const newOrders = allOrdersList.filter(
+          o => !seenOrderIds.current.has(o.id) && o.status === 'pending'
+        );
+        for (const newOrder of newOrders) {
+          try {
+            const notifId = `new_order_${newOrder.id}`;
+            await setDoc(doc(db, 'store_notifications', notifId), {
+              storeId: user.uid,
+              title: 'มีออร์เดอร์ใหม่เข้ามา! 🛒',
+              message: `ออร์เดอร์ #${newOrder.id.slice(0, 6).toUpperCase()} รายการสินค้า ${(newOrder.items || []).length} รายการ รวม ฿${newOrder.totalPrice || 0}`,
+              type: 'new_order',
+              orderId: newOrder.id,
+              isRead: false,
+              createdAt: new Date().toISOString()
+            }, { merge: false });
+          } catch (e) {
+            console.error('Error writing new order notification:', e);
+          }
+        }
+        // อัปเดต seenOrderIds ให้รวม id ใหม่ทั้งหมด
+        seenOrderIds.current = currentIds;
+      }
+
       const pendingCount = enrichedOrders.filter(o => o.status === 'pending').length;
       const completedOrders = enrichedOrders.filter(o => o.status === 'completed');
       const totalRevenue = completedOrders.reduce((sum, o) => sum + (Number(o.totalPrice) || 0), 0);
@@ -155,8 +186,8 @@ export default function StoreOrdersScreen({ navigation }) {
       setLoading(false);
     });
 
-    const qNotif = query(collection(db, 'notifications'), where('userId', '==', user.uid), where('isRead', '==', false));
-    const unsubscribeNotif = onSnapshot(qNotif, (snapshot) => { setUnreadCount(snapshot.docs.length); });
+    const qNotif = query(collection(db, 'store_notifications'), where('storeId', '==', user.uid), where('isRead', '==', false));
+    const unsubscribeNotif = onSnapshot(qNotif, (snapshot) => { setUnreadCount(snapshot.size); });
 
     return () => { unsubscribe(); unsubscribeNotif(); };
   }, []);
@@ -484,7 +515,7 @@ export default function StoreOrdersScreen({ navigation }) {
                     <Ionicons name="chevron-forward" size={18} color="#9ca3af" style={{ marginLeft: 'auto' }} />
                   </TouchableOpacity>
           
-           <TouchableOpacity style={styles.drawerMenuItem} onPress={() => { toggleDrawer(); navigation.navigate('StoreDashboard'); }}>
+           <TouchableOpacity style={styles.drawerMenuItem} onPress={() => { toggleDrawer(); navigation.navigate('StoreNotifications'); }}>
                     <View style={[styles.menuIconBox, { backgroundColor: '#eff6ff' }]}><Ionicons name="notifications-outline" size={20} color="#3b82f6" /></View>
                     <Text style={styles.drawerMenuText}>การแจ้งเตือนร้านค้า</Text>
                     <Ionicons name="chevron-forward" size={18} color="#9ca3af" style={{ marginLeft: 'auto' }} />
@@ -776,7 +807,7 @@ export default function StoreOrdersScreen({ navigation }) {
           <Text style={[styles.navLabel, styles.navLabelActive]}>ออร์เดอร์</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.navItem} onPress={() => navigation.navigate('Notifications')}>
+        <TouchableOpacity style={styles.navItem} onPress={() => navigation.navigate('StoreNotifications')}>
           <View style={{ position: 'relative' }}>
             <Ionicons name="notifications-outline" size={24} color="#9ca3af" />
             {unreadCount > 0 && (

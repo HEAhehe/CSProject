@@ -18,7 +18,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { auth, db } from '../../firebase.config';
-import { collection, getDocs, query, where, doc, getDoc, writeBatch } from 'firebase/firestore';
+import { collection, getDocs, query, where, doc, getDoc, writeBatch, onSnapshot } from 'firebase/firestore';
 
 const { width } = Dimensions.get('window');
 
@@ -92,6 +92,7 @@ export default function StoreDashboardScreen({ navigation }) {
 
   // Drawer states
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const [unreadNotifCount, setUnreadNotifCount] = useState(0);
   const slideAnim = useRef(new Animated.Value(-width * 0.85)).current;
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const [username, setUsername] = useState('');
@@ -100,6 +101,20 @@ export default function StoreDashboardScreen({ navigation }) {
 
   useEffect(() => {
     loadDashboardData();
+  }, []);
+
+  useEffect(() => {
+    const user = auth.currentUser;
+    if (!user) return;
+    const q = query(
+      collection(db, 'store_notifications'),
+      where('storeId', '==', user.uid),
+      where('isRead', '==', false)
+    );
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      setUnreadNotifCount(snapshot.size);
+    });
+    return () => unsubscribe();
   }, []);
 
   useEffect(() => {
@@ -463,7 +478,7 @@ export default function StoreDashboardScreen({ navigation }) {
           <Ionicons name="chevron-forward" size={18} color="#9ca3af" style={{ marginLeft: 'auto' }} />
         </TouchableOpacity>
        
-         <TouchableOpacity style={styles.drawerMenuItem} onPress={() => { toggleDrawer(); navigation.navigate('StoreDashboard'); }}>
+         <TouchableOpacity style={styles.drawerMenuItem} onPress={() => { toggleDrawer(); navigation.navigate('StoreNotifications'); }}>
                   <View style={[styles.menuIconBox, { backgroundColor: '#eff6ff' }]}><Ionicons name="notifications-outline" size={20} color="#3b82f6" /></View>
                   <Text style={styles.drawerMenuText}>การแจ้งเตือนร้านค้า</Text>
                   <Ionicons name="chevron-forward" size={18} color="#9ca3af" style={{ marginLeft: 'auto' }} />
@@ -996,8 +1011,15 @@ export default function StoreDashboardScreen({ navigation }) {
           <Text style={styles.navLabel}>ออเดอร์</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.navItem}>
-          <Ionicons name="notifications-outline" size={24} color="#9ca3af" />
+        <TouchableOpacity style={styles.navItem} onPress={() => navigation.navigate('StoreNotifications')}>
+          <View style={{ position: 'relative' }}>
+            <Ionicons name="notifications-outline" size={24} color="#9ca3af" />
+            {unreadNotifCount > 0 && (
+              <View style={styles.notifBadge}>
+                <Text style={styles.notifBadgeText}>{unreadNotifCount > 99 ? '99+' : unreadNotifCount}</Text>
+              </View>
+            )}
+          </View>
           <Text style={styles.navLabel}>แจ้งเตือน</Text>
         </TouchableOpacity>
 
@@ -1635,6 +1657,15 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: '#9ca3af',
   },
+  notifBadge: {
+    position: 'absolute', top: -4, right: -8,
+    backgroundColor: '#ef4444', borderRadius: 10,
+    minWidth: 18, height: 18,
+    justifyContent: 'center', alignItems: 'center',
+    borderWidth: 1.5, borderColor: '#fff',
+    paddingHorizontal: 4, zIndex: 5,
+  },
+  notifBadgeText: { color: '#fff', fontSize: 10, fontWeight: 'bold' },
   // Drawer Styles
   drawerOverlay: {
     flex: 1,
