@@ -69,7 +69,6 @@ export default function AdminApprovalsScreen({ navigation }) {
     setModalVisible(true);
   };
 
-  // ── processAction รับ request โดยตรง ไม่อ่านจาก state ──────────
   const processAction = async (action, request, reason) => {
     if (!request) return;
     try {
@@ -129,6 +128,7 @@ export default function AdminApprovalsScreen({ navigation }) {
               title: 'แก้ไขข้อมูลร้านได้รับการอนุมัติ ✅',
               message: `แอดมินอนุมัติการแก้ไขข้อมูลร้าน "${storeName}" เรียบร้อยแล้ว ข้อมูลได้รับการอัปเดตแล้ว`,
               type: 'store_edit_approved',
+              details: request.details || null, // 🟢 แนบข้อมูลการแก้ไขไปด้วย
               isRead: false,
               createdAt: new Date().toISOString()
             }
@@ -138,6 +138,7 @@ export default function AdminApprovalsScreen({ navigation }) {
               message: `แอดมินไม่อนุมัติการแก้ไขข้อมูลร้าน "${storeName}"`,
               cancelReason: reason,
               type: 'store_edit_rejected',
+              details: request.details || null, // 🟢 แนบข้อมูลการแก้ไขไปด้วย
               isRead: false,
               createdAt: new Date().toISOString()
             };
@@ -154,7 +155,6 @@ export default function AdminApprovalsScreen({ navigation }) {
   };
 
   const confirmAction = (action) => {
-    // จับ request และ reason ณ ขณะนี้ก่อนที่ Alert จะเปิด
     const requestSnapshot = selectedRequest;
     const reasonSnapshot = rejectReason;
     Alert.alert(
@@ -198,7 +198,6 @@ export default function AdminApprovalsScreen({ navigation }) {
           </View>
         </View>
 
-        {/* ✅ แสดงเหตุผลปฏิเสธใน card */}
         {item.status === 'rejected' && item.rejectReason ? (
           <View style={styles.rejectReasonCard}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 4 }}>
@@ -340,7 +339,6 @@ const styles = StyleSheet.create({
   typeIcon: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', marginRight: 12 },
   requestInfo: { flex: 1 },
 
-  // ✅ ป้ายกำกับแยกสีให้ชัดเจน
   typeBadge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
   typeUpdateBg: { backgroundColor: '#ede9fe' },
   typeRegisterBg: { backgroundColor: '#dbeafe' },
@@ -373,7 +371,6 @@ const styles = StyleSheet.create({
   rejectReasonTitle: { color: '#ef4444', fontWeight: '600', marginBottom: 4 },
   rejectReasonText: { color: '#7f1d1d' },
 
-  // ✅ ในรายการ card
   rejectReasonCard: { marginTop: 10, backgroundColor: '#fff1f2', borderRadius: 8, padding: 10, borderLeftWidth: 3, borderLeftColor: '#ef4444' },
   rejectReasonCardTitle: { fontSize: 11, fontWeight: '700', color: '#ef4444' },
   rejectReasonCardText: { fontSize: 13, color: '#7f1d1d', marginTop: 2, lineHeight: 18 },
@@ -382,5 +379,4 @@ const styles = StyleSheet.create({
   rejectButton: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, padding: 14, borderRadius: 8, backgroundColor: '#ef4444' },
   approveButton: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, padding: 14, borderRadius: 8, backgroundColor: '#10b981' },
   buttonText: { color: '#fff', fontWeight: '600', fontSize: 15 },
-
 });

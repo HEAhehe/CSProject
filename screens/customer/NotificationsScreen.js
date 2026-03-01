@@ -169,7 +169,7 @@ export default function NotificationsScreen({ navigation }) {
     if (item.orderId) {
       const shortId = item.orderId.slice(0, 6).toUpperCase();
       msg = msg.replace(new RegExp(`ออเดอร์\\s*#?${shortId}\\s*`, 'g'), '');
-      msg = msg.replace(new RegExp(`ออร์เดอร์\\s*#?${shortId}\\s*`, 'g'), '');
+      msg = msg.replace(new RegExp(`ออเดอร์\\s*#?${shortId}\\s*`, 'g'), '');
       msg = msg.replace(new RegExp(`#?${shortId}\\s*`, 'g'), '');
     }
 

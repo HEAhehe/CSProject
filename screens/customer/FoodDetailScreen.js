@@ -210,7 +210,6 @@ export default function FoodDetailScreen({ navigation, route }) {
     return () => unsubscribe();
   }, [targetStoreIdForNav]);
 
-  // ✅ ปรับปรุงการคำนวณระยะทาง ให้เช็คจาก "ที่อยู่จัดส่ง" เป็นหลักก่อน
   useEffect(() => {
     const targetLat = currentUserData?.latitude || userLocation?.latitude;
     const targetLng = currentUserData?.longitude || userLocation?.longitude;
@@ -394,7 +393,6 @@ export default function FoodDetailScreen({ navigation, route }) {
             });
 
           } else {
-            // 🛡️ ดักจับ undefined และ fallback ให้ครอบคลุม
             const newCartItem = {
                 foodId: food.id || 'unknown_id',
                 foodName: food.name || food.foodName || 'ไม่ระบุชื่ออาหาร',
@@ -405,12 +403,11 @@ export default function FoodDetailScreen({ navigation, route }) {
                 weight: actualWeight || 0.4,
                 storeName: storeName || 'ไม่ระบุชื่อร้าน',
                 storeId: targetStoreIdForNav || 'unknown_store',
-                imageUrl: food.imageUrl || null, // บังคับ null ถ้ารูปไม่มี
+                imageUrl: food.imageUrl || null,
                 deliveryMethod: selectedMethod || 'pickup',
                 addedAt: new Date().toISOString()
             };
 
-            // ใช้ท่าไม้ตายสลัด undefined ก่อนส่งเข้า Firestore
             const cleanCartItem = JSON.parse(JSON.stringify(newCartItem));
             await addDoc(cartRef, cleanCartItem);
           }
@@ -454,7 +451,6 @@ export default function FoodDetailScreen({ navigation, route }) {
           if (foodDoc.data().quantity < quantity) throw "สินค้าหมดพอดี กรุณาลดจำนวน";
           transaction.update(foodRef, { quantity: foodDoc.data().quantity - quantity });
 
-          // 🛡️ ดักจับ undefined และ fallback ให้ครอบคลุม
           const orderData = {
             id: orderId,
             userId: user.uid,
@@ -484,10 +480,26 @@ export default function FoodDetailScreen({ navigation, route }) {
             createdAt: new Date().toISOString()
           };
 
-          // ใช้ท่าไม้ตายสลัด undefined
           const cleanOrderData = JSON.parse(JSON.stringify(orderData));
           createdOrderData = cleanOrderData;
           transaction.set(newOrderRef, cleanOrderData);
+
+          // 🟢 สร้างการแจ้งเตือนโดยตัดค่า undefined ทิ้งทั้งหมด
+          const notifRef = doc(collection(db, 'store_notifications'));
+          const notifData = {
+            id: notifRef.id,
+            storeId: targetStoreIdForNav || 'unknown_store',
+            type: 'new_order',
+            title: 'มีออเดอร์ใหม่เข้า!',
+            message: `ออเดอร์ #${newOrderRef.id.slice(0, 6).toUpperCase()} จำนวน ${quantity} ${sellingUnit}`,
+            orderId: newOrderRef.id,
+            orderType: selectedMethod || 'pickup',
+            isRead: false,
+            createdAt: new Date().toISOString()
+          };
+
+          const cleanNotifData = JSON.parse(JSON.stringify(notifData));
+          transaction.set(notifRef, cleanNotifData);
         });
 
         const userRef = doc(db, 'users', user.uid);

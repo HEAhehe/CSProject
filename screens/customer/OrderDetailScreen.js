@@ -150,7 +150,7 @@ export default function OrderDetailScreen({ navigation, route }) {
                     transaction.set(storeNotifRef, {
                         storeId: storeId,
                         title: 'ลูกค้ายกเลิกออเดอร์ ❌',
-                        message: `ออเดอร์ #${currentOrder.id.slice(0, 6).toUpperCase()} ถูกลูกค้ายกเลิก จำนวนสินค้าถูกคืนเข้าสต๊อกเรียบร้อยแล้ว`,
+                        message: `ลูกค้ายกเลิกออเดอร์ จำนวนสินค้าถูกคืนเข้าสต๊อกเรียบร้อยแล้ว`,
                         type: 'order_cancelled_by_customer',
                         orderId: currentOrder.id,
                         cancelReason: reasonToSave,

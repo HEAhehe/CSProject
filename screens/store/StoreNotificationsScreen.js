@@ -8,7 +8,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { auth, db } from '../../firebase.config';
 import {
   collection, query, where, updateDoc, doc,
-  onSnapshot, getDoc, writeBatch
+  onSnapshot, getDoc, writeBatch, getDocs
 } from 'firebase/firestore';
 
 const { width } = Dimensions.get('window');
@@ -32,19 +32,36 @@ export default function StoreNotificationsScreen({ navigation }) {
     const user = auth.currentUser;
     if (!user) return;
 
-    // onSnapshot real-time — ไม่ใช้ orderBy เพื่อไม่ต้องการ Composite Index
     const q = query(
       collection(db, 'store_notifications'),
       where('storeId', '==', user.uid)
     );
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const items = snapshot.docs
-        .map(d => ({ id: d.id, ...d.data() }))
-        .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-      setNotifications(items);
-    }, (error) => {
-      console.error('Error loading notifications:', error);
+    const unsubscribe = onSnapshot(q, async (snapshot) => {
+      try {
+        const items = snapshot.docs
+          .map(d => ({ id: d.id, ...d.data() }))
+          .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+        // 🔴 ดึงประเภทออเดอร์ (orderType) มาเพื่อแสดง Tag จัดส่ง/รับที่ร้าน
+        const enrichedItems = await Promise.all(items.map(async (item) => {
+          if (item.orderId && !item.orderType) {
+            try {
+              const orderSnap = await getDoc(doc(db, 'orders', item.orderId));
+              if (orderSnap.exists()) {
+                return { ...item, orderType: orderSnap.data().orderType };
+              }
+            } catch (e) {
+              console.log("Error fetching order type", e);
+            }
+          }
+          return item;
+        }));
+
+        setNotifications(enrichedItems);
+      } catch (error) {
+        console.error('Error processing notifications:', error);
+      }
     });
 
     return () => unsubscribe();
@@ -169,6 +186,15 @@ export default function StoreNotificationsScreen({ navigation }) {
     return date.toLocaleDateString('th-TH', { day: 'numeric', month: 'short' });
   };
 
+  // 🔴 เติม P- หรือ D- เข้าไปใน Badge แบบฝั่งลูกค้า
+  const formatOrderId = (orderId, orderType) => {
+    if (!orderId) return '';
+    const shortId = orderId.slice(0, 6).toUpperCase();
+    if (orderType === 'delivery') return `D-${shortId}`;
+    if (orderType === 'pickup') return `P-${shortId}`;
+    return shortId;
+  };
+
   const filteredNotifications = notifications.filter(n => {
     if (filter === 'all') return true;
     if (filter === 'unread') return !n.isRead;
@@ -178,6 +204,39 @@ export default function StoreNotificationsScreen({ navigation }) {
 
   const unreadCount = notifications.filter(n => !n.isRead).length;
 
+  // 🔴 ฟังก์ชันสกัดข้อความ เพื่อลบ "ออเดอร์ #XXXXXX" ออกจากข้อความแจ้งเตือน (กันการซ้ำซ้อน)
+  const renderFormattedMessage = (item) => {
+      let msg = item.message || '';
+
+      // ลบคำว่า ออเดอร์ / ออเดอร์ ตามด้วย #ไอดี ทิ้งไปเลย (gi = ไม่สนพิมพ์เล็กพิมพ์ใหญ่)
+      if (item.orderId) {
+        const shortId = item.orderId.slice(0, 6);
+        const regex1 = new RegExp(`ออเดอร์\\s*#?${shortId}\\s*`, 'gi');
+        const regex2 = new RegExp(`#?${shortId}\\s*`, 'gi');
+
+        msg = msg.replace(regex1, ''); // ลบ "ออเดอร์ #TAGCYX "
+        msg = msg.replace(regex2, ''); // เผื่อเหลือแค่ "#TAGCYX "
+      }
+
+      let reasonText = null;
+      let mainText = msg.trim();
+
+      if (item.cancelReason) {
+        reasonText = item.cancelReason;
+      }
+
+      if (reasonText) {
+         return (
+           <View>
+             {mainText !== '' && <Text style={styles.notificationMessage} numberOfLines={1}>{mainText}</Text>}
+             <Text style={styles.reasonHighlightText} numberOfLines={1}>สาเหตุ: {reasonText}</Text>
+           </View>
+         );
+      }
+
+      return <Text style={styles.notificationMessage} numberOfLines={2}>{mainText}</Text>;
+    };
+
   // ─── Render Notification Card ──────────────────────────────────
 
   const renderNotification = ({ item }) => {
@@ -185,7 +244,10 @@ export default function StoreNotificationsScreen({ navigation }) {
     return (
       <TouchableOpacity
         style={[styles.notificationCard, !item.isRead && styles.notificationCardUnread]}
-        onPress={() => markAsRead(item.id)}
+        onPress={() => {
+          markAsRead(item.id);
+          navigation.navigate('StoreNotificationDetail', { notification: item });
+        }}
         activeOpacity={0.7}
       >
         <View style={[styles.iconContainer, { backgroundColor: icon.bg }]}>
@@ -198,19 +260,27 @@ export default function StoreNotificationsScreen({ navigation }) {
             {!item.isRead && <View style={styles.unreadDot} />}
           </View>
 
-          <Text style={styles.notificationMessage} numberOfLines={2}>{item.message}</Text>
+          {/* 🔴 เรียกใช้ renderFormattedMessage แทน */}
+          {renderFormattedMessage(item)}
 
-          {/* แสดงสาเหตุการยกเลิกถ้ามี */}
-          {item.cancelReason ? (
-            <Text style={styles.reasonText} numberOfLines={1}>สาเหตุ: {item.cancelReason}</Text>
-          ) : null}
-
-          {/* แสดง orderId badge ถ้ามี */}
           <View style={styles.notificationFooter}>
             {item.orderId ? (
-              <View style={styles.orderIdBadge}>
-                <Ionicons name="receipt-outline" size={10} color="#6b7280" style={{ marginRight: 4 }} />
-                <Text style={styles.orderIdText}>#{item.orderId.slice(0, 6).toUpperCase()}</Text>
+              <View style={styles.badgeRow}>
+                {/* Badge ออเดอร์ */}
+                <View style={styles.orderIdBadge}>
+                  <Ionicons name="receipt-outline" size={10} color="#6b7280" style={{ marginRight: 4 }} />
+                  <Text style={styles.orderIdText}>#{formatOrderId(item.orderId, item.orderType)}</Text>
+                </View>
+
+                {/* 🔴 Badge ประเภท จัดส่ง/รับที่ร้าน เหมือนฝั่งลูกค้าเป๊ะๆ */}
+                {item.orderType && (
+                  <View style={[styles.typeBadge, item.orderType === 'delivery' ? styles.badgeDelivery : styles.badgePickup]}>
+                    <Ionicons name={item.orderType === 'delivery' ? 'bicycle' : 'storefront'} size={10} color={item.orderType === 'delivery' ? '#0284c7' : '#10b981'} style={{marginRight: 4}} />
+                    <Text style={[styles.typeText, item.orderType === 'delivery' ? styles.textDelivery : styles.textPickup]}>
+                      {item.orderType === 'delivery' ? 'จัดส่ง' : 'รับที่ร้าน'}
+                    </Text>
+                  </View>
+                )}
               </View>
             ) : <View style={{ flex: 1 }} />}
             <Text style={styles.notificationTime}>{getTimeAgo(item.createdAt)}</Text>
@@ -365,7 +435,7 @@ export default function StoreNotificationsScreen({ navigation }) {
         </TouchableOpacity>
         <TouchableOpacity style={styles.navItem} onPress={() => navigation.navigate('StoreOrders')}>
           <Ionicons name="list-outline" size={24} color="#9ca3af" />
-          <Text style={styles.navLabel}>ออร์เดอร์</Text>
+          <Text style={styles.navLabel}>ออเดอร์</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.navItem}>
           <View style={{ position: 'relative' }}>
@@ -444,14 +514,24 @@ const styles = StyleSheet.create({
   notificationTitle: { flex: 1, fontSize: 14, fontWeight: 'bold', color: '#1f2937' },
   unreadDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#ef4444', marginLeft: 8 },
   notificationMessage: { fontSize: 13, color: '#4b5563', lineHeight: 20, marginBottom: 4 },
-  reasonText: { fontSize: 13, color: '#ef4444', fontWeight: '500', marginBottom: 4 },
+  reasonHighlightText: { fontSize: 13, color: '#ef4444', fontWeight: '500', marginTop: 2, marginBottom: 4 },
   notificationFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 },
+
+  // 🔴 สไตล์สำหรับ Badge ให้เหมือนฝั่งลูกค้า 🔴
+  badgeRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   orderIdBadge: {
     flexDirection: 'row', alignItems: 'center',
     backgroundColor: '#f9fafb', paddingHorizontal: 6, paddingVertical: 3,
     borderRadius: 6, borderWidth: 1, borderColor: '#e5e7eb',
   },
   orderIdText: { fontSize: 10, fontWeight: 'bold', color: '#4b5563' },
+  typeBadge: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 6, paddingVertical: 3, borderRadius: 6, borderWidth: 1 },
+  badgeDelivery: { backgroundColor: '#e0f2fe', borderColor: '#bae6fd' },
+  badgePickup: { backgroundColor: '#dcfce7', borderColor: '#bbf7d0' },
+  typeText: { fontSize: 10, fontWeight: 'bold' },
+  textDelivery: { color: '#0284c7' },
+  textPickup: { color: '#10b981' },
+
   notificationTime: { fontSize: 11, color: '#9ca3af', fontWeight: '500' },
 
   // ─── Empty ────────────────────────────────────────────────────

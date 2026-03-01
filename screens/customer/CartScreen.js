@@ -237,7 +237,6 @@ export default function CartScreen({ navigation }) {
               const orderType = itemsInOrder[0].deliveryMethod || 'pickup';
               const newOrderRef = doc(collection(db, 'orders'));
 
-              // ✅ เพิ่มชื่อที่อยู่, รายละเอียด, และเบอร์โทร
               const orderData = {
                 id: newOrderRef.id,
                 userId: user.uid,
@@ -268,6 +267,23 @@ export default function CartScreen({ navigation }) {
 
               lastCreatedOrder = orderData;
               transaction.set(newOrderRef, orderData);
+
+              // 🟢 สร้างการแจ้งเตือนโดยตัดค่า undefined ทิ้งทั้งหมด
+              const notifRef = doc(collection(db, 'store_notifications'));
+              const notifData = {
+                id: notifRef.id,
+                storeId: storeId || 'unknown_store',
+                type: 'new_order',
+                title: 'มีออเดอร์ใหม่เข้า!',
+                message: `ออเดอร์ #${newOrderRef.id.slice(0, 6).toUpperCase()} จำนวน ${itemsInOrder.length} รายการ`,
+                orderId: newOrderRef.id,
+                orderType: orderType || 'pickup',
+                isRead: false,
+                createdAt: new Date().toISOString()
+              };
+
+              const cleanNotifData = JSON.parse(JSON.stringify(notifData));
+              transaction.set(notifRef, cleanNotifData);
             });
 
             for (const item of itemsInOrder) {

@@ -845,7 +845,7 @@ export default function MyShopScreen({ navigation }) {
         </TouchableOpacity>
         <TouchableOpacity style={styles.navItem} onPress={() => navigation.navigate('StoreOrders')}>
           <Ionicons name="list-outline" size={24} color="#9ca3af" />
-          <Text style={styles.navLabel}>ออร์เดอร์</Text>
+          <Text style={styles.navLabel}>ออเดอร์</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.navItem} onPress={() => navigation.navigate('StoreNotifications')}>
           <View style={{ position: 'relative' }}>

@@ -21,7 +21,6 @@ import * as ImagePicker from 'expo-image-picker';
 import MapView, { Marker } from 'react-native-maps';
 import * as Location from 'expo-location';
 import { db, auth } from '../../firebase.config';
-// ✅ เปลี่ยนจาก updateDoc เป็น addDoc และ collection เพื่อสร้างคำขอ
 import { doc, getDoc, collection, addDoc, query, where, getDocs } from 'firebase/firestore';
 
 const { width } = Dimensions.get('window');
@@ -39,7 +38,7 @@ const daysOfWeek = [
 export default function StoreSettingsScreen({ navigation }) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [requestStatus, setRequestStatus] = useState(null); // null | 'pending' | 'approved' | 'rejected'
+  const [requestStatus, setRequestStatus] = useState(null); // null | 'pending' | 'rejected'
   const [rejectReason, setRejectReason] = useState('');
 
   // ข้อมูลทั่วไป
@@ -91,21 +90,22 @@ export default function StoreSettingsScreen({ navigation }) {
         where('type', '==', 'store_update')
       );
       const snapshot = await getDocs(q);
+
       if (!snapshot.empty) {
-        // Sort by requestDate desc in JS แทน orderBy ใน Firestore
+        // ใช้ getTime() เพื่อความชัวร์ในการเปรียบเทียบ Date ฝั่ง JS
         const sorted = snapshot.docs
           .map(d => d.data())
-          .sort((a, b) => new Date(b.requestDate) - new Date(a.requestDate));
+          .sort((a, b) => new Date(b.requestDate).getTime() - new Date(a.requestDate).getTime());
 
         const latestStatus = sorted[0].status;
+
         if (latestStatus === 'pending') {
           setRequestStatus('pending');
-        } else if (latestStatus === 'approved') {
-          setRequestStatus('approved');
         } else if (latestStatus === 'rejected') {
           setRequestStatus('rejected');
           setRejectReason(sorted[0].rejectReason || '');
         } else {
+          // ถ้าเป็น approved หรืออื่นๆ ให้กลับสู่โหมดปกติ (ล้างค่าสถานะทิ้ง) สามารถแก้ข้อมูลใหม่ได้เลย
           setRequestStatus(null);
         }
       }
@@ -159,8 +159,8 @@ export default function StoreSettingsScreen({ navigation }) {
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsEditing: true,
       aspect: [16, 9],
-      quality: 0.2, // บีบอัดลดขนาด
-      base64: true, // ✅ ใช้ Base64 เหมือนตอนสมัครเพื่อไม่ให้รูปหาย
+      quality: 0.2,
+      base64: true,
     });
 
     if (!result.canceled && result.assets[0]) {
@@ -245,7 +245,6 @@ export default function StoreSettingsScreen({ navigation }) {
     setMapModalVisible(false);
   };
 
-  // ================= 📝 บันทึกข้อมูล (ส่งคำขอไปยัง Admin) =================
   const handleSave = async () => {
     if (!storeName.trim() || !phoneNumber.trim() || !location.trim()) {
       Alert.alert('ข้อมูลไม่ครบ', 'กรุณากรอกข้อมูลที่มีเครื่องหมาย * ให้ครบถ้วน');
@@ -256,7 +255,6 @@ export default function StoreSettingsScreen({ navigation }) {
     try {
       const user = auth.currentUser;
 
-      // จัดรูปแบบเวลาให้สวยงามเพื่อให้ Admin อ่านง่ายในตาราง
       const bh = businessHours || {};
       const formattedHoursSummary = Object.keys(bh)
         .filter(day => bh[day].isOpen)
@@ -266,9 +264,8 @@ export default function StoreSettingsScreen({ navigation }) {
         })
         .join('\n');
 
-      // สร้าง Request Object แทนการอัปเดตร้านตรงๆ
       const approvalRequest = {
-        type: 'store_update', // ✅ ใช้ type เป็น store_update เพื่อให้รู้ว่าคือการขอแก้ข้อมูล
+        type: 'store_update',
         userId: user.uid,
         userName: storeOwner || user.displayName || 'ไม่ระบุชื่อ',
         userEmail: user.email || 'ไม่ระบุอีเมล',
@@ -276,7 +273,6 @@ export default function StoreSettingsScreen({ navigation }) {
         requestDate: new Date().toISOString(),
         status: 'pending',
 
-        // ก้อนข้อมูลใหม่ที่จะเอาไปอัปเดตถ้าแอดมินกด "อนุมัติ"
         newData: {
           storeName: storeName.trim(),
           storeOwner: storeOwner.trim(),
@@ -292,7 +288,6 @@ export default function StoreSettingsScreen({ navigation }) {
           updatedAt: new Date().toISOString()
         },
 
-        // ข้อมูลสรุปที่จะโชว์ให้แอดมินอ่านง่ายๆ
         details: {
           'ชื่อร้าน (ที่แก้ไข)': storeName.trim(),
           'เจ้าของร้าน': storeOwner.trim(),
@@ -303,12 +298,11 @@ export default function StoreSettingsScreen({ navigation }) {
         }
       };
 
-      // ยิงข้อมูลเข้า approval_requests
       await addDoc(collection(db, 'approval_requests'), approvalRequest);
 
       Alert.alert(
         'ส่งคำขอสำเร็จ 📝',
-        'จะอมนุมัติภายใน 1-2 วันทำการ',
+        'แอดมินจะตรวจสอบและอนุมัติภายใน 1-2 วันทำการ',
         [{ text: 'ตกลง', onPress: () => { setRequestStatus('pending'); } }]
       );
 
@@ -335,6 +329,9 @@ export default function StoreSettingsScreen({ navigation }) {
     );
   }
 
+  // ตัวแปรเช็คสำหรับล็อคฟอร์ม
+  const isPending = requestStatus === 'pending';
+
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#fff" />
@@ -349,22 +346,12 @@ export default function StoreSettingsScreen({ navigation }) {
       </View>
 
       {/* 🔔 Status Banner */}
-      {requestStatus === 'pending' && (
+      {isPending && (
         <View style={styles.bannerPending}>
           <Ionicons name="time-outline" size={20} color="#92400e" />
           <View style={{ flex: 1, marginLeft: 10 }}>
             <Text style={styles.bannerTitle}>รอการอนุมัติจากแอดมิน</Text>
-            <Text style={styles.bannerSubtitle}>คำขอแก้ไขข้อมูลร้านค้าของคุณกำลังอยู่ระหว่างตรวจสอบ ใช้เวลา 1-2 วันทำการ</Text>
-          </View>
-        </View>
-      )}
-
-      {requestStatus === 'approved' && (
-        <View style={styles.bannerApproved}>
-          <Ionicons name="checkmark-circle" size={20} color="#065f46" />
-          <View style={{ flex: 1, marginLeft: 10 }}>
-            <Text style={styles.bannerApprovedTitle}>อนุมัติการแก้ไขร้านค้าแล้ว ✓</Text>
-            <Text style={styles.bannerApprovedSubtitle}>ข้อมูลร้านค้าของคุณได้รับการอัปเดตเรียบร้อยแล้ว</Text>
+            <Text style={styles.bannerSubtitle}>คำขอแก้ไขข้อมูลร้านค้าของคุณกำลังอยู่ระหว่างตรวจสอบ ใช้เวลา 1-2 วันทำการ (ฟอร์มจะถูกล็อคชั่วคราว)</Text>
           </View>
         </View>
       )}
@@ -377,7 +364,7 @@ export default function StoreSettingsScreen({ navigation }) {
             {rejectReason ? (
               <Text style={styles.bannerRejectedSubtitle}>เหตุผล: {rejectReason}</Text>
             ) : (
-              <Text style={styles.bannerRejectedSubtitle}>กรุณาติดต่อผู้ดูแลระบบเพื่อขอข้อมูลเพิ่มเติม</Text>
+              <Text style={styles.bannerRejectedSubtitle}>กรุณาตรวจสอบข้อมูลอีกครั้ง</Text>
             )}
             <Text style={[styles.bannerRejectedSubtitle, { marginTop: 4, fontWeight: '600' }]}>คุณสามารถแก้ไขและส่งคำขอใหม่ได้เลย</Text>
           </View>
@@ -387,89 +374,95 @@ export default function StoreSettingsScreen({ navigation }) {
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
         <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
 
-          {/* 🖼️ รูปร้านค้า */}
-          <TouchableOpacity style={styles.imagePickerContainer} onPress={handleSelectImage}>
-            {storeImage ? (
-              <Image source={{ uri: storeImage }} style={styles.imagePreview} />
-            ) : (
-              <View style={styles.imagePlaceholder}>
-                <Ionicons name="camera-outline" size={40} color="#9ca3af" />
-                <Text style={styles.imagePlaceholderText}>เปลี่ยนรูปหน้าร้าน</Text>
+          {/* ล็อคการโต้ตอบทั้งหมดถ้าเป็น pending */}
+          <View pointerEvents={isPending ? 'none' : 'auto'} style={{ opacity: isPending ? 0.6 : 1 }}>
+
+            {/* 🖼️ รูปร้านค้า */}
+            <TouchableOpacity style={styles.imagePickerContainer} onPress={handleSelectImage}>
+              {storeImage ? (
+                <Image source={{ uri: storeImage }} style={styles.imagePreview} />
+              ) : (
+                <View style={styles.imagePlaceholder}>
+                  <Ionicons name="camera-outline" size={40} color="#9ca3af" />
+                  <Text style={styles.imagePlaceholderText}>เปลี่ยนรูปหน้าร้าน</Text>
+                </View>
+              )}
+              <View style={styles.cameraBadge}>
+                <Ionicons name="camera" size={16} color="#fff" />
               </View>
+            </TouchableOpacity>
+
+            {/* 📝 ข้อมูลพื้นฐาน */}
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>ข้อมูลพื้นฐาน</Text>
+
+              <Text style={styles.label}>ชื่อร้านค้า *</Text>
+              <TextInput style={styles.input} value={storeName} onChangeText={setStoreName} placeholder="ชื่อร้านของคุณ" />
+
+              <Text style={styles.label}>ชื่อเจ้าของร้าน</Text>
+              <TextInput style={styles.input} value={storeOwner} onChangeText={setStoreOwner} placeholder="ชื่อ-นามสกุล" />
+
+              <Text style={styles.label}>เบอร์โทรศัพท์ติดต่อ *</Text>
+              <TextInput style={styles.input} value={phoneNumber} onChangeText={(t) => setPhoneNumber(t.replace(/[^0-9]/g, ''))} placeholder="08X-XXX-XXXX" keyboardType="phone-pad" maxLength={10} />
+
+              <Text style={styles.label}>รายละเอียดร้านค้า (แนะนำตัว)</Text>
+              <TextInput style={[styles.input, styles.textArea]} value={storeDetails} onChangeText={setStoreDetails} placeholder="บอกเล่าเกี่ยวกับร้านค้าของคุณ..." multiline numberOfLines={3} textAlignVertical="top" />
+            </View>
+
+            {/* 🛵 การจัดส่งและเวลา */}
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>การตั้งค่าบริการ</Text>
+
+              <Text style={styles.label}>รูปแบบการส่งสินค้า</Text>
+              <View style={styles.deliveryRow}>
+                <DeliveryOption icon="storefront" title="รับที่ร้าน" isSelected={selectedDelivery === 'pickup'} onPress={() => setSelectedDelivery('pickup')} />
+                <DeliveryOption icon="bicycle" title="เดลิเวอรี่" isSelected={selectedDelivery === 'delivery'} onPress={() => setSelectedDelivery('delivery')} />
+                <DeliveryOption icon="swap-horizontal" title="ทั้งสองแบบ" isSelected={selectedDelivery === 'both'} onPress={() => setSelectedDelivery('both')} />
+              </View>
+
+              <Text style={styles.label}>เวลาทำการ</Text>
+              <TouchableOpacity style={styles.businessHoursButton} onPress={() => setShowBusinessHoursModal(true)}>
+                <View style={styles.businessHoursInfo}>
+                  <Ionicons name="time" size={20} color="#10b981" />
+                  <Text style={styles.businessHoursText}>{getBusinessHoursSummary()}</Text>
+                </View>
+                <Ionicons name="create-outline" size={20} color="#10b981" />
+              </TouchableOpacity>
+            </View>
+
+            {/* 📍 ตำแหน่งที่ตั้ง */}
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>ตำแหน่งที่ตั้ง</Text>
+
+              <Text style={styles.label}>ที่อยู่ร้านค้า *</Text>
+              <TextInput style={[styles.input, { height: 80 }]} value={location} onChangeText={setLocation} placeholder="เลขที่ ถนน ตำบล อำเภอ จังหวัด..." multiline textAlignVertical="top" />
+
+              <TouchableOpacity style={styles.mapButton} onPress={handleOpenMap}>
+                <Ionicons name={coordinates ? "location" : "map-outline"} size={20} color={coordinates ? "#10b981" : "#6b7280"} />
+                <Text style={[styles.mapButtonText, coordinates && { color: '#10b981' }]}>
+                  {coordinates ? 'แก้ไขตำแหน่ง (ปักหมุดแล้ว)' : 'เปิดแผนที่เพื่อปักหมุด'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* ℹ️ คำเตือน */}
+            {!isPending && (
+               <Text style={styles.warningText}>
+                 * การแก้ไขจะใช้เวลาตรวจสอบข้อมูล 1-2 วันทำการ
+               </Text>
             )}
-            <View style={styles.cameraBadge}>
-              <Ionicons name="camera" size={16} color="#fff" />
-            </View>
-          </TouchableOpacity>
 
-          {/* 📝 ข้อมูลพื้นฐาน */}
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>ข้อมูลพื้นฐาน</Text>
-
-            <Text style={styles.label}>ชื่อร้านค้า *</Text>
-            <TextInput style={styles.input} value={storeName} onChangeText={setStoreName} placeholder="ชื่อร้านของคุณ" />
-
-            <Text style={styles.label}>ชื่อเจ้าของร้าน</Text>
-            <TextInput style={styles.input} value={storeOwner} onChangeText={setStoreOwner} placeholder="ชื่อ-นามสกุล" />
-
-            <Text style={styles.label}>เบอร์โทรศัพท์ติดต่อ *</Text>
-            <TextInput style={styles.input} value={phoneNumber} onChangeText={(t) => setPhoneNumber(t.replace(/[^0-9]/g, ''))} placeholder="08X-XXX-XXXX" keyboardType="phone-pad" maxLength={10} />
-
-            <Text style={styles.label}>รายละเอียดร้านค้า (แนะนำตัว)</Text>
-            <TextInput style={[styles.input, styles.textArea]} value={storeDetails} onChangeText={setStoreDetails} placeholder="บอกเล่าเกี่ยวกับร้านค้าของคุณ..." multiline numberOfLines={3} textAlignVertical="top" />
+            <View style={{ height: 120 }} />
           </View>
-
-          {/* 🛵 การจัดส่งและเวลา */}
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>การตั้งค่าบริการ</Text>
-
-            <Text style={styles.label}>รูปแบบการส่งสินค้า</Text>
-            <View style={styles.deliveryRow}>
-              <DeliveryOption icon="storefront" title="รับที่ร้าน" isSelected={selectedDelivery === 'pickup'} onPress={() => setSelectedDelivery('pickup')} />
-              <DeliveryOption icon="bicycle" title="เดลิเวอรี่" isSelected={selectedDelivery === 'delivery'} onPress={() => setSelectedDelivery('delivery')} />
-              <DeliveryOption icon="swap-horizontal" title="ทั้งสองแบบ" isSelected={selectedDelivery === 'both'} onPress={() => setSelectedDelivery('both')} />
-            </View>
-
-            <Text style={styles.label}>เวลาทำการ</Text>
-            <TouchableOpacity style={styles.businessHoursButton} onPress={() => setShowBusinessHoursModal(true)}>
-              <View style={styles.businessHoursInfo}>
-                <Ionicons name="time" size={20} color="#10b981" />
-                <Text style={styles.businessHoursText}>{getBusinessHoursSummary()}</Text>
-              </View>
-              <Ionicons name="create-outline" size={20} color="#10b981" />
-            </TouchableOpacity>
-          </View>
-
-          {/* 📍 ตำแหน่งที่ตั้ง */}
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>ตำแหน่งที่ตั้ง</Text>
-
-            <Text style={styles.label}>ที่อยู่ร้านค้า *</Text>
-            <TextInput style={[styles.input, { height: 80 }]} value={location} onChangeText={setLocation} placeholder="เลขที่ ถนน ตำบล อำเภอ จังหวัด..." multiline textAlignVertical="top" />
-
-            <TouchableOpacity style={styles.mapButton} onPress={handleOpenMap}>
-              <Ionicons name={coordinates ? "location" : "map-outline"} size={20} color={coordinates ? "#10b981" : "#6b7280"} />
-              <Text style={[styles.mapButtonText, coordinates && { color: '#10b981' }]}>
-                {coordinates ? 'แก้ไขตำแหน่ง (ปักหมุดแล้ว)' : 'เปิดแผนที่เพื่อปักหมุด'}
-              </Text>
-            </TouchableOpacity>
-          </View>
-
-          {/* ℹ️ คำเตือน */}
-          <Text style={styles.warningText}>
-            * การแก้ไขจะใช้เวลาตรวจสอบข้อมูล 1-2 วันทำการ
-          </Text>
-
-          <View style={{ height: 120 }} />
         </ScrollView>
       </KeyboardAvoidingView>
 
       {/* 💾 ปุ่มบันทึก */}
       <View style={styles.footer}>
-        {requestStatus === 'pending' ? (
+        {isPending ? (
           <View style={styles.saveButtonDisabled}>
             <Ionicons name="time-outline" size={18} color="#92400e" />
-            <Text style={styles.saveButtonDisabledText}>รอแอดมินอนุมัติ...</Text>
+            <Text style={styles.saveButtonDisabledText}>ฟอร์มถูกล็อค (รอแอดมินอนุมัติ)</Text>
           </View>
         ) : (
           <TouchableOpacity
@@ -595,10 +588,6 @@ const styles = StyleSheet.create({
   bannerTitle: { fontSize: 14, fontWeight: '700', color: '#92400e', marginBottom: 2 },
   bannerSubtitle: { fontSize: 12, color: '#92400e', lineHeight: 18 },
 
-  bannerApproved: { flexDirection: 'row', alignItems: 'flex-start', backgroundColor: '#d1fae5', borderLeftWidth: 4, borderLeftColor: '#10b981', paddingHorizontal: 16, paddingVertical: 12, marginHorizontal: 0 },
-  bannerApprovedTitle: { fontSize: 14, fontWeight: '700', color: '#065f46', marginBottom: 2 },
-  bannerApprovedSubtitle: { fontSize: 12, color: '#065f46', lineHeight: 18 },
-
   bannerRejected: { flexDirection: 'row', alignItems: 'flex-start', backgroundColor: '#fee2e2', borderLeftWidth: 4, borderLeftColor: '#ef4444', paddingHorizontal: 16, paddingVertical: 12, marginHorizontal: 0 },
   bannerRejectedTitle: { fontSize: 14, fontWeight: '700', color: '#991b1b', marginBottom: 2 },
   bannerRejectedSubtitle: { fontSize: 12, color: '#991b1b', lineHeight: 18 },
@@ -639,5 +628,4 @@ const styles = StyleSheet.create({
   instructionOverlay: { position: 'absolute', top: 80, left: 20, right: 20, alignItems: 'center' },
   instructionBox: { backgroundColor: 'rgba(0, 0, 0, 0.75)', paddingHorizontal: 20, paddingVertical: 12, borderRadius: 25 },
   instructionText: { color: '#FFFFFF', fontSize: 14, fontWeight: '500' }
-  
 });

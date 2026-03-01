@@ -58,9 +58,9 @@ export default function AdminHomeScreen({ navigation }) {
       });
 
       loadedRequests.sort((a, b) => {
-        const dateA = a.requestDate ? new Date(a.requestDate) : new Date(0);
-        const dateB = b.requestDate ? new Date(b.requestDate) : new Date(0);
-        return dateB - dateA;
+        const timeA = a.requestDate ? new Date(a.requestDate).getTime() : 0;
+        const timeB = b.requestDate ? new Date(b.requestDate).getTime() : 0;
+        return timeB - timeA;
       });
 
       setRequests(loadedRequests);
@@ -127,7 +127,8 @@ export default function AdminHomeScreen({ navigation }) {
 
       if (request.userId) {
         const storeDocRef = doc(db, 'stores', request.userId);
-        const notifRef = collection(db, 'notifications');
+        const notifRef = collection(db, 'store_notifications');
+        const userNotifRef = collection(db, 'notifications');
 
         if (request.type === 'store_registration') {
             if (actionType === 'approve') {
@@ -140,7 +141,7 @@ export default function AdminHomeScreen({ navigation }) {
                 currentRole: 'store', hasStorePending: false, updatedAt: new Date().toISOString()
               });
 
-              await addDoc(notifRef, {
+              await addDoc(userNotifRef, {
                  userId: request.userId,
                  title: 'ยินดีด้วย! ร้านค้าอนุมัติแล้ว 🎉',
                  message: 'คุณสามารถเริ่มโพสต์ขายอาหารเพื่อช่วยลด Food Waste ได้เลย',
@@ -153,7 +154,7 @@ export default function AdminHomeScreen({ navigation }) {
               await updateDoc(doc(db, 'users', request.userId), { hasStorePending: false, updatedAt: new Date().toISOString() });
               await updateDoc(storeDocRef, { status: 'rejected', isActive: false, rejectReason: reason, updatedAt: new Date().toISOString() });
 
-              await addDoc(notifRef, {
+              await addDoc(userNotifRef, {
                  userId: request.userId,
                  title: 'คำขอเปิดร้านถูกปฏิเสธ ❌',
                  message: `(เหตุผล: ${reason}) กรุณาตรวจสอบข้อมูลและส่งคำขอใหม่อีกครั้ง`,
@@ -166,6 +167,31 @@ export default function AdminHomeScreen({ navigation }) {
         else if (request.type === 'store_update') {
             if (actionType === 'approve' && request.newData) {
                 await updateDoc(storeDocRef, { ...request.newData, updatedAt: new Date().toISOString() });
+            }
+
+            const storeName = request.storeName || request.details?.['ชื่อร้าน'] || 'ร้านค้าของคุณ';
+
+            if (actionType === 'approve') {
+                await addDoc(notifRef, {
+                    storeId: request.userId,
+                    title: 'แก้ไขข้อมูลร้านได้รับการอนุมัติ ✅',
+                    message: `แอดมินอนุมัติการแก้ไขข้อมูลร้าน "${storeName}" เรียบร้อยแล้ว ข้อมูลได้รับการอัปเดตแล้ว`,
+                    type: 'store_edit_approved',
+                    details: request.details || null, // 🟢 แนบข้อมูลการแก้ไขไปด้วย
+                    isRead: false,
+                    createdAt: new Date().toISOString()
+                });
+            } else {
+                await addDoc(notifRef, {
+                    storeId: request.userId,
+                    title: 'แก้ไขข้อมูลร้านถูกปฏิเสธ ❌',
+                    message: `แอดมินไม่อนุมัติการแก้ไขข้อมูลร้าน "${storeName}"`,
+                    cancelReason: reason,
+                    type: 'store_edit_rejected',
+                    details: request.details || null, // 🟢 แนบข้อมูลการแก้ไขไปด้วย
+                    isRead: false,
+                    createdAt: new Date().toISOString()
+                });
             }
         }
       }
@@ -200,70 +226,74 @@ export default function AdminHomeScreen({ navigation }) {
     const statusColor = currentStatus === 'approved' ? '#10b981' : currentStatus === 'rejected' ? '#ef4444' : '#f59e0b';
     const isUpdate = item.type === 'store_update';
 
-    const [realStoreImage, setRealStoreImage] = useState(item.details?.['รูปภาพ'] || item.storeImage || null);
+    const [oldStoreData, setOldStoreData] = useState(null);
 
     useEffect(() => {
-      if (!realStoreImage && item.userId) {
-        const fetchStoreImage = async () => {
+      if (isUpdate && item.userId) {
+        const fetchOldData = async () => {
           try {
-            const storeDoc = await getDoc(doc(db, 'stores', item.userId));
-            if (storeDoc.exists() && storeDoc.data().storeImage) {
-              setRealStoreImage(storeDoc.data().storeImage);
-            }
-          } catch (error) {}
+            const snap = await getDoc(doc(db, 'stores', item.userId));
+            if (snap.exists()) setOldStoreData(snap.data());
+          } catch(e) {
+            console.log("Error fetching old data:", e);
+          }
         };
-        fetchStoreImage();
+        fetchOldData();
       }
-    }, [item.userId, realStoreImage]);
+    }, [item.userId]);
 
-    const renderBusinessHours = (requestItem) => {
-        const rawBh = requestItem.newData?.businessHours;
-        const orderedKeys = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
-        const daysMap = { mon: 'จันทร์', tue: 'อังคาร', wed: 'พุธ', thu: 'พฤหัสบดี', fri: 'ศุกร์', sat: 'เสาร์', sun: 'อาทิตย์' };
+    const getDeliveryText = (val) => val === 'pickup' ? 'รับที่ร้าน' : val === 'delivery' ? 'เดลิเวอรี่' : val === 'both' ? 'ทั้งสองแบบ' : 'ไม่ระบุ';
 
-        if (rawBh && typeof rawBh === 'object') {
-             return orderedKeys.map((key, index) => {
-                 const dayData = rawBh[key];
-                 return (
-                    <View key={index} style={{ flexDirection: 'row', marginBottom: 4, alignItems: 'center' }}>
-                      <Text style={[styles.detailValueTime, { width: 85, fontWeight: '600', color: '#4b5563' }]}>{daysMap[key]}</Text>
-                      <Text style={[styles.detailValueTime, !dayData.isOpen && { color: '#ef4444' }]}>
-                        {dayData.isOpen ? `${dayData.openTime} - ${dayData.closeTime} น.` : 'ปิดทำการ'}
-                      </Text>
-                    </View>
-                 );
-             });
-        }
-
-        const timeString = requestItem.details?.['เวลาทำการ'];
-        if (!timeString) return <Text style={styles.detailValueTime}>ไม่ระบุเวลา</Text>;
-
-        const lines = timeString.split('\n');
-        const parsedDays = {};
-        lines.forEach(line => {
-            const parts = line.split(': ');
-            if (parts.length === 2) {
-                parsedDays[parts[0]] = parts[1].replace('-', ' - ') + ' น.';
-            }
-        });
-
-        const thDays = ['จันทร์', 'อังคาร', 'พุธ', 'พฤหัสบดี', 'ศุกร์', 'เสาร์', 'อาทิตย์'];
-        return thDays.map((day, index) => (
-            <View key={index} style={{ flexDirection: 'row', marginBottom: 4, alignItems: 'center' }}>
-                <Text style={[styles.detailValueTime, { width: 85, fontWeight: '600', color: '#4b5563' }]}>{day}</Text>
-                <Text style={[styles.detailValueTime, !parsedDays[day] && { color: '#ef4444' }]}>
-                   {parsedDays[day] || 'ปิดทำการ'}
-                </Text>
-            </View>
-        ));
+    const getBHoursText = (bh) => {
+        if (!bh) return 'ไม่ระบุ';
+        const daysOfWeek = [
+            { id: 'mon', label: 'จันทร์' }, { id: 'tue', label: 'อังคาร' }, { id: 'wed', label: 'พุธ' },
+            { id: 'thu', label: 'พฤหัส' }, { id: 'fri', label: 'ศุกร์' }, { id: 'sat', label: 'เสาร์' }, { id: 'sun', label: 'อาทิตย์' }
+        ];
+        return daysOfWeek.filter(d => bh[d.id]?.isOpen)
+                         .map(d => `${d.label}: ${bh[d.id].openTime}-${bh[d.id].closeTime}`)
+                         .join(', ') || 'ปิดทำการทุกวัน';
     };
+
+    const CompareField = ({ label, oldVal, newVal, icon }) => {
+        const isChanged = isUpdate && String(oldVal || '') !== String(newVal || '');
+
+        return (
+            <View style={styles.detailSection}>
+                <Text style={styles.detailTitle}>{label} {isChanged && <Text style={{color:'#f59e0b', fontSize: 11}}>(มีการแก้ไข)</Text>}</Text>
+                {isChanged ? (
+                    <View style={styles.changedBox}>
+                        <View style={styles.oldRow}>
+                            <Ionicons name={icon} size={16} color="#ef4444" />
+                            <Text style={styles.oldText}>{oldVal || 'ไม่ระบุข้อมูลเดิม'}</Text>
+                        </View>
+                        <View style={styles.arrowRow}>
+                            <Ionicons name="arrow-down" size={14} color="#9ca3af" />
+                        </View>
+                        <View style={styles.newRow}>
+                            <Ionicons name={icon} size={16} color="#10b981" />
+                            <Text style={styles.newText}>{newVal || 'ไม่ระบุ'}</Text>
+                        </View>
+                    </View>
+                ) : (
+                    <View style={styles.detailBox}>
+                        <Ionicons name={icon} size={18} color="#6b7280" style={styles.detailIcon} />
+                        <Text style={styles.detailValue}>{newVal || 'ไม่ระบุ'}</Text>
+                    </View>
+                )}
+            </View>
+        );
+    };
+
+    const displayImage = isUpdate ? (item.newData?.storeImage || oldStoreData?.storeImage) : (item.details?.['รูปภาพ'] || item.storeImage);
+    const hasImageChanged = isUpdate && (oldStoreData?.storeImage !== item.newData?.storeImage) && !!item.newData?.storeImage;
 
     return (
       <View style={styles.requestCard}>
         <View style={styles.cardMainHeader}>
           <View style={styles.requestIcon}>
-            {realStoreImage ? (
-              <Image source={{ uri: realStoreImage }} style={styles.storeMiniImage} />
+            {displayImage ? (
+              <Image source={{ uri: displayImage }} style={styles.storeMiniImage} />
             ) : (
               <Ionicons name="storefront-outline" size={24} color="#9ca3af" />
             )}
@@ -282,9 +312,9 @@ export default function AdminHomeScreen({ navigation }) {
               </View>
             </View>
 
-            <Text style={styles.storeNameText}>{item.details?.['ชื่อร้าน'] || item.details?.['ชื่อร้าน (ที่แก้ไข)'] || item.storeName || 'ไม่ระบุชื่อร้าน'}</Text>
-            <Text style={styles.ownerLabel}>โดย: {item.userName || 'ไม่ระบุ'}</Text>
-            <Text style={styles.dateLabel}>ส่งเมื่อ: {new Date(item.requestDate).toLocaleDateString('th-TH')}</Text>
+            <Text style={styles.storeNameText}>{item.newData?.storeName || item.details?.['ชื่อร้าน'] || item.storeName || 'ไม่ระบุชื่อร้าน'}</Text>
+            <Text style={styles.ownerLabel}>โดย: {item.newData?.storeOwner || item.userName || 'ไม่ระบุ'}</Text>
+            <Text style={styles.dateLabel}>ส่งเมื่อ: {new Date(item.requestDate).toLocaleDateString('th-TH', {year:'numeric', month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'})}</Text>
           </View>
 
           <TouchableOpacity onPress={() => toggleExpand(item.id)} style={styles.expandBtn}>
@@ -307,53 +337,107 @@ export default function AdminHomeScreen({ navigation }) {
 
         {isExpanded && (
           <View style={styles.expandedContent}>
-            <View style={styles.detailSection}>
-              <Text style={styles.detailTitle}>ข้อมูลติดต่อ</Text>
-              <View style={styles.detailBox}>
-                <Ionicons name="call-outline" size={18} color="#6b7280" style={styles.detailIcon} />
-                <Text style={styles.detailValue}>{item.details?.['เบอร์โทร'] || 'ไม่ระบุเบอร์โทร'}</Text>
-              </View>
-            </View>
+
+            <CompareField
+                label="ชื่อร้านค้า"
+                icon="storefront-outline"
+                oldVal={oldStoreData?.storeName}
+                newVal={item.newData?.storeName || item.details?.['ชื่อร้าน']}
+            />
+
+            <CompareField
+                label="เจ้าของร้าน"
+                icon="person-outline"
+                oldVal={oldStoreData?.storeOwner}
+                newVal={item.newData?.storeOwner || item.details?.['เจ้าของร้าน']}
+            />
+
+            <CompareField
+                label="ข้อมูลติดต่อ (เบอร์โทร)"
+                icon="call-outline"
+                oldVal={oldStoreData?.phoneNumber}
+                newVal={item.newData?.phoneNumber || item.details?.['เบอร์โทร']}
+            />
+
+            <CompareField
+                label="ที่อยู่ร้าน"
+                icon="location-outline"
+                oldVal={oldStoreData?.location}
+                newVal={item.newData?.location || item.details?.['ที่อยู่ใหม่'] || item.details?.['ที่อยู่']}
+            />
+
+            <CompareField
+                label="รายละเอียดร้าน"
+                icon="document-text-outline"
+                oldVal={oldStoreData?.storeDetails}
+                newVal={item.newData?.storeDetails}
+            />
+
+            <CompareField
+                label="การจัดส่ง"
+                icon="bicycle-outline"
+                oldVal={getDeliveryText(oldStoreData?.deliveryMethod)}
+                newVal={isUpdate ? getDeliveryText(item.newData?.deliveryMethod) : item.details?.['การจัดส่ง']}
+            />
+
+            <CompareField
+                label="เวลาทำการ"
+                icon="time-outline"
+                oldVal={getBHoursText(oldStoreData?.businessHours)}
+                newVal={isUpdate ? getBHoursText(item.newData?.businessHours) : item.details?.['เวลาทำการ']}
+            />
 
             <View style={styles.detailSection}>
-              <Text style={styles.detailTitle}>ที่อยู่ร้าน</Text>
-              <View style={styles.detailBox}>
-                <Ionicons name="location-outline" size={18} color="#6b7280" style={styles.detailIcon} />
-                <Text style={styles.detailValue}>{item.details?.['ที่อยู่'] || item.details?.['ที่อยู่ใหม่'] || 'ไม่ระบุที่อยู่'}</Text>
-              </View>
-            </View>
+              <Text style={styles.detailTitle}>รูปประกอบร้านค้า {hasImageChanged && <Text style={{color:'#f59e0b', fontSize: 11}}>(เปลี่ยนรูปใหม่)</Text>}</Text>
 
-            <View style={styles.detailSection}>
-              <Text style={styles.detailTitle}>เวลาทำการและการจัดส่ง</Text>
-              <View style={[styles.detailBox, { flexDirection: 'column', alignItems: 'flex-start' }]}>
-                <View style={{ width: '100%' }}>{renderBusinessHours(item)}</View>
-                <View style={styles.divider} />
-                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                  <Ionicons name="bicycle-outline" size={18} color="#10b981" style={styles.detailIcon} />
-                  <Text style={styles.detailValueBold}>รูปแบบจัดส่ง: {item.details?.['การจัดส่ง'] || 'ไม่ระบุ'}</Text>
-                </View>
-              </View>
-            </View>
-
-            <View style={styles.detailSection}>
-              <Text style={styles.detailTitle}>รูปประกอบร้านค้า</Text>
-              {realStoreImage ? (
-                <View style={styles.imagePreviewBox}>
-                  <Image source={{ uri: realStoreImage }} style={styles.previewImage} />
-                  <View style={styles.imageOverlay}>
-                    <TouchableOpacity style={styles.viewFullBtn} onPress={() => openImage(realStoreImage)}>
-                      <Ionicons name="expand-outline" size={16} color="#fff" />
-                      <Text style={styles.viewFullText}>ดูรูปเต็ม</Text>
-                    </TouchableOpacity>
-                  </View>
-                </View>
+              {hasImageChanged ? (
+                 <View style={{flexDirection: 'row', gap: 10}}>
+                    <View style={{flex: 1}}>
+                        <Text style={{fontSize: 12, color: '#ef4444', marginBottom: 4, textAlign: 'center'}}>รูปเดิม</Text>
+                        <View style={[styles.imagePreviewBox, {height: 100}]}>
+                            {oldStoreData?.storeImage ? (
+                                <Image source={{ uri: oldStoreData.storeImage }} style={styles.previewImage} />
+                            ) : (
+                                <View style={{flex: 1, backgroundColor: '#f3f4f6', alignItems:'center', justifyContent:'center'}}>
+                                    <Ionicons name="image-outline" size={24} color="#9ca3af" />
+                                </View>
+                            )}
+                        </View>
+                    </View>
+                    <View style={{flex: 1}}>
+                        <Text style={{fontSize: 12, color: '#10b981', marginBottom: 4, textAlign: 'center', fontWeight: 'bold'}}>รูปใหม่</Text>
+                        <View style={[styles.imagePreviewBox, {height: 100, borderColor: '#10b981', borderWidth: 2}]}>
+                            {item.newData?.storeImage && (
+                                <>
+                                    <Image source={{ uri: item.newData.storeImage }} style={styles.previewImage} />
+                                    <TouchableOpacity style={styles.imageOverlay} onPress={() => openImage(item.newData.storeImage)}>
+                                        <Ionicons name="expand-outline" size={18} color="#fff" />
+                                    </TouchableOpacity>
+                                </>
+                            )}
+                        </View>
+                    </View>
+                 </View>
               ) : (
-                <View style={styles.noImageBox}>
-                  <Ionicons name="image-outline" size={30} color="#9ca3af" />
-                  <Text style={styles.noImageText}>ไม่มีรูปภาพประกอบ</Text>
-                </View>
+                displayImage ? (
+                    <View style={styles.imagePreviewBox}>
+                        <Image source={{ uri: displayImage }} style={styles.previewImage} />
+                        <View style={styles.imageOverlay}>
+                            <TouchableOpacity style={styles.viewFullBtn} onPress={() => openImage(displayImage)}>
+                                <Ionicons name="expand-outline" size={16} color="#fff" />
+                                <Text style={styles.viewFullText}>ดูรูปเต็ม</Text>
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+                ) : (
+                    <View style={styles.noImageBox}>
+                        <Ionicons name="image-outline" size={30} color="#9ca3af" />
+                        <Text style={styles.noImageText}>ไม่มีรูปภาพประกอบ</Text>
+                    </View>
+                )
               )}
             </View>
+
           </View>
         )}
       </View>
@@ -412,7 +496,6 @@ export default function AdminHomeScreen({ navigation }) {
             <View style={styles.modalActions}>
               <TouchableOpacity style={styles.modalBtnCancel} onPress={() => setModalVisible(false)}><Text style={{fontWeight:'600', color:'#4b5563'}}>ยกเลิก</Text></TouchableOpacity>
 
-              {/* ✅ แก้ไขตรงนี้: ไม่ใช้ confirmAction แล้ว ให้เช็คเหตุผลแล้วพุ่งตรงไปเซฟเลย */}
               <TouchableOpacity style={styles.modalBtnConfirm} onPress={() => {
                 if(!rejectReason.trim()){
                   Alert.alert('แจ้งเตือน', 'กรุณาระบุเหตุผลในการปฏิเสธคำขอ');
@@ -502,13 +585,17 @@ const styles = StyleSheet.create({
   detailBox: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#f9fafb', borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 10, padding: 12 },
   detailIcon: { marginRight: 8 },
   detailValue: { fontSize: 14, color: '#111827', flex: 1, lineHeight: 20 },
-  detailValueTime: { fontSize: 14, color: '#374151', lineHeight: 22 },
-  detailValueBold: { fontSize: 14, color: '#111827', fontWeight: '600' },
-  divider: { height: 1, backgroundColor: '#e5e7eb', width: '100%', marginVertical: 8 },
+
+  changedBox: { backgroundColor: '#f0fdf4', borderWidth: 1, borderColor: '#bbf7d0', borderRadius: 10, padding: 12, flexDirection: 'column' },
+  oldRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  oldText: { fontSize: 13, color: '#ef4444', textDecorationLine: 'line-through', flex: 1, lineHeight: 18 },
+  arrowRow: { paddingLeft: 24, marginVertical: 4 },
+  newRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  newText: { fontSize: 14, color: '#065f46', fontWeight: 'bold', flex: 1, lineHeight: 20 },
 
   imagePreviewBox: { width: '100%', height: 160, borderRadius: 10, overflow: 'hidden', borderWidth: 1, borderColor: '#e5e7eb' },
   previewImage: { width: '100%', height: '100%' },
-  imageOverlay: { position: 'absolute', bottom: 10, right: 10 },
+  imageOverlay: { position: 'absolute', bottom: 10, right: 10, backgroundColor: 'rgba(0,0,0,0.6)', padding: 6, borderRadius: 20 },
   viewFullBtn: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.6)', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, gap: 4 },
   viewFullText: { color: '#fff', fontSize: 12, fontWeight: '500' },
   noImageBox: { backgroundColor: '#f9fafb', borderWidth: 1, borderColor: '#e5e7eb', borderStyle: 'dashed', borderRadius: 10, height: 100, alignItems: 'center', justifyContent: 'center' },

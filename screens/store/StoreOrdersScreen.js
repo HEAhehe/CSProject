@@ -132,7 +132,7 @@ export default function StoreOrdersScreen({ navigation }) {
       enrichedOrders.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
       setAllOrders(enrichedOrders);
 
-      // ─── ตรวจจับออร์เดอร์ใหม่ และเขียน store_notifications ───
+      // ─── ตรวจจับออเดอร์ใหม่ และเขียน store_notifications ───
       const currentIds = new Set(allOrdersList.map(o => o.id));
       if (seenOrderIds.current === null) {
         // รอบแรก — จำ id ปัจจุบันทั้งหมดไว้ ไม่ส่ง notification
@@ -147,8 +147,8 @@ export default function StoreOrdersScreen({ navigation }) {
             const notifId = `new_order_${newOrder.id}`;
             await setDoc(doc(db, 'store_notifications', notifId), {
               storeId: user.uid,
-              title: 'มีออร์เดอร์ใหม่เข้ามา! 🛒',
-              message: `ออร์เดอร์ #${newOrder.id.slice(0, 6).toUpperCase()} รายการสินค้า ${(newOrder.items || []).length} รายการ รวม ฿${newOrder.totalPrice || 0}`,
+              title: 'มีออเดอร์ใหม่เข้ามา! 🛒',
+              message: `ออเดอร์ #${newOrder.id.slice(0, 6).toUpperCase()} รายการสินค้า ${(newOrder.items || []).length} รายการ รวม ฿${newOrder.totalPrice || 0}`,
               type: 'new_order',
               orderId: newOrder.id,
               isRead: false,
@@ -647,17 +647,17 @@ export default function StoreOrdersScreen({ navigation }) {
           {item.status === 'pending' && (
             <View style={styles.uiButtonGroup}>
               <TouchableOpacity style={styles.uiBtnCancel} onPress={() => handleCancelClick(item.id)}>
-                <Text style={styles.uiBtnTextDark}>ยกเลิกออร์เดอร์</Text>
+                <Text style={styles.uiBtnTextDark}>ยกเลิกออเดอร์</Text>
               </TouchableOpacity>
               {/* ✅ แนบ item.orderType ส่งเข้าไปด้วย */}
               <TouchableOpacity style={styles.uiBtnConfirm} onPress={() => handleConfirmOrder(item.id, item.userId, item.orderType)}>
-                <Text style={styles.uiBtnTextDark}>ยืนยันออร์เดอร์</Text>
+                <Text style={styles.uiBtnTextDark}>ยืนยันออเดอร์</Text>
               </TouchableOpacity>
             </View>
           )}
           {item.status === 'confirmed' && (
             <View style={styles.uiButtonGroup}>
-              <TouchableOpacity style={styles.uiBtnCancel} onPress={() => handleCancelClick(item.id)}><Text style={styles.uiBtnTextDark}>ยกเลิกออร์เดอร์</Text></TouchableOpacity>
+              <TouchableOpacity style={styles.uiBtnCancel} onPress={() => handleCancelClick(item.id)}><Text style={styles.uiBtnTextDark}>ยกเลิกออเดอร์</Text></TouchableOpacity>
               <TouchableOpacity style={styles.uiBtnConfirm} onPress={() => handleCompleteOrder(item.id, item.userId, item.totalOrderWeight)}><Text style={styles.uiBtnTextDark}>ลูกค้ารับของแล้ว</Text></TouchableOpacity>
             </View>
           )}
@@ -705,7 +705,7 @@ export default function StoreOrdersScreen({ navigation }) {
         <TouchableOpacity onPress={toggleDrawer} style={styles.menuButton}>
           <Ionicons name="menu" size={26} color="#1f2937" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>ออร์เดอร์</Text>
+        <Text style={styles.headerTitle}>ออเดอร์</Text>
         <TouchableOpacity onPress={() => navigation.navigate('StoreProfile')}>
           <Image
             source={storeData?.storeImage ? { uri: storeData.storeImage } : { uri: defaultAvatar }}
@@ -804,7 +804,7 @@ export default function StoreOrdersScreen({ navigation }) {
         </TouchableOpacity>
         <TouchableOpacity style={styles.navItem}>
           <Ionicons name="list" size={24} color="#1f2937" />
-          <Text style={[styles.navLabel, styles.navLabelActive]}>ออร์เดอร์</Text>
+          <Text style={[styles.navLabel, styles.navLabelActive]}>ออเดอร์</Text>
         </TouchableOpacity>
 
         <TouchableOpacity style={styles.navItem} onPress={() => navigation.navigate('StoreNotifications')}>

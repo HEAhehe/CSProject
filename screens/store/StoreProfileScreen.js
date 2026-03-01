@@ -70,7 +70,7 @@ export default function StoreProfileScreen({ navigation }) {
       iconColor: '#f59e0b',
       title: 'การแจ้งเตือน',
       subtitle: 'ตั้งค่าการแจ้งเตือน',
-      onPress: () => navigation.navigate('Notifications'),
+      onPress: () => navigation.navigate('StoreNotifications'),
     },
   ];
 
