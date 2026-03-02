@@ -43,7 +43,6 @@ export default function StoreNotificationsScreen({ navigation }) {
           .map(d => ({ id: d.id, ...d.data() }))
           .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
-        // 🔴 ดึงประเภทออเดอร์ (orderType) มาเพื่อแสดง Tag จัดส่ง/รับที่ร้าน
         const enrichedItems = await Promise.all(items.map(async (item) => {
           if (item.orderId && !item.orderType) {
             try {
@@ -157,8 +156,6 @@ export default function StoreNotificationsScreen({ navigation }) {
     );
   };
 
-  // ─── Helper Functions ──────────────────────────────────────────
-
   const getNotificationIcon = (type) => {
     switch (type) {
       case 'new_order':
@@ -186,7 +183,6 @@ export default function StoreNotificationsScreen({ navigation }) {
     return date.toLocaleDateString('th-TH', { day: 'numeric', month: 'short' });
   };
 
-  // 🔴 เติม P- หรือ D- เข้าไปใน Badge แบบฝั่งลูกค้า
   const formatOrderId = (orderId, orderType) => {
     if (!orderId) return '';
     const shortId = orderId.slice(0, 6).toUpperCase();
@@ -204,26 +200,19 @@ export default function StoreNotificationsScreen({ navigation }) {
 
   const unreadCount = notifications.filter(n => !n.isRead).length;
 
-  // 🔴 ฟังก์ชันสกัดข้อความ เพื่อลบ "ออเดอร์ #XXXXXX" ออกจากข้อความแจ้งเตือน (กันการซ้ำซ้อน)
   const renderFormattedMessage = (item) => {
       let msg = item.message || '';
-
-      // ลบคำว่า ออเดอร์ / ออเดอร์ ตามด้วย #ไอดี ทิ้งไปเลย (gi = ไม่สนพิมพ์เล็กพิมพ์ใหญ่)
       if (item.orderId) {
         const shortId = item.orderId.slice(0, 6);
         const regex1 = new RegExp(`ออเดอร์\\s*#?${shortId}\\s*`, 'gi');
         const regex2 = new RegExp(`#?${shortId}\\s*`, 'gi');
-
-        msg = msg.replace(regex1, ''); // ลบ "ออเดอร์ #TAGCYX "
-        msg = msg.replace(regex2, ''); // เผื่อเหลือแค่ "#TAGCYX "
+        msg = msg.replace(regex1, '');
+        msg = msg.replace(regex2, '');
       }
 
       let reasonText = null;
       let mainText = msg.trim();
-
-      if (item.cancelReason) {
-        reasonText = item.cancelReason;
-      }
+      if (item.cancelReason) reasonText = item.cancelReason;
 
       if (reasonText) {
          return (
@@ -233,11 +222,8 @@ export default function StoreNotificationsScreen({ navigation }) {
            </View>
          );
       }
-
       return <Text style={styles.notificationMessage} numberOfLines={2}>{mainText}</Text>;
-    };
-
-  // ─── Render Notification Card ──────────────────────────────────
+  };
 
   const renderNotification = ({ item }) => {
     const icon = getNotificationIcon(item.type);
@@ -248,7 +234,7 @@ export default function StoreNotificationsScreen({ navigation }) {
           markAsRead(item.id);
           navigation.navigate('StoreNotificationDetail', { notification: item });
         }}
-        activeOpacity={0.7}
+        activeOpacity={0.8}
       >
         <View style={[styles.iconContainer, { backgroundColor: icon.bg }]}>
           <Ionicons name={icon.name} size={24} color={icon.color} />
@@ -256,23 +242,19 @@ export default function StoreNotificationsScreen({ navigation }) {
 
         <View style={styles.notificationContent}>
           <View style={styles.notificationHeader}>
-            <Text style={styles.notificationTitle} numberOfLines={1}>{item.title}</Text>
+            <Text style={[styles.notificationTitle, !item.isRead && { color: '#111827' }]} numberOfLines={1}>{item.title}</Text>
             {!item.isRead && <View style={styles.unreadDot} />}
           </View>
 
-          {/* 🔴 เรียกใช้ renderFormattedMessage แทน */}
           {renderFormattedMessage(item)}
 
           <View style={styles.notificationFooter}>
             {item.orderId ? (
               <View style={styles.badgeRow}>
-                {/* Badge ออเดอร์ */}
                 <View style={styles.orderIdBadge}>
                   <Ionicons name="receipt-outline" size={10} color="#6b7280" style={{ marginRight: 4 }} />
                   <Text style={styles.orderIdText}>#{formatOrderId(item.orderId, item.orderType)}</Text>
                 </View>
-
-                {/* 🔴 Badge ประเภท จัดส่ง/รับที่ร้าน เหมือนฝั่งลูกค้าเป๊ะๆ */}
                 {item.orderType && (
                   <View style={[styles.typeBadge, item.orderType === 'delivery' ? styles.badgeDelivery : styles.badgePickup]}>
                     <Ionicons name={item.orderType === 'delivery' ? 'bicycle' : 'storefront'} size={10} color={item.orderType === 'delivery' ? '#0284c7' : '#10b981'} style={{marginRight: 4}} />
@@ -289,8 +271,6 @@ export default function StoreNotificationsScreen({ navigation }) {
       </TouchableOpacity>
     );
   };
-
-  // ─── Drawer ────────────────────────────────────────────────────
 
   const DrawerContent = () => (
     <ScrollView contentContainerStyle={styles.drawerScrollContent} showsVerticalScrollIndicator={false}>
@@ -328,89 +308,77 @@ export default function StoreNotificationsScreen({ navigation }) {
 
         <Text style={styles.sectionLabel}>เมนูหลัก</Text>
         <TouchableOpacity style={styles.drawerMenuItem} onPress={() => { toggleDrawer(); navigation.navigate('MyShop'); }}>
-          <View style={[styles.menuIconBox, { backgroundColor: '#d1fae5' }]}><Ionicons name="home-outline" size={20} color="#10b981" /></View>
-          <Text style={styles.drawerMenuText}>หน้าหลัก</Text>
-          <Ionicons name="chevron-forward" size={18} color="#9ca3af" style={{ marginLeft: 'auto' }} />
+          <View style={[styles.menuIconBox, { backgroundColor: '#f3f4f6' }]}><Ionicons name="storefront-outline" size={20} color="#1f2937" /></View>
+          <Text style={styles.drawerMenuText}>หน้าหลักร้านค้า</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.drawerMenuItem} onPress={() => { toggleDrawer(); navigation.navigate('StoreOrders'); }}>
-          <View style={[styles.menuIconBox, { backgroundColor: '#fef3c7' }]}><Ionicons name="receipt-outline" size={20} color="#f59e0b" /></View>
-          <Text style={styles.drawerMenuText}>คำสั่งซื้อของร้าน</Text>
-          <Ionicons name="chevron-forward" size={18} color="#9ca3af" style={{ marginLeft: 'auto' }} />
+          <View style={[styles.menuIconBox, { backgroundColor: '#f3f4f6' }]}><Ionicons name="receipt-outline" size={20} color="#1f2937" /></View>
+          <Text style={styles.drawerMenuText}>ออเดอร์</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.drawerMenuItem} onPress={() => { toggleDrawer(); navigation.navigate('StoreDashboard'); }}>
-          <View style={[styles.menuIconBox, { backgroundColor: '#eff6ff' }]}><Ionicons name="bar-chart-outline" size={20} color="#3b82f6" /></View>
+          <View style={[styles.menuIconBox, { backgroundColor: '#f3f4f6' }]}><Ionicons name="bar-chart-outline" size={20} color="#1f2937" /></View>
           <Text style={styles.drawerMenuText}>แดชบอร์ด</Text>
-          <Ionicons name="chevron-forward" size={18} color="#9ca3af" style={{ marginLeft: 'auto' }} />
         </TouchableOpacity>
-        <TouchableOpacity style={styles.drawerMenuItem} onPress={() => toggleDrawer()}>
+        <TouchableOpacity style={styles.drawerMenuItem} onPress={() => { toggleDrawer(); }}>
           <View style={[styles.menuIconBox, { backgroundColor: '#dcfce7' }]}><Ionicons name="notifications-outline" size={20} color="#10b981" /></View>
-          <Text style={styles.drawerMenuText}>การแจ้งเตือนร้านค้า</Text>
-          <Ionicons name="chevron-forward" size={18} color="#9ca3af" style={{ marginLeft: 'auto' }} />
+          <Text style={styles.drawerMenuText}>การแจ้งเตือน</Text>
         </TouchableOpacity>
 
-        <Text style={styles.sectionLabel}>บัญชี</Text>
+        <Text style={styles.sectionLabel}>ตั้งค่า</Text>
         <TouchableOpacity style={styles.drawerMenuItem} onPress={() => { toggleDrawer(); navigation.navigate('StoreProfile'); }}>
-          <View style={[styles.menuIconBox, { backgroundColor: '#f3e8ff' }]}><Ionicons name="person-outline" size={20} color="#a855f7" /></View>
+          <View style={[styles.menuIconBox, { backgroundColor: '#f3f4f6' }]}><Ionicons name="person-outline" size={20} color="#1f2937" /></View>
           <Text style={styles.drawerMenuText}>โปรไฟล์</Text>
-          <Ionicons name="chevron-forward" size={18} color="#9ca3af" style={{ marginLeft: 'auto' }} />
         </TouchableOpacity>
         <TouchableOpacity style={styles.drawerMenuItem} onPress={() => { toggleDrawer(); navigation.navigate('StoreSettings'); }}>
-          <View style={[styles.menuIconBox, { backgroundColor: '#f3f4f6' }]}><Ionicons name="settings-outline" size={20} color="#6b7280" /></View>
+          <View style={[styles.menuIconBox, { backgroundColor: '#f3f4f6' }]}><Ionicons name="settings-outline" size={20} color="#1f2937" /></View>
           <Text style={styles.drawerMenuText}>แก้ไขข้อมูลร้านค้า</Text>
-          <Ionicons name="chevron-forward" size={18} color="#9ca3af" style={{ marginLeft: 'auto' }} />
         </TouchableOpacity>
         <TouchableOpacity style={styles.drawerMenuItem} onPress={handleDeleteStore}>
           <View style={[styles.menuIconBox, { backgroundColor: '#fee2e2' }]}><Ionicons name="close-circle-outline" size={20} color="#ef4444" /></View>
-          <Text style={styles.drawerMenuText}>ยกเลิกการเป็นร้านค้า</Text>
-          <Ionicons name="chevron-forward" size={18} color="#9ca3af" style={{ marginLeft: 'auto' }} />
+          <Text style={[styles.drawerMenuText, { color: '#ef4444' }]}>ยกเลิกการเป็นร้านค้า</Text>
         </TouchableOpacity>
 
         <TouchableOpacity style={styles.drawerLogout} onPress={handleLogout}>
-          <View style={[styles.menuIconBox, { backgroundColor: '#fee2e2' }]}>
-            <Ionicons name="log-out-outline" size={20} color="#ef4444" />
-          </View>
+          <Ionicons name="log-out-outline" size={20} color="#ef4444" style={{marginRight: 10}}/>
           <Text style={styles.drawerLogoutText}>ออกจากระบบ</Text>
         </TouchableOpacity>
       </View>
     </ScrollView>
   );
 
-  // ─── Main Render ───────────────────────────────────────────────
-
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#10b981" />
+      <StatusBar barStyle="dark-content" backgroundColor="#fafafa" />
 
-      {/* Header */}
+      {/* Header สไตล์ Minimal */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={toggleDrawer} style={styles.menuButton}>
-          <Ionicons name="menu" size={26} color="#fff" />
+        <TouchableOpacity onPress={toggleDrawer} style={styles.iconCircleBtn}>
+          <Ionicons name="menu-outline" size={24} color="#1f2937" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>การแจ้งเตือน</Text>
         <TouchableOpacity onPress={() => navigation.navigate('StoreProfile')}>
-          <Image
-            source={storeData?.storeImage ? { uri: storeData.storeImage } : { uri: defaultAvatar }}
-            style={styles.headerAvatar}
-          />
+          <Image source={storeData?.storeImage ? { uri: storeData.storeImage } : { uri: defaultAvatar }} style={styles.headerAvatar} />
         </TouchableOpacity>
       </View>
 
-      {/* Filter Tabs */}
+      {/* Filter Tabs สไตล์ Pill */}
       <View style={styles.filterContainer}>
-        {['all', 'unread', 'read'].map(f => (
-          <TouchableOpacity
-            key={f}
-            style={[styles.filterTab, filter === f && styles.filterTabActive]}
-            onPress={() => setFilter(f)}
-          >
-            <Text style={[styles.filterText, filter === f && styles.filterTextActive]}>
-              {f === 'all' ? 'ทั้งหมด' : f === 'unread' ? 'ยังไม่อ่าน' : 'อ่านแล้ว'}
-            </Text>
-          </TouchableOpacity>
-        ))}
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10, paddingRight: 20 }}>
+            {['all', 'unread', 'read'].map(f => (
+            <TouchableOpacity
+                key={f}
+                style={[styles.filterTab, filter === f && styles.filterTabActive]}
+                onPress={() => setFilter(f)}
+            >
+                <Text style={[styles.filterText, filter === f && styles.filterTextActive]}>
+                {f === 'all' ? 'ทั้งหมด' : f === 'unread' ? 'ยังไม่อ่าน' : 'อ่านแล้ว'}
+                </Text>
+            </TouchableOpacity>
+            ))}
+        </ScrollView>
       </View>
 
-      {/* Notification List */}
+      {/* Notification List มี Shadow สวยๆ */}
       {filteredNotifications.length > 0 ? (
         <FlatList
           data={filteredNotifications}
@@ -418,35 +386,35 @@ export default function StoreNotificationsScreen({ navigation }) {
           keyExtractor={item => item.id}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#10b981" colors={['#10b981']} />}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#1f2937" />}
         />
       ) : (
         <View style={styles.emptyState}>
-          <Ionicons name="notifications-off-outline" size={80} color="#d1d5db" />
+          <Ionicons name="notifications-off-outline" size={60} color="#d1d5db" />
           <Text style={styles.emptyText}>ไม่มีการแจ้งเตือน</Text>
         </View>
       )}
 
-      {/* Bottom Nav */}
+      {/* Bottom Nav สีขาวมินิมอล */}
       <View style={styles.bottomNav}>
         <TouchableOpacity style={styles.navItem} onPress={() => navigation.navigate('MyShop')}>
           <Ionicons name="storefront-outline" size={24} color="#9ca3af" />
           <Text style={styles.navLabel}>ร้านค้าของฉัน</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.navItem} onPress={() => navigation.navigate('StoreOrders')}>
-          <Ionicons name="list-outline" size={24} color="#9ca3af" />
+          <Ionicons name="receipt-outline" size={24} color="#9ca3af" />
           <Text style={styles.navLabel}>ออเดอร์</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.navItem}>
           <View style={{ position: 'relative' }}>
-            <Ionicons name="notifications" size={24} color="#10b981" />
+            <Ionicons name="notifications" size={24} color="#1f2937" />
             {unreadCount > 0 && (
               <View style={styles.notificationBadge}>
                 <Text style={styles.notificationBadgeText}>{unreadCount > 99 ? '99+' : unreadCount}</Text>
               </View>
             )}
           </View>
-          <Text style={[styles.navLabel, styles.navLabelActive]}>แจ้งเตือน</Text>
+          <Text style={styles.navLabelActive}>แจ้งเตือน</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.navItem} onPress={() => navigation.navigate('StoreProfile')}>
           <Ionicons name="person-outline" size={24} color="#9ca3af" />
@@ -454,100 +422,102 @@ export default function StoreNotificationsScreen({ navigation }) {
         </TouchableOpacity>
       </View>
 
-      {/* Drawer */}
-      <Modal visible={isDrawerOpen} transparent animationType="none" onRequestClose={toggleDrawer}>
-        <View style={styles.drawerOverlay}>
-          <TouchableWithoutFeedback onPress={toggleDrawer}>
-            <Animated.View style={[StyleSheet.absoluteFillObject, { backgroundColor: 'rgba(0,0,0,0.5)', opacity: fadeAnim }]} />
-          </TouchableWithoutFeedback>
-          <Animated.View style={[styles.drawerContainer, { transform: [{ translateX: slideAnim }] }]}>
-            <DrawerContent />
-          </Animated.View>
-        </View>
-      </Modal>
+      {/* Drawer Overlay */}
+      {isDrawerOpen && (
+        <Modal transparent visible={isDrawerOpen} animationType="none">
+          <View style={styles.drawerOverlay}>
+            <TouchableWithoutFeedback onPress={toggleDrawer}>
+              <Animated.View style={[styles.drawerBackdrop, { opacity: fadeAnim }]} />
+            </TouchableWithoutFeedback>
+            <Animated.View style={[styles.drawerContainer, { transform: [{ translateX: slideAnim }] }]}>
+              <DrawerContent />
+            </Animated.View>
+          </View>
+        </Modal>
+      )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f9fafb' },
+  container: { flex: 1, backgroundColor: '#fafafa' },
 
-  // ─── Header ───────────────────────────────────────────────────
+  // Header ขาวคลีน
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingTop: Platform.OS === 'ios' ? 60 : 50,
-    paddingBottom: 15,
-    backgroundColor: '#10b981',
+    paddingHorizontal: 24, paddingTop: Platform.OS === 'ios' ? 60 : 50, paddingBottom: 15,
+    backgroundColor: '#fafafa',
   },
-  menuButton: { padding: 4 },
-  headerTitle: { fontSize: 18, fontWeight: 'bold', color: '#fff', letterSpacing: 1 },
-  headerAvatar: { width: 36, height: 36, borderRadius: 18, borderWidth: 2, borderColor: '#fff', backgroundColor: '#d1fae5' },
+  iconCircleBtn: {
+    width: 44, height: 44, borderRadius: 22, backgroundColor: '#f0f0f0',
+    alignItems: 'center', justifyContent: 'center'
+  },
+  headerTitle: { fontSize: 18, fontWeight: '700', color: '#1f2937', letterSpacing: 0.5 },
+  headerAvatar: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#e5e7eb' },
 
-  // ─── Filter ───────────────────────────────────────────────────
+  // Filter
   filterContainer: {
-    flexDirection: 'row', paddingHorizontal: 20, paddingVertical: 12,
-    backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#f3f4f6', gap: 8,
+    paddingHorizontal: 24, paddingBottom: 16,
+    backgroundColor: '#fafafa',
   },
   filterTab: {
-    paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20,
-    backgroundColor: '#f9fafb', borderWidth: 1, borderColor: '#e5e7eb',
+    paddingHorizontal: 20, paddingVertical: 10, borderRadius: 24,
+    backgroundColor: '#ffffff', borderWidth: 1, borderColor: '#e5e7eb',
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.03, shadowRadius: 4, elevation: 1,
   },
-  filterTabActive: { backgroundColor: '#10b981', borderColor: '#10b981' },
-  filterText: { fontSize: 13, color: '#6b7280', fontWeight: '500' },
-  filterTextActive: { color: '#fff', fontWeight: 'bold' },
+  filterTabActive: { backgroundColor: '#1f2937', borderColor: '#1f2937' },
+  filterText: { fontSize: 13, color: '#6b7280', fontWeight: '600' },
+  filterTextActive: { color: '#ffffff', fontWeight: '700' },
 
-  // ─── List ─────────────────────────────────────────────────────
-  listContent: { padding: 16, paddingBottom: 100 },
+  // List & Cards
+  listContent: { paddingHorizontal: 24, paddingBottom: 100 },
   notificationCard: {
-    flexDirection: 'row', backgroundColor: '#fff', padding: 14, borderRadius: 16,
-    marginBottom: 12, borderWidth: 1, borderColor: '#f3f4f6',
-    shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.04, shadowRadius: 4, elevation: 1,
+    flexDirection: 'row', backgroundColor: '#ffffff', padding: 16, borderRadius: 16,
+    marginBottom: 16,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 3,
   },
-  notificationCardUnread: { backgroundColor: '#f0fdf4', borderColor: '#dcfce7' },
+  notificationCardUnread: { backgroundColor: '#f0fdf4', borderWidth: 1, borderColor: '#dcfce7' },
   iconContainer: {
-    width: 44, height: 44, borderRadius: 22,
-    alignItems: 'center', justifyContent: 'center', marginRight: 14, flexShrink: 0,
+    width: 48, height: 48, borderRadius: 24,
+    alignItems: 'center', justifyContent: 'center', marginRight: 16, flexShrink: 0,
   },
   notificationContent: { flex: 1 },
-  notificationHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 4 },
-  notificationTitle: { flex: 1, fontSize: 14, fontWeight: 'bold', color: '#1f2937' },
+  notificationHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 6 },
+  notificationTitle: { flex: 1, fontSize: 15, fontWeight: '700', color: '#4b5563' },
   unreadDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#ef4444', marginLeft: 8 },
-  notificationMessage: { fontSize: 13, color: '#4b5563', lineHeight: 20, marginBottom: 4 },
-  reasonHighlightText: { fontSize: 13, color: '#ef4444', fontWeight: '500', marginTop: 2, marginBottom: 4 },
+  notificationMessage: { fontSize: 13, color: '#6b7280', lineHeight: 22, marginBottom: 8 },
+  reasonHighlightText: { fontSize: 13, color: '#ef4444', fontWeight: '600', marginTop: 2, marginBottom: 8 },
   notificationFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 },
 
-  // 🔴 สไตล์สำหรับ Badge ให้เหมือนฝั่งลูกค้า 🔴
   badgeRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   orderIdBadge: {
     flexDirection: 'row', alignItems: 'center',
-    backgroundColor: '#f9fafb', paddingHorizontal: 6, paddingVertical: 3,
-    borderRadius: 6, borderWidth: 1, borderColor: '#e5e7eb',
+    backgroundColor: '#f9fafb', paddingHorizontal: 8, paddingVertical: 4,
+    borderRadius: 8, borderWidth: 1, borderColor: '#e5e7eb',
   },
-  orderIdText: { fontSize: 10, fontWeight: 'bold', color: '#4b5563' },
-  typeBadge: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 6, paddingVertical: 3, borderRadius: 6, borderWidth: 1 },
+  orderIdText: { fontSize: 11, fontWeight: '700', color: '#4b5563' },
+  typeBadge: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, borderWidth: 1 },
   badgeDelivery: { backgroundColor: '#e0f2fe', borderColor: '#bae6fd' },
   badgePickup: { backgroundColor: '#dcfce7', borderColor: '#bbf7d0' },
-  typeText: { fontSize: 10, fontWeight: 'bold' },
+  typeText: { fontSize: 11, fontWeight: '700' },
   textDelivery: { color: '#0284c7' },
   textPickup: { color: '#10b981' },
 
-  notificationTime: { fontSize: 11, color: '#9ca3af', fontWeight: '500' },
+  notificationTime: { fontSize: 12, color: '#9ca3af', fontWeight: '500' },
 
-  // ─── Empty ────────────────────────────────────────────────────
-  emptyState: { flex: 1, alignItems: 'center', justifyContent: 'center', marginTop: 80 },
-  emptyText: { fontSize: 16, fontWeight: '600', color: '#9ca3af', marginTop: 15 },
+  // Empty State
+  emptyState: { flex: 1, alignItems: 'center', justifyContent: 'center', marginTop: 60 },
+  emptyText: { fontSize: 15, fontWeight: '600', color: '#9ca3af', marginTop: 12 },
 
-  // ─── Bottom Nav ───────────────────────────────────────────────
+  // Bottom Nav
   bottomNav: {
-    flexDirection: 'row', backgroundColor: '#fff',
-    paddingVertical: 10, paddingHorizontal: 20,
-    borderTopWidth: 1, borderTopColor: '#f3f4f6',
-    position: 'absolute', bottom: 0, left: 0, right: 0,
+    flexDirection: 'row', backgroundColor: '#fff', paddingVertical: 12,
+    borderTopWidth: 1, borderTopColor: '#f3f4f6', position: 'absolute', bottom: 0, width: '100%',
+    shadowColor: '#000', shadowOffset: { width: 0, height: -2 }, shadowOpacity: 0.05, shadowRadius: 2, elevation: 8,
   },
-  navItem: { flex: 1, alignItems: 'center', gap: 4 },
-  navLabel: { fontSize: 10, color: '#9ca3af', marginTop: 2 },
-  navLabelActive: { color: '#10b981', fontWeight: 'bold' },
+  navItem: { flex: 1, alignItems: 'center' },
+  navLabel: { fontSize: 10, color: '#6b7280', marginTop: 4, fontWeight: '500' },
+  navLabelActive: { fontSize: 10, color: '#1f2937', fontWeight: 'bold', marginTop: 4 },
   notificationBadge: {
     position: 'absolute', top: -4, right: -6, backgroundColor: '#ef4444',
     borderRadius: 10, minWidth: 18, height: 18, justifyContent: 'center',
@@ -555,35 +525,36 @@ const styles = StyleSheet.create({
   },
   notificationBadgeText: { color: '#fff', fontSize: 10, fontWeight: 'bold' },
 
-  // ─── Drawer ───────────────────────────────────────────────────
-  drawerOverlay: { flex: 1 },
+  // Drawer
+  drawerOverlay: { flex: 1, flexDirection: 'row' },
+  drawerBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)' },
   drawerContainer: {
-    position: 'absolute', left: 0, top: 0, bottom: 0, width: width * 0.85,
-    backgroundColor: '#fff', shadowColor: '#000',
-    shadowOffset: { width: 2, height: 0 }, shadowOpacity: 0.25, shadowRadius: 3.84, elevation: 5,
+    position: 'absolute', left: 0, top: 0, bottom: 0,
+    width: width * 0.85, backgroundColor: '#fff',
+    shadowColor: '#000', shadowOffset: { width: 4, height: 0 }, shadowOpacity: 0.2, shadowRadius: 10, elevation: 10,
   },
   drawerScrollContent: { flexGrow: 1, paddingTop: Platform.OS === 'ios' ? 50 : 30, paddingBottom: 40 },
   drawerContentPadding: { paddingHorizontal: 20 },
   drawerTopHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
   logoContainer: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  logoCircle: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#f0fdf4', alignItems: 'center', justifyContent: 'center' },
-  appName: { fontSize: 16, fontWeight: 'bold', color: '#1f2937' },
+  logoCircle: { width: 40, height: 40, borderRadius: 12, backgroundColor: '#f0fdf4', alignItems: 'center', justifyContent: 'center' },
+  appName: { fontSize: 16, fontWeight: '700', color: '#1f2937' },
   appSlogan: { fontSize: 12, color: '#6b7280' },
-  closeButton: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#f3f4f6', alignItems: 'center', justifyContent: 'center' },
-  profileCard: { backgroundColor: '#fff', borderRadius: 16, padding: 15, borderWidth: 1, borderColor: '#f3f4f6', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 3, elevation: 2, marginBottom: 20 },
-  profileHeader: { flexDirection: 'row', alignItems: 'center', gap: 14, marginBottom: 14 },
-  drawerAvatar: { width: 52, height: 52, borderRadius: 26, borderWidth: 2, borderColor: '#10b981', backgroundColor: '#d1fae5' },
+  closeButton: { padding: 4 },
+  profileCard: { backgroundColor: '#f9fafb', borderRadius: 16, padding: 15, marginBottom: 20 },
+  profileHeader: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 14 },
+  drawerAvatar: { width: 48, height: 48, borderRadius: 24, backgroundColor: '#e5e7eb' },
   drawerName: { fontSize: 16, fontWeight: '700', color: '#1f2937' },
-  drawerRole: { fontSize: 12, color: '#6b7280', marginTop: 2 },
+  drawerRole: { fontSize: 12, color: '#6b7280' },
   modeContainer: { flexDirection: 'row', gap: 8 },
-  modeButtonActive: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, paddingVertical: 9, backgroundColor: '#10b981', borderRadius: 10 },
-  modeButtonInactive: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, paddingVertical: 9, backgroundColor: '#f3f4f6', borderRadius: 10 },
+  modeButtonActive: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, paddingVertical: 8, backgroundColor: '#1f2937', borderRadius: 8 },
+  modeButtonInactive: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, paddingVertical: 8, backgroundColor: '#e5e7eb', borderRadius: 8 },
   modeTextActive: { fontSize: 11, fontWeight: '700', color: '#fff' },
-  modeTextInactive: { fontSize: 11, color: '#6b7280', fontWeight: '600' },
-  sectionLabel: { fontSize: 11, color: '#9ca3af', fontWeight: '700', letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 8, marginLeft: 4, marginTop: 8 },
-  drawerMenuItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, paddingHorizontal: 5, marginBottom: 4 },
-  menuIconBox: { width: 36, height: 36, borderRadius: 10, backgroundColor: '#ecfdf5', alignItems: 'center', justifyContent: 'center', marginRight: 14 },
-  drawerMenuText: { fontSize: 14, color: '#1f2937', fontWeight: '600', flex: 1 },
-  drawerLogout: { flexDirection: 'row', alignItems: 'center', gap: 14, marginTop: 16, marginBottom: 30, paddingHorizontal: 5 },
-  drawerLogoutText: { fontSize: 14, color: '#ef4444', fontWeight: '700' },
+  modeTextInactive: { fontSize: 11, color: '#4b5563', fontWeight: '600' },
+  sectionLabel: { fontSize: 11, color: '#9ca3af', fontWeight: '700', letterSpacing: 1, marginTop: 10, marginBottom: 8 },
+  drawerMenuItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, marginBottom: 2 },
+  menuIconBox: { width: 32, height: 32, borderRadius: 8, alignItems: 'center', justifyContent: 'center', marginRight: 12 },
+  drawerMenuText: { fontSize: 14, color: '#1f2937', fontWeight: '500' },
+  drawerLogout: { flexDirection: 'row', alignItems: 'center', marginTop: 20, paddingVertical: 12 },
+  drawerLogoutText: { fontSize: 14, color: '#ef4444', fontWeight: '600' },
 });

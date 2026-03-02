@@ -1,16 +1,7 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  StatusBar,
-  ScrollView,
-  TextInput,
-  RefreshControl,
-  Modal,
-  Image,
-  Alert
+  View, Text, StyleSheet, TouchableOpacity, StatusBar, ScrollView,
+  TextInput, RefreshControl, Modal, Image, Alert
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
@@ -165,11 +156,61 @@ export default function AdminHomeScreen({ navigation }) {
             }
         }
         else if (request.type === 'store_update') {
+
+            // 🟢 ดึงข้อมูลร้านค้าปัจจุบันเผื่อไว้กรณีไม่ได้แก้รูปภาพ
+            const storeSnap = await getDoc(storeDocRef);
+            const currentStoreData = storeSnap.exists() ? storeSnap.data() : {};
+
             if (actionType === 'approve' && request.newData) {
                 await updateDoc(storeDocRef, { ...request.newData, updatedAt: new Date().toISOString() });
             }
 
-            const storeName = request.storeName || request.details?.['ชื่อร้าน'] || 'ร้านค้าของคุณ';
+            let mappedDetails = request.details ? { ...request.details } : {};
+            if (request.newData) {
+              const keyMap = {
+                storeName: 'ชื่อร้านค้า',
+                storeOwner: 'เจ้าของร้าน',
+                phoneNumber: 'เบอร์โทรศัพท์',
+                location: 'ที่อยู่ร้าน',
+                storeDetails: 'รายละเอียดร้าน',
+                deliveryMethod: 'การจัดส่ง',
+                storeImage: 'รูปร้านค้า',
+                businessHours: 'เวลาทำการ'
+              };
+
+              const getBHoursText = (bh) => {
+                  if (!bh) return 'ไม่ระบุ';
+                  if (typeof bh === 'string') return bh;
+                  const daysOfWeek = [
+                      { id: 'mon', label: 'จันทร์' }, { id: 'tue', label: 'อังคาร' }, { id: 'wed', label: 'พุธ' },
+                      { id: 'thu', label: 'พฤหัส' }, { id: 'fri', label: 'ศุกร์' }, { id: 'sat', label: 'เสาร์' }, { id: 'sun', label: 'อาทิตย์' }
+                  ];
+                  // 🟢 ปรับให้แสดงทุกวัน ถ้าปิดให้ขึ้น ปิดทำการ
+                  return daysOfWeek.map(d => {
+                      return bh[d.id]?.isOpen ? `${d.label}: ${bh[d.id].openTime}-${bh[d.id].closeTime}` : `${d.label}: ปิดทำการ`;
+                  }).join('\n');
+              };
+
+              Object.entries(request.newData).forEach(([key, val]) => {
+                if (keyMap[key] && val !== undefined && val !== null && val !== '') {
+                  let displayVal = val;
+                  if (key === 'deliveryMethod') {
+                    displayVal = val === 'pickup' ? 'รับที่ร้าน' : val === 'delivery' ? 'เดลิเวอรี่' : val === 'both' ? 'ทั้งสองแบบ' : val;
+                  } else if (key === 'businessHours') {
+                    displayVal = getBHoursText(val);
+                  }
+                  mappedDetails[keyMap[key]] = (key === 'storeImage') ? val : String(displayVal);
+                }
+              });
+            }
+
+            // 🟢 บังคับใส่รูปร้านค้าเข้าไป ถ้ามีรูปเดิมหรือรูปใหม่
+            const finalImage = request.newData?.storeImage || request.storeImage || currentStoreData.storeImage;
+            if (finalImage) {
+                mappedDetails['รูปร้านค้า'] = finalImage;
+            }
+
+            const storeName = request.storeName || mappedDetails['ชื่อร้านค้า'] || request.newData?.storeName || 'ร้านค้าของคุณ';
 
             if (actionType === 'approve') {
                 await addDoc(notifRef, {
@@ -177,7 +218,7 @@ export default function AdminHomeScreen({ navigation }) {
                     title: 'แก้ไขข้อมูลร้านได้รับการอนุมัติ ✅',
                     message: `แอดมินอนุมัติการแก้ไขข้อมูลร้าน "${storeName}" เรียบร้อยแล้ว ข้อมูลได้รับการอัปเดตแล้ว`,
                     type: 'store_edit_approved',
-                    details: request.details || null, // 🟢 แนบข้อมูลการแก้ไขไปด้วย
+                    details: mappedDetails,
                     isRead: false,
                     createdAt: new Date().toISOString()
                 });
@@ -188,7 +229,7 @@ export default function AdminHomeScreen({ navigation }) {
                     message: `แอดมินไม่อนุมัติการแก้ไขข้อมูลร้าน "${storeName}"`,
                     cancelReason: reason,
                     type: 'store_edit_rejected',
-                    details: request.details || null, // 🟢 แนบข้อมูลการแก้ไขไปด้วย
+                    details: mappedDetails,
                     isRead: false,
                     createdAt: new Date().toISOString()
                 });

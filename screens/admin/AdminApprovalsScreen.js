@@ -1,28 +1,20 @@
 import React, { useState, useCallback } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  FlatList,
-  TouchableOpacity,
-  StatusBar,
-  Modal,
-  TextInput,
-  Alert,
-  RefreshControl,
-  ActivityIndicator
+  View, Text, StyleSheet, FlatList, TouchableOpacity, StatusBar, Modal,
+  TextInput, Alert, RefreshControl, ActivityIndicator, ScrollView
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { db, auth } from '../../firebase.config';
-import { collection, getDocs, doc, updateDoc, query, addDoc } from 'firebase/firestore';
+// 🟢 เพิ่ม getDoc ตรงนี้
+import { collection, getDocs, doc, updateDoc, query, addDoc, getDoc } from 'firebase/firestore';
 
 export default function AdminApprovalsScreen({ navigation }) {
-  const [selectedTab, setSelectedTab] = useState('pending'); // pending, approved, rejected
+  const [selectedTab, setSelectedTab] = useState('pending');
   const [modalVisible, setModalVisible] = useState(false);
   const [selectedRequest, setSelectedRequest] = useState(null);
   const [rejectReason, setRejectReason] = useState('');
-  const [actionType, setActionType] = useState(''); // 'approve' or 'reject'
+  const [actionType, setActionType] = useState('');
 
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -117,18 +109,68 @@ export default function AdminApprovalsScreen({ navigation }) {
           });
         }
       } else if (request.type === 'store_update') {
+
+        // 🟢 ดึงข้อมูลร้านค้าปัจจุบันเผื่อไว้กรณีไม่ได้แก้รูปภาพ
+        const storeSnap = await getDoc(storeRef);
+        const currentStoreData = storeSnap.exists() ? storeSnap.data() : {};
+
         if (action === 'approve' && request.newData) {
           await updateDoc(storeRef, { ...request.newData, updatedAt: new Date().toISOString() });
         }
 
-        const storeName = request.storeName || 'ร้านค้าของคุณ';
+        let mappedDetails = request.details ? { ...request.details } : {};
+        if (request.newData) {
+          const keyMap = {
+            storeName: 'ชื่อร้านค้า',
+            storeOwner: 'เจ้าของร้าน',
+            phoneNumber: 'เบอร์โทรศัพท์',
+            location: 'ที่อยู่ร้าน',
+            storeDetails: 'รายละเอียดร้าน',
+            deliveryMethod: 'การจัดส่ง',
+            storeImage: 'รูปร้านค้า',
+            businessHours: 'เวลาทำการ'
+          };
+
+          const getBHoursText = (bh) => {
+              if (!bh) return 'ไม่ระบุ';
+              if (typeof bh === 'string') return bh;
+              const daysOfWeek = [
+                  { id: 'mon', label: 'จันทร์' }, { id: 'tue', label: 'อังคาร' }, { id: 'wed', label: 'พุธ' },
+                  { id: 'thu', label: 'พฤหัส' }, { id: 'fri', label: 'ศุกร์' }, { id: 'sat', label: 'เสาร์' }, { id: 'sun', label: 'อาทิตย์' }
+              ];
+              // 🟢 ปรับให้แสดงทุกวัน ถ้าปิดให้ขึ้น ปิดทำการ
+              return daysOfWeek.map(d => {
+                  return bh[d.id]?.isOpen ? `${d.label}: ${bh[d.id].openTime}-${bh[d.id].closeTime}` : `${d.label}: ปิดทำการ`;
+              }).join('\n');
+          };
+
+          Object.entries(request.newData).forEach(([key, val]) => {
+            if (keyMap[key] && val !== undefined && val !== null && val !== '') {
+              let displayVal = val;
+              if (key === 'deliveryMethod') {
+                displayVal = val === 'pickup' ? 'รับที่ร้าน' : val === 'delivery' ? 'เดลิเวอรี่' : val === 'both' ? 'ทั้งสองแบบ' : val;
+              } else if (key === 'businessHours') {
+                displayVal = getBHoursText(val);
+              }
+              mappedDetails[keyMap[key]] = (key === 'storeImage') ? val : String(displayVal);
+            }
+          });
+        }
+
+        // 🟢 บังคับใส่รูปร้านค้าเข้าไป ถ้ามีรูปเดิมหรือรูปใหม่
+        const finalImage = request.newData?.storeImage || request.storeImage || currentStoreData.storeImage;
+        if (finalImage) {
+            mappedDetails['รูปร้านค้า'] = finalImage;
+        }
+
+        const storeName = request.storeName || mappedDetails['ชื่อร้านค้า'] || request.newData?.storeName || 'ร้านค้าของคุณ';
         const notifPayload = action === 'approve'
           ? {
               storeId: storeUserId,
               title: 'แก้ไขข้อมูลร้านได้รับการอนุมัติ ✅',
               message: `แอดมินอนุมัติการแก้ไขข้อมูลร้าน "${storeName}" เรียบร้อยแล้ว ข้อมูลได้รับการอัปเดตแล้ว`,
               type: 'store_edit_approved',
-              details: request.details || null, // 🟢 แนบข้อมูลการแก้ไขไปด้วย
+              details: mappedDetails,
               isRead: false,
               createdAt: new Date().toISOString()
             }
@@ -138,7 +180,7 @@ export default function AdminApprovalsScreen({ navigation }) {
               message: `แอดมินไม่อนุมัติการแก้ไขข้อมูลร้าน "${storeName}"`,
               cancelReason: reason,
               type: 'store_edit_rejected',
-              details: request.details || null, // 🟢 แนบข้อมูลการแก้ไขไปด้วย
+              details: mappedDetails,
               isRead: false,
               createdAt: new Date().toISOString()
             };
@@ -193,7 +235,7 @@ export default function AdminApprovalsScreen({ navigation }) {
               </View>
               <Text style={styles.requestDate}>{displayDate}</Text>
             </View>
-            <Text style={styles.storeNameTitle}>{item.storeName || item.details?.['ชื่อร้าน'] || 'ไม่ระบุชื่อร้าน'}</Text>
+            <Text style={styles.storeNameTitle}>{item.storeName || item.newData?.storeName || item.details?.['ชื่อร้าน'] || 'ไม่ระบุชื่อร้าน'}</Text>
             <Text style={styles.requestUser}>โดย: {item.userName || 'ไม่ระบุชื่อ'}</Text>
           </View>
         </View>
@@ -275,12 +317,33 @@ export default function AdminApprovalsScreen({ navigation }) {
                   <View style={styles.divider} />
                   <Text style={styles.sectionHeader}>{selectedRequest.type === 'store_update' ? 'ข้อมูลที่ขอแก้ไขใหม่' : 'ข้อมูลร้านค้า'}</Text>
 
-                  {selectedRequest.details && Object.entries(selectedRequest.details).map(([key, value]) => (
-                    <View key={key} style={styles.infoRow}>
-                      <Text style={styles.label}>{key}:</Text>
-                      <Text style={styles.value}>{String(value)}</Text>
-                    </View>
-                  ))}
+                  {selectedRequest.details ? (
+                    Object.entries(selectedRequest.details).map(([key, value]) => (
+                      <View key={key} style={styles.infoRow}>
+                        <Text style={styles.label}>{key}:</Text>
+                        <Text style={styles.value}>{String(value)}</Text>
+                      </View>
+                    ))
+                  ) : selectedRequest.newData ? (
+                    Object.entries(selectedRequest.newData).map(([key, value]) => {
+                      if (key === 'storeImage') return null; // ข้ามการแสดงรูปใน text
+                      let displayKey = key;
+                      const keyMap = { storeName: 'ชื่อร้านค้า', storeOwner: 'เจ้าของร้าน', phoneNumber: 'เบอร์โทรศัพท์', location: 'ที่อยู่ร้าน', storeDetails: 'รายละเอียดร้าน', deliveryMethod: 'การจัดส่ง' };
+                      if (keyMap[key]) displayKey = keyMap[key];
+
+                      let displayVal = value;
+                      if (key === 'deliveryMethod') {
+                        displayVal = value === 'pickup' ? 'รับที่ร้าน' : value === 'delivery' ? 'เดลิเวอรี่' : value === 'both' ? 'ทั้งสองแบบ' : value;
+                      }
+
+                      return (
+                        <View key={key} style={styles.infoRow}>
+                          <Text style={styles.label}>{displayKey}:</Text>
+                          <Text style={styles.value}>{String(displayVal)}</Text>
+                        </View>
+                      );
+                    })
+                  ) : null}
 
                   {selectedRequest.status === 'pending' && (
                     <View style={styles.rejectInputContainer}>
