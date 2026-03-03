@@ -339,6 +339,17 @@ export default function StoreOrdersScreen({ navigation }) {
               try {
                 await updateDoc(doc(db, 'orders', orderId), { status: 'completed' });
 
+                // 🌿 อัปเดต totalFoodSaved และ totalCO2Saved ของร้านค้า
+                const user = auth.currentUser;
+                if (user && totalOrderWeight > 0) {
+                  const CO2_COEFFICIENT = 2.5;
+                  const co2Saved = totalOrderWeight * CO2_COEFFICIENT;
+                  await updateDoc(doc(db, 'stores', user.uid), {
+                    totalFoodSaved: increment(totalOrderWeight),
+                    totalCO2Saved: increment(co2Saved),
+                  });
+                }
+
                 // 🔔 คำพูดน่ารักๆ สำหรับตอนลูกค้าได้รับของเรียบร้อย
                 if (userId) {
                   const { addDoc, collection } = require('firebase/firestore');
