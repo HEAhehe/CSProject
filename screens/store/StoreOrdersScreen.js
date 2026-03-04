@@ -33,6 +33,7 @@ export default function StoreOrdersScreen({ navigation }) {
   const [refreshing, setRefreshing] = useState(false);
   const [filter, setFilter] = useState('pending');
   const [storeData, setStoreData] = useState(null);
+  const [isStoreOpen, setIsStoreOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [username, setUsername] = useState('');
 
@@ -58,8 +59,28 @@ export default function StoreOrdersScreen({ navigation }) {
     total: 0,
     revenue: 0,
     completedToday: 0,
-    completedTotal: 0
+    completedTotal: 0,
+    posted: 0,
+    sold: 0
   });
+
+  const checkStoreOpenStatus = (businessHours) => {
+    if (!businessHours) return false;
+    const dayMap = { 0: 'sun', 1: 'mon', 2: 'tue', 3: 'wed', 4: 'thu', 5: 'fri', 6: 'sat' };
+    const now = new Date();
+    const dayKey = dayMap[now.getDay()];
+    const todayHours = businessHours[dayKey];
+    if (!todayHours || !todayHours.isOpen) return false;
+    const { openTime, closeTime } = todayHours;
+    if (!openTime || !closeTime) return false;
+    const [openH, openM] = openTime.split(':').map(Number);
+    const [closeH, closeM] = closeTime.split(':').map(Number);
+    const currentMinutes = now.getHours() * 60 + now.getMinutes();
+    const openMinutes = openH * 60 + openM;
+    const closeMinutes = closeH * 60 + closeM;
+    if (closeMinutes < openMinutes) return currentMinutes >= openMinutes || currentMinutes < closeMinutes;
+    return currentMinutes >= openMinutes && currentMinutes < closeMinutes;
+  };
 
   const loadStoreData = async () => {
     try {
@@ -75,7 +96,15 @@ export default function StoreOrdersScreen({ navigation }) {
       }
       const storeDocRef = doc(db, 'stores', user.uid);
       const storeDoc = await getDoc(storeDocRef);
-      if (storeDoc.exists()) setStoreData(storeDoc.data());
+      if (storeDoc.exists()) {
+        const storeInfo = storeDoc.data();
+        setStoreData(storeInfo);
+        setIsStoreOpen(checkStoreOpenStatus(storeInfo.businessHours));
+      }
+
+      const foodSnap = await getDocs(query(collection(db, 'food_items'), where('userId', '==', user.uid)));
+      const posted = foodSnap.docs.filter(d => d.data().quantity > 0).length;
+      setStats(prev => ({ ...prev, posted }));
     } catch (error) {
       console.error('Error loading store data:', error);
     }
@@ -175,13 +204,16 @@ export default function StoreOrdersScreen({ navigation }) {
         return orderDate >= startOfToday;
       }).length;
 
-      setStats({
+      const soldCount = completedOrders.reduce((sum, o) => sum + (o.items || []).reduce((s, item) => s + (item.quantity || 1), 0), 0);
+      setStats(prev => ({
+        ...prev,
         pending: pendingCount,
         total: enrichedOrders.length,
         revenue: totalRevenue,
         completedToday: completedTodayCount,
-        completedTotal: completedOrders.length
-      });
+        completedTotal: completedOrders.length,
+        sold: soldCount
+      }));
 
       setLoading(false);
     });
@@ -553,18 +585,18 @@ export default function StoreOrdersScreen({ navigation }) {
             <View style={styles.storeStatusHeaderSoft}>
               <View style={styles.storeIconCircle}><Ionicons name="storefront" size={20} color="#10b981" /></View>
               <View>
-                 <Text style={styles.storeStatusNameSoft}>{storeData?.storeName || 'ชื่อร้านค้า'}</Text>
-                 <Text style={styles.storeStatusTextSoft}>สถานะ: เปิดทำการ</Text>
+                <Text style={styles.storeStatusNameSoft}>{storeData?.storeName || 'ชื่อร้านค้า'}</Text>
+                <Text style={styles.storeStatusTextSoft}>สถานะ: {isStoreOpen ? 'เปิดทำการ' : 'ปิดทำการ'}</Text>
               </View>
             </View>
             <View style={styles.storeStatRowSoft}>
               <View style={styles.storeStatBoxSoft}>
-                <Text style={styles.storeStatBoxTitleSoft}>ยอดขายวันนี้</Text>
-                <Text style={styles.storeStatBoxValueSoft}>{stats.completedToday} ออเดอร์</Text>
+                <Text style={styles.storeStatBoxTitleSoft}>สินค้าที่ลงขาย</Text>
+                <Text style={styles.storeStatBoxValueSoft}>{stats.posted} รายการ</Text>
               </View>
               <View style={styles.storeStatBoxSoft}>
-                <Text style={styles.storeStatBoxTitleSoft}>ยอดขายสะสม</Text>
-                <Text style={styles.storeStatBoxValueSoft}>{stats.completedTotal} ออเดอร์</Text>
+                <Text style={styles.storeStatBoxTitleSoft}>ขายแล้ว</Text>
+                <Text style={styles.storeStatBoxValueSoft}>{stats.sold} ชิ้น</Text>
               </View>
             </View>
           </View>

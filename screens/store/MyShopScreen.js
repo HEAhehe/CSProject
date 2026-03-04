@@ -11,6 +11,17 @@ import { useFocusEffect } from '@react-navigation/native';
 
 const { width } = Dimensions.get('window');
 
+const CATEGORY_OPTIONS = [
+  { label: 'อาหารสด', icon: 'nutrition-outline' },
+  { label: 'อาหารแห้ง', icon: 'cube-outline' },
+  { label: 'เครื่องดื่ม', icon: 'wine-outline' },
+  { label: 'ขนม/ของหวาน', icon: 'ice-cream-outline' },
+  { label: 'ผัก/ผลไม้', icon: 'leaf-outline' },
+  { label: 'อาหารสำเร็จรูป', icon: 'fast-food-outline' },
+  { label: 'นม/ผลิตภัณฑ์นม', icon: 'water-outline' },
+  { label: 'อื่นๆ', icon: 'ellipsis-horizontal-outline' },
+];
+
 export default function MyShopScreen({ navigation }) {
   const [storeData, setStoreData] = useState(null);
   const [activeListings, setActiveListings] = useState([]);
@@ -275,6 +286,12 @@ export default function MyShopScreen({ navigation }) {
           </View>
 
           <View style={styles.tagsContainer}>
+            {item.category && (
+              <View style={[styles.tag, styles.tagCategory]}>
+                <Ionicons name={CATEGORY_OPTIONS.find(c => c.label === item.category)?.icon || 'pricetag-outline'} size={12} color="#10b981" />
+                <Text style={[styles.tagText, { color: '#065f46' }]}>{item.category}</Text>
+              </View>
+            )}
             <View style={styles.tag}>
               <Ionicons name="cube-outline" size={12} color="#6b7280" />
               <Text style={styles.tagText}>{item.quantity} {item.unit}</Text>
@@ -500,8 +517,8 @@ export default function MyShopScreen({ navigation }) {
 
       {/* Header - เสริมเงาด้านล่าง */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={toggleDrawer} style={styles.iconCircle}>
-          <Ionicons name="menu-outline" size={24} color="#1f2937" />
+        <TouchableOpacity onPress={toggleDrawer} style={styles.menuButton}>
+          <Ionicons name="menu" size={26} color="#1f2937" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>ร้านค้าของฉัน</Text>
         <TouchableOpacity onPress={() => navigation.navigate('StoreProfile')}>
@@ -662,6 +679,7 @@ const styles = StyleSheet.create({
     zIndex: 10,
   },
   iconCircle: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', backgroundColor: '#f9fafb' },
+  menuButton: { padding: 4 },
   headerTitle: { fontSize: 16, fontWeight: '700', color: '#1f2937' },
   avatar: { width: 34, height: 34, borderRadius: 17, backgroundColor: '#f3f4f6' },
 
@@ -806,6 +824,7 @@ const styles = StyleSheet.create({
 
   tagsContainer: { flexDirection: 'row', gap: 8 },
   tag: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#f9fafb', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, borderWidth: 1, borderColor: '#f3f4f6' },
+  tagCategory: { backgroundColor: '#f0fdf4', borderColor: '#bbf7d0' },
   tagText: { fontSize: 11, color: '#6b7280', fontWeight: '500' },
 
   // ส่วนปุ่มจัดการแบบใหม่
