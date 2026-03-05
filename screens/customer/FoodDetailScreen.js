@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -53,6 +53,7 @@ export default function FoodDetailScreen({ navigation, route }) {
   const [loading, setLoading] = useState(false);
   const [isFavorite, setIsFavorite] = useState(false);
   const [quantity, setQuantity] = useState(1);
+  const isProcessing = useRef(false); // 🟢 ตัวล็อกด่านแรก
 
   const [storeData, setStoreData] = useState(null);
   const [activeClosingTime, setActiveClosingTime] = useState('20:00');
@@ -369,8 +370,12 @@ export default function FoodDetailScreen({ navigation, route }) {
         const user = auth.currentUser;
         if (!user) return showCustomAlert('แจ้งเตือน', 'กรุณาเข้าสู่ระบบเพื่อทำรายการ');
         if (!targetStoreIdForNav) return showCustomAlert('ผิดพลาด', 'ไม่สามารถระบุร้านค้าได้');
+        if (user.uid === targetStoreIdForNav) return showCustomAlert('ไม่สามารถทำรายการได้', 'คุณไม่สามารถซื้อสินค้าของร้านตัวเองได้', 'warning');
 
+        if (isProcessing.current) return;
+        isProcessing.current = true;
         setLoading(true);
+
         try {
           const cartRef = collection(db, 'users', user.uid, 'cart');
 
@@ -422,7 +427,10 @@ export default function FoodDetailScreen({ navigation, route }) {
           console.error(e);
           showCustomAlert('ผิดพลาด', 'ไม่สามารถเพิ่มลงตะกร้าได้ กรุณาลองใหม่');
         }
-        finally { setLoading(false); }
+        finally {
+            setLoading(false);
+            isProcessing.current = false;
+        }
       };
 
   const increaseQty = () => { if (quantity < food.quantity) setQuantity(quantity + 1); };
@@ -433,8 +441,12 @@ export default function FoodDetailScreen({ navigation, route }) {
       const user = auth.currentUser;
       if (!user) return showCustomAlert('แจ้งเตือน', 'กรุณาเข้าสู่ระบบเพื่อทำรายการ');
       if (!targetStoreIdForNav) return showCustomAlert('ผิดพลาด', 'ไม่สามารถระบุร้านค้าได้');
+      if (user.uid === targetStoreIdForNav) return showCustomAlert('ไม่สามารถทำรายการได้', 'คุณไม่สามารถซื้อสินค้าของร้านตัวเองได้', 'warning');
 
+      if (isProcessing.current) return;
+      isProcessing.current = true;
       setLoading(true);
+
       let createdOrderData = null;
 
       try {
@@ -484,22 +496,19 @@ export default function FoodDetailScreen({ navigation, route }) {
           createdOrderData = cleanOrderData;
           transaction.set(newOrderRef, cleanOrderData);
 
-          // 🟢 สร้างการแจ้งเตือนโดยตัดค่า undefined ทิ้งทั้งหมด
           const notifRef = doc(collection(db, 'store_notifications'));
-          const notifData = {
-            id: notifRef.id,
-            storeId: targetStoreIdForNav || 'unknown_store',
-            type: 'new_order',
-            title: 'มีออเดอร์ใหม่เข้า!',
-            message: `ออเดอร์ #${newOrderRef.id.slice(0, 6).toUpperCase()} จำนวน ${quantity} ${sellingUnit}`,
-            orderId: newOrderRef.id,
-            orderType: selectedMethod || 'pickup',
-            isRead: false,
-            createdAt: new Date().toISOString()
-          };
-
-          const cleanNotifData = JSON.parse(JSON.stringify(notifData));
-          transaction.set(notifRef, cleanNotifData);
+                    const notifData = {
+                      id: notifRef.id,
+                      storeId: targetStoreIdForNav || 'unknown_store',
+                      type: 'new_order',
+                      title: 'มีออเดอร์ใหม่เข้ามา! 🛒',
+                      message: `ออเดอร์ #${newOrderRef.id.slice(0, 6).toUpperCase()} จำนวน ${quantity} ${sellingUnit}`,
+                      orderId: newOrderRef.id,
+                      orderType: selectedMethod || 'pickup',
+                      isRead: false,
+                      createdAt: new Date().toISOString()
+                    };
+                    transaction.set(notifRef, JSON.parse(JSON.stringify(notifData)));
         });
 
         const userRef = doc(db, 'users', user.uid);
@@ -508,6 +517,8 @@ export default function FoodDetailScreen({ navigation, route }) {
         });
 
         setLoading(false);
+        isProcessing.current = false;
+
         showCustomAlert('สำเร็จ!', `สั่งอาหารเรียบร้อยแล้ว 🌍`, 'success', {
             onConfirm: () => {
                 setAlertVisible(false);
@@ -516,6 +527,7 @@ export default function FoodDetailScreen({ navigation, route }) {
         });
       } catch (error) {
         setLoading(false);
+        isProcessing.current = false;
         showCustomAlert('จองไม่สำเร็จ', typeof error === 'string' ? error : 'เกิดข้อผิดพลาดในการจอง');
       }
     };
@@ -706,7 +718,16 @@ export default function FoodDetailScreen({ navigation, route }) {
                   alertConfig.type === 'warning' ? { backgroundColor: '#f59e0b' } : { backgroundColor: '#111827' },
                   alertConfig.showCancel && { flex: 1 }
                 ]}
-                onPress={() => { setAlertVisible(false); if (alertConfig.onConfirm) alertConfig.onConfirm(); }}>
+                onPress={() => {
+                  // 🟢 เคลียร์ Memory ล็อกไม่ให้รันซ้ำ
+                  if (alertConfig.onConfirm) {
+                    const action = alertConfig.onConfirm;
+                    alertConfig.onConfirm = null;
+                    setAlertConfig(prev => ({ ...prev, onConfirm: null }));
+                    action();
+                  }
+                  setAlertVisible(false);
+                }}>
                 <Text style={styles.alertButtonText}>{alertConfig.confirmText}</Text>
               </TouchableOpacity>
             </View>

@@ -157,7 +157,7 @@ export default function NotificationDetailScreen({ navigation, route }) {
   const theme = getNotificationTheme(notification.type);
   const isStoreOpen = checkIsStoreOpen();
 
-  // 🔴 ตั้งค่าปุ่มกดตามสถานะร้านค้า
+// 🔴 ตั้งค่าปุ่มกดตามสถานะร้านค้า
   let buttonText = 'กลับสู่หน้าหลัก';
   let buttonColor = '#1f2937';
   let actionTarget = 'home';
@@ -166,11 +166,11 @@ export default function NotificationDetailScreen({ navigation, route }) {
     if (foodData) {
       if (isStoreOpen) {
         buttonText = '🛒 กดสั่งซื้อเลย';
-        buttonColor = '#10b981'; // สีเขียว สั่งได้
+        buttonColor = '#10b981';
         actionTarget = 'buy';
       } else {
         buttonText = '🏪 ร้านปิดอยู่ (ไปดูหน้าร้าน)';
-        buttonColor = '#f59e0b'; // สีส้ม ร้านปิด
+        buttonColor = '#f59e0b';
         actionTarget = 'store';
       }
     } else if (notification.foodId) {
@@ -183,12 +183,35 @@ export default function NotificationDetailScreen({ navigation, route }) {
       actionTarget = 'store';
     }
   }
+  // 🟢 เพิ่มบล็อกนี้ สำหรับแจ้งเตือนรับอาหารสำเร็จ
+  else if (notification.type === 'order_completed') {
+    if (orderData) {
+      if (!orderData.isReviewed) {
+        buttonText = '⭐ เขียนรีวิวให้ออเดอร์นี้';
+        buttonColor = '#f59e0b'; // สีส้มเด่นๆ
+        actionTarget = 'review';
+      } else {
+        buttonText = '👁️ ดูรีวิวของคุณที่หน้าร้านค้า';
+        buttonColor = '#3b82f6'; // สีฟ้า
+        actionTarget = 'view_review';
+      }
+    } else {
+      buttonText = loadingData ? 'กำลังโหลดข้อมูล...' : '❌ ไม่พบข้อมูลออเดอร์';
+      buttonColor = '#ef4444';
+      actionTarget = 'none';
+    }
+  }
 
   const handleActionButton = () => {
     if (actionTarget === 'buy') {
       navigation.navigate('FoodDetail', { food: { ...foodData, storeName: notification.storeName } });
     } else if (actionTarget === 'store') {
       navigation.navigate('StoreDetail', { storeId: notification.storeId });
+    } else if (actionTarget === 'review') {
+      navigation.navigate('WriteReview', { order: orderData });
+    } else if (actionTarget === 'view_review') {
+      // พาไปที่หน้าร้านค้า ลูกค้าจะสามารถกดแท็บ "รีวิว" เพื่อดูรีวิวตัวเองได้
+      navigation.navigate('StoreDetail', { storeId: orderData.storeId || notification.storeId });
     } else if (actionTarget === 'home') {
       navigation.navigate('Home');
     }
@@ -291,6 +314,58 @@ export default function NotificationDetailScreen({ navigation, route }) {
                 </>
               ) : null}
 
+            </View>
+          </View>
+        )}
+
+{/* 🟢 ส่วนแสดงรายละเอียดออเดอร์เมื่อรับอาหารสำเร็จ */}
+        {notification.type === 'order_completed' && orderData && (
+          <View style={[styles.detailSection, { marginTop: 10 }]}>
+            <Text style={styles.sectionLabel}>สรุปรายการสั่งซื้อของคุณ</Text>
+            <View style={styles.detailCard}>
+              <View style={styles.infoRow}>
+                <Text style={styles.infoLabel}>หมายเลขออเดอร์</Text>
+                <Text style={styles.infoValueDark}>#{orderData.id.slice(0, 6).toUpperCase()}</Text>
+              </View>
+              <View style={styles.divider} />
+
+              <View style={styles.infoRow}>
+                <Text style={styles.infoLabel}>ร้านค้า</Text>
+                <Text style={styles.infoValueDark}>{orderData.storeName || notification.storeName}</Text>
+              </View>
+              <View style={styles.divider} />
+
+              <View style={styles.infoRow}>
+                <Text style={styles.infoLabel}>ประเภทการรับ</Text>
+                <Text style={[styles.infoValueDark, { color: orderData.orderType === 'delivery' ? '#0284c7' : '#10b981', fontWeight: 'bold' }]}>
+                  {orderData.orderType === 'delivery' ? '🛵 จัดส่ง' : '🛍️ รับที่ร้าน'}
+                </Text>
+              </View>
+              <View style={styles.divider} />
+
+              <Text style={[styles.infoLabel, { marginBottom: 8 }]}>รายการอาหาร:</Text>
+              {orderData.items && orderData.items.length > 0 ? (
+                orderData.items.map((item, index) => (
+                  <View key={index} style={[styles.infoRow, { marginVertical: 2 }]}>
+                    <Text style={styles.infoValueDark}>{item.quantity}x {item.foodName || item.name}</Text>
+                    <Text style={styles.infoValueDark}>฿{item.price * item.quantity}</Text>
+                  </View>
+                ))
+              ) : (
+                <View style={styles.infoRow}>
+                  <Text style={styles.infoValueDark}>1x {orderData.foodName || 'รายการอาหาร'}</Text>
+                  <Text style={styles.infoValueDark}>฿{orderData.totalPrice}</Text>
+                </View>
+              )}
+
+              <View style={styles.divider} />
+
+              <View style={styles.infoRow}>
+                <Text style={[styles.infoLabel, { fontWeight: 'bold', color: '#1f2937' }]}>ยอดรวมทั้งสิ้น</Text>
+                <Text style={[styles.infoValueDark, { color: '#ef4444', fontSize: 16, fontWeight: 'bold' }]}>
+                  ฿{orderData.totalPrice}
+                </Text>
+              </View>
             </View>
           </View>
         )}

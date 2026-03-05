@@ -22,12 +22,20 @@ import { collection, getDocs, query, where, doc, getDoc, writeBatch, onSnapshot 
 
 const { width } = Dimensions.get('window');
 
-export default function StoreDashboardScreen({ navigation }) {
+export default function StoreDashboardScreen({ navigation, route }) { // 🟢 รับค่า route เข้ามา
   const [storeData, setStoreData] = useState(null);
   const [userData, setUserData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [activeTab, setActiveTab] = useState('overview'); // overview, orders, reviews
+  const [activeTab, setActiveTab] = useState(route?.params?.tab || 'overview'); // 🟢 อ่านค่าเริ่มต้นจาก Param ก่อน
+
+  // 🟢 ดักฟังกรณีหน้านี้ถูกโหลดซ้ำแล้วมี Param ส่งมาใหม่
+  useEffect(() => {
+    if (route?.params?.tab) {
+      setActiveTab(route.params.tab);
+    }
+  }, [route?.params?.tab]);
+
   const [selectedPeriod, setSelectedPeriod] = useState('today'); // today, week, month, all
   const [showPeriodModal, setShowPeriodModal] = useState(false);
   const [allOrders, setAllOrders] = useState([]);

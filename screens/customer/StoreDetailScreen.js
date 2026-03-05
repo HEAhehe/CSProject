@@ -457,8 +457,7 @@ export default function StoreDetailScreen({ navigation, route }) {
                       {(!item.isAnonymous && item.userProfileImage) ? (
                         <Image source={{ uri: item.userProfileImage }} style={{ width: '100%', height: '100%', borderRadius: 15 }} />
                       ) : (
-                        <Ionicons name={item.isAnonymous ? "incognito" : "person"} size={16} color="#fff" />
-                      )}
+                        <Ionicons name={item.isAnonymous ? "eye-off" : "person"} size={16} color="#fff" />                      )}
                     </View>
                     <View>
                         <Text style={styles.reviewerName}>{item.isAnonymous ? 'ผู้ไม่ประสงค์ออกนาม' : (item.userName || 'ผู้ใช้งาน')}</Text>

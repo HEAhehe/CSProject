@@ -32,6 +32,7 @@ export default function StoreOrdersScreen({ navigation }) {
   const [allOrders, setAllOrders] = useState([]);
   const [refreshing, setRefreshing] = useState(false);
   const [filter, setFilter] = useState('pending');
+  const [sortOrder, setSortOrder] = useState('asc'); // 🟢 State สำหรับเรียงลำดับ
   const [storeData, setStoreData] = useState(null);
   const [isStoreOpen, setIsStoreOpen] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -44,7 +45,7 @@ export default function StoreOrdersScreen({ navigation }) {
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
   const [cancelModalVisible, setCancelModalVisible] = useState(false);
-  const seenOrderIds = useRef(null); // null = ยังไม่ initialise รอบแรก
+  const seenOrderIds = useRef(null);
   const [cancelOrderId, setCancelOrderId] = useState(null);
   const [cancelReason, setCancelReason] = useState('');
 
@@ -86,7 +87,6 @@ export default function StoreOrdersScreen({ navigation }) {
     try {
       const user = auth.currentUser;
       if (!user) return;
-      // โหลด username จาก users collection
       const userDoc = await getDoc(doc(db, 'users', user.uid));
       if (userDoc.exists()) {
         const data = userDoc.data();
@@ -149,9 +149,6 @@ export default function StoreOrdersScreen({ navigation }) {
           ...order,
           customerName: uData?.username || uData?.displayName || `ลูกค้า ${order.userId?.slice(0, 6)}`,
           customerAvatar: uData?.profileImage || defaultUserAvatar,
-          // ✅ ดึงเบอร์จาก users collection ก่อนเสมอ เพราะเป็นข้อมูลล่าสุด
-          // ถ้าลูกค้าเปลี่ยนเบอร์ในโปรไฟล์ จะสะท้อนที่นี่ทันที
-          // ใช้ค่าจาก order เป็น fallback กรณี uData หาไม่เจอ (เช่น ลบบัญชีแล้ว)
           customerPhone: uData?.phoneNumber || uData?.phone || uData?.tel || uData?.mobile || uData?.contactPhone || order.customerPhone || order.phone || order.phoneNumber || null,
           customerAddress: order.customerAddress || uData?.address || 'ไม่ระบุที่อยู่',
           customerAddressTitle: order.customerAddressTitle || uData?.addressTitle || ''
@@ -161,35 +158,7 @@ export default function StoreOrdersScreen({ navigation }) {
       enrichedOrders.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
       setAllOrders(enrichedOrders);
 
-      // ─── ตรวจจับออเดอร์ใหม่ และเขียน store_notifications ───
-      const currentIds = new Set(allOrdersList.map(o => o.id));
-      if (seenOrderIds.current === null) {
-        // รอบแรก — จำ id ปัจจุบันทั้งหมดไว้ ไม่ส่ง notification
-        seenOrderIds.current = currentIds;
-      } else {
-        // รอบถัดไป — หา id ที่เพิ่งเข้ามาใหม่
-        const newOrders = allOrdersList.filter(
-          o => !seenOrderIds.current.has(o.id) && o.status === 'pending'
-        );
-        for (const newOrder of newOrders) {
-          try {
-            const notifId = `new_order_${newOrder.id}`;
-            await setDoc(doc(db, 'store_notifications', notifId), {
-              storeId: user.uid,
-              title: 'มีออเดอร์ใหม่เข้ามา! 🛒',
-              message: `ออเดอร์ #${newOrder.id.slice(0, 6).toUpperCase()} รายการสินค้า ${(newOrder.items || []).length} รายการ รวม ฿${newOrder.totalPrice || 0}`,
-              type: 'new_order',
-              orderId: newOrder.id,
-              isRead: false,
-              createdAt: new Date().toISOString()
-            }, { merge: false });
-          } catch (e) {
-            console.error('Error writing new order notification:', e);
-          }
-        }
-        // อัปเดต seenOrderIds ให้รวม id ใหม่ทั้งหมด
-        seenOrderIds.current = currentIds;
-      }
+      // 🔴 ลบบล็อก "ตรวจจับออเดอร์ใหม่ และเขียน store_notifications" ออกไปแล้วจากตรงนี้ เพื่อไม่ให้แจ้งเตือนเด้งเบิ้ล
 
       const pendingCount = enrichedOrders.filter(o => o.status === 'pending').length;
       const completedOrders = enrichedOrders.filter(o => o.status === 'completed');
@@ -224,10 +193,18 @@ export default function StoreOrdersScreen({ navigation }) {
     return () => { unsubscribe(); unsubscribeNotif(); };
   }, []);
 
+  // 🟢 Effect สำหรับจัดเรียงและคัดกรองออเดอร์
   useEffect(() => {
-    const filtered = allOrders.filter(o => o.status === filter);
+    let filtered = allOrders.filter(o => o.status === filter);
+
+    filtered.sort((a, b) => {
+        const dateA = new Date(a.createdAt).getTime();
+        const dateB = new Date(b.createdAt).getTime();
+        return sortOrder === 'asc' ? dateA - dateB : dateB - dateA;
+    });
+
     setOrders(filtered);
-  }, [filter, allOrders]);
+  }, [filter, allOrders, sortOrder]);
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -321,20 +298,19 @@ export default function StoreOrdersScreen({ navigation }) {
     } catch (error) {
       console.error("Cancel by Store Error:", error);
       Alert.alert('ผิดพลาด', typeof error === 'string' ? error : 'ไม่สามารถยกเลิกออเดอร์ได้');
+    } finally {
       setLoading(false);
     }
   };
 
-  // ✅ ปรับฟังก์ชันให้รับ orderType เพื่อแยกข้อความแจ้งเตือน
   const handleConfirmOrder = async (orderId, userId, orderType) => {
     try {
       await updateDoc(doc(db, 'orders', orderId), { status: 'confirmed' });
 
-      // 🔔 ตรวจสอบประเภทออเดอร์ เพื่อสร้างประโยคที่ถูกต้อง
       let notifMessage = 'ร้านกำลังเตรียมอาหารให้คุณ 🍳';
       if (orderType === 'delivery') {
          notifMessage = 'ร้านกำลังเตรียมอาหาร และจะดำเนินการจัดส่งให้คุณตามที่อยู่ที่ระบุไว้ 🛵';
-      } else { // กรณีเป็น pickup
+      } else {
          notifMessage = 'ร้านกำลังเตรียมอาหาร แวะมารับที่หน้าร้านตามเวลาทำการได้เลย 🛍️';
       }
 
@@ -371,7 +347,6 @@ export default function StoreOrdersScreen({ navigation }) {
               try {
                 await updateDoc(doc(db, 'orders', orderId), { status: 'completed' });
 
-                // 🌿 อัปเดต totalFoodSaved และ totalCO2Saved ของร้านค้า
                 const user = auth.currentUser;
                 if (user && totalOrderWeight > 0) {
                   const CO2_COEFFICIENT = 2.5;
@@ -382,7 +357,6 @@ export default function StoreOrdersScreen({ navigation }) {
                   });
                 }
 
-                // 🔔 คำพูดน่ารักๆ สำหรับตอนลูกค้าได้รับของเรียบร้อย
                 if (userId) {
                   const { addDoc, collection } = require('firebase/firestore');
                   await addDoc(collection(db, 'notifications'), {
@@ -450,25 +424,12 @@ export default function StoreOrdersScreen({ navigation }) {
               if (!user) return;
 
               const batch = writeBatch(db);
-
-              // ลบ store document
               batch.delete(doc(db, 'stores', user.uid));
-
-              // ลบ approval_requests ที่เกี่ยวข้อง
-              const approvalSnap = await getDocs(
-                query(collection(db, 'approval_requests'), where('userId', '==', user.uid))
-              );
+              const approvalSnap = await getDocs(query(collection(db, 'approval_requests'), where('userId', '==', user.uid)));
               approvalSnap.forEach(d => batch.delete(d.ref));
-
-              // ลบสินค้าทั้งหมดของร้าน
-              const foodSnap = await getDocs(
-                query(collection(db, 'food_items'), where('userId', '==', user.uid))
-              );
+              const foodSnap = await getDocs(query(collection(db, 'food_items'), where('userId', '==', user.uid)));
               foodSnap.forEach(d => batch.delete(d.ref));
-
-              // รีเซ็ต currentRole ของ user กลับเป็น customer
               batch.update(doc(db, 'users', user.uid), { currentRole: 'customer' });
-
               await batch.commit();
 
               toggleDrawer();
@@ -508,7 +469,6 @@ export default function StoreOrdersScreen({ navigation }) {
   };
 
   const DrawerContent = () => {
-
     return (
       <ScrollView contentContainerStyle={styles.drawerScrollContent} showsVerticalScrollIndicator={false}>
         <View style={styles.drawerContentPadding}>
@@ -553,16 +513,16 @@ export default function StoreOrdersScreen({ navigation }) {
             <Ionicons name="chevron-forward" size={18} color="#9ca3af" style={{marginLeft: 'auto'}} />
           </TouchableOpacity>
           <TouchableOpacity style={styles.drawerMenuItem} onPress={() => { toggleDrawer(); navigation.navigate('StoreDashboard'); }}>
-                    <View style={[styles.menuIconBox, { backgroundColor: '#eff6ff' }]}><Ionicons name="bar-chart-outline" size={20} color="#3b82f6" /></View>
-                    <Text style={styles.drawerMenuText}>แดชบอร์ด</Text>
-                    <Ionicons name="chevron-forward" size={18} color="#9ca3af" style={{ marginLeft: 'auto' }} />
-                  </TouchableOpacity>
-          
+             <View style={[styles.menuIconBox, { backgroundColor: '#eff6ff' }]}><Ionicons name="bar-chart-outline" size={20} color="#3b82f6" /></View>
+             <Text style={styles.drawerMenuText}>แดชบอร์ด</Text>
+             <Ionicons name="chevron-forward" size={18} color="#9ca3af" style={{ marginLeft: 'auto' }} />
+          </TouchableOpacity>
+
            <TouchableOpacity style={styles.drawerMenuItem} onPress={() => { toggleDrawer(); navigation.navigate('StoreNotifications'); }}>
-                    <View style={[styles.menuIconBox, { backgroundColor: '#eff6ff' }]}><Ionicons name="notifications-outline" size={20} color="#3b82f6" /></View>
-                    <Text style={styles.drawerMenuText}>การแจ้งเตือนร้านค้า</Text>
-                    <Ionicons name="chevron-forward" size={18} color="#9ca3af" style={{ marginLeft: 'auto' }} />
-                  </TouchableOpacity>
+              <View style={[styles.menuIconBox, { backgroundColor: '#eff6ff' }]}><Ionicons name="notifications-outline" size={20} color="#3b82f6" /></View>
+              <Text style={styles.drawerMenuText}>การแจ้งเตือนร้านค้า</Text>
+              <Ionicons name="chevron-forward" size={18} color="#9ca3af" style={{ marginLeft: 'auto' }} />
+           </TouchableOpacity>
 
           <Text style={styles.sectionTitle}>บัญชี</Text>
           <TouchableOpacity style={styles.drawerMenuItem} onPress={() => { toggleDrawer(); navigation.navigate('StoreProfile'); }}>
@@ -692,7 +652,6 @@ export default function StoreOrdersScreen({ navigation }) {
               <TouchableOpacity style={styles.uiBtnCancel} onPress={() => handleCancelClick(item.id)}>
                 <Text style={styles.uiBtnTextDark}>ยกเลิกออเดอร์</Text>
               </TouchableOpacity>
-              {/* ✅ แนบ item.orderType ส่งเข้าไปด้วย */}
               <TouchableOpacity style={styles.uiBtnConfirm} onPress={() => handleConfirmOrder(item.id, item.userId, item.orderType)}>
                 <Text style={styles.uiBtnTextDark}>ยืนยันออเดอร์</Text>
               </TouchableOpacity>
@@ -795,6 +754,30 @@ export default function StoreOrdersScreen({ navigation }) {
               </TouchableOpacity>
             ))}
           </ScrollView>
+        </View>
+
+        {/* 🟢 ส่วนที่เพิ่มใหม่: แถบหัวข้อรายการและปุ่มเรียงลำดับ */}
+        <View style={styles.sortContainer}>
+           <Text style={styles.listHeaderText}>รายการคำสั่งซื้อ ({orders.length})</Text>
+           <TouchableOpacity
+               style={styles.sortButton}
+               onPress={() => setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc')}
+               activeOpacity={0.7}
+           >
+               <Ionicons
+                   name={sortOrder === 'asc' ? "time-outline" : "time"}
+                   size={16}
+                   color={sortOrder === 'asc' ? "#6b7280" : "#10b981"}
+               />
+               <Text style={[styles.sortButtonText, sortOrder === 'desc' && { color: '#10b981' }]}>
+                   {sortOrder === 'asc' ? 'เรียงจาก: เก่าไปใหม่' : 'เรียงจาก: ใหม่ล่าสุด'}
+               </Text>
+               <Ionicons
+                   name={sortOrder === 'asc' ? "arrow-down" : "arrow-up"}
+                   size={14}
+                   color={sortOrder === 'asc' ? "#6b7280" : "#10b981"}
+               />
+           </TouchableOpacity>
         </View>
 
         <View style={styles.listContainer}>
@@ -901,6 +884,12 @@ const styles = StyleSheet.create({
   statCard: { flex: 1, backgroundColor: '#fff', paddingVertical: 16, borderRadius: 12, alignItems: 'center', borderWidth: 1, borderColor: '#f3f4f6', shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 2, elevation: 1 },
   statValue: { fontSize: 18, fontWeight: 'bold', color: '#1f2937' },
   statLabel: { fontSize: 11, color: '#6b7280', marginTop: 4 },
+
+  sortContainer: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, marginTop: 10, marginBottom: 5 },
+  listHeaderText: { fontSize: 15, fontWeight: 'bold', color: '#1f2937' },
+  sortButton: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#f9fafb', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, borderWidth: 1, borderColor: '#e5e7eb', gap: 6 },
+  sortButtonText: { fontSize: 12, fontWeight: '600', color: '#6b7280' },
+
   listContainer: { paddingHorizontal: 20, paddingTop: 10 },
   uiCard: { backgroundColor: '#fff', borderRadius: 16, padding: 16, marginBottom: 16, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 2, borderWidth: 1, borderColor: '#f3f4f6' },
   uiCardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 15 },

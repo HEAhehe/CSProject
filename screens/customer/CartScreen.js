@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -33,6 +33,8 @@ export default function CartScreen({ navigation }) {
   const [totalWeight, setTotalWeight] = useState(0);
   const [loading, setLoading] = useState(false);
   const [initializing, setInitializing] = useState(true);
+
+  const isProcessing = useRef(false); // 🟢 ตัวล็อกกันกดย้ำแบบ Synchronous
 
   const [userData, setUserData] = useState(null);
 
@@ -190,7 +192,10 @@ export default function CartScreen({ navigation }) {
       confirmText: 'สั่งเลย',
       cancelText: 'ยกเลิก',
       onConfirm: async () => {
+        if (isProcessing.current) return; // 🟢 ป้องกันประตูด่านที่ 2 ถ้าระบบกำลังโหลดอยู่
+        isProcessing.current = true;
         setLoading(true);
+
         const user = auth.currentUser;
         let lastCreatedOrder = null;
 
@@ -268,7 +273,6 @@ export default function CartScreen({ navigation }) {
               lastCreatedOrder = orderData;
               transaction.set(newOrderRef, orderData);
 
-              // 🟢 สร้างการแจ้งเตือนโดยตัดค่า undefined ทิ้งทั้งหมด
               const notifRef = doc(collection(db, 'store_notifications'));
               const notifData = {
                 id: notifRef.id,
@@ -297,6 +301,8 @@ export default function CartScreen({ navigation }) {
           });
 
           setLoading(false);
+          isProcessing.current = false; // ปลดล็อก
+
           showCustomAlert('สำเร็จ!', `สั่งอาหารเรียบร้อยแล้ว 🌍`, 'success', {
              onConfirm: () => {
                  setAlertVisible(false);
@@ -307,6 +313,7 @@ export default function CartScreen({ navigation }) {
         } catch (error) {
           console.error(error);
           setLoading(false);
+          isProcessing.current = false; // ปลดล็อก
           showCustomAlert('ข้อผิดพลาด', typeof error === 'string' ? error : 'สั่งซื้อไม่สำเร็จ', 'error');
         }
       }
@@ -509,7 +516,16 @@ export default function CartScreen({ navigation }) {
                   alertConfig.type === 'error' ? { backgroundColor: '#ef4444' } : { backgroundColor: '#111827' },
                   alertConfig.showCancel && { flex: 1 }
                 ]}
-                onPress={() => { setAlertVisible(false); if (alertConfig.onConfirm) alertConfig.onConfirm(); }}
+                onPress={() => {
+                  // 🟢 เคลียร์ Memory ล็อกไม่ให้รันซ้ำ
+                  if (alertConfig.onConfirm) {
+                    const action = alertConfig.onConfirm;
+                    alertConfig.onConfirm = null;
+                    setAlertConfig(prev => ({ ...prev, onConfirm: null }));
+                    action();
+                  }
+                  setAlertVisible(false);
+                }}
               >
                 <Text style={styles.alertButtonText}>{alertConfig.confirmText}</Text>
               </TouchableOpacity>

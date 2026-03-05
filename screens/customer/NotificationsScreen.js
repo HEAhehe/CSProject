@@ -59,7 +59,10 @@ export default function NotificationsScreen({ navigation }) {
             try {
               const orderSnap = await getDoc(doc(db, 'orders', item.orderId));
               if (orderSnap.exists()) {
-                item.orderType = orderSnap.data().orderType;
+                const orderData = orderSnap.data();
+                item.orderType = orderData.orderType;
+                // 🟢 ดึงข้อมูลสถานะการรีวิวมาเก็บไว้ใน item แจ้งเตือนด้วย
+                item.isReviewed = orderData.isReviewed || false;
               }
             } catch (e) {
               console.log("Error fetching order type for notification", e);
@@ -240,6 +243,16 @@ export default function NotificationsScreen({ navigation }) {
                     <Ionicons name={item.orderType === 'delivery' ? 'bicycle' : 'storefront'} size={10} color={item.orderType === 'delivery' ? '#0284c7' : '#10b981'} style={{marginRight: 4}} />
                     <Text style={[styles.typeText, item.orderType === 'delivery' ? styles.textDelivery : styles.textPickup]}>
                       {item.orderType === 'delivery' ? 'จัดส่ง' : 'รับที่ร้าน'}
+                    </Text>
+                  </View>
+                )}
+
+                {/* 🟢 ป้ายเตือนว่า "ยังไม่ได้รีวิว" */}
+                {item.type === 'order_completed' && item.isReviewed === false && (
+                  <View style={[styles.typeBadge, { backgroundColor: '#fef3c7', borderColor: '#fde68a' }]}>
+                    <Ionicons name="star" size={10} color="#d97706" style={{marginRight: 4}} />
+                    <Text style={[styles.typeText, { color: '#d97706' }]}>
+                      ยังไม่รีวิว
                     </Text>
                   </View>
                 )}

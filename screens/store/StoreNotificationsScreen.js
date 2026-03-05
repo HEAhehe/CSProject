@@ -196,6 +196,8 @@ export default function StoreNotificationsScreen({ navigation }) {
         return { name: 'checkmark-circle', color: '#10b981', bg: '#dcfce7' };
       case 'store_edit_rejected':
         return { name: 'warning', color: '#ef4444', bg: '#fee2e2' };
+      case 'new_review':
+              return { name: 'star', color: '#f59e0b', bg: '#fef3c7' };
       default:
         return { name: 'notifications', color: '#6b7280', bg: '#f3f4f6' };
     }

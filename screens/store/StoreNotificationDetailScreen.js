@@ -74,6 +74,7 @@ export default function StoreNotificationDetailScreen({ navigation, route }) {
       case 'order_cancelled_by_customer': return { name: 'close-circle-outline', color: '#ef4444', bg: '#fef2f2' };
       case 'store_edit_approved': return { name: 'checkmark-circle-outline', color: '#10b981', bg: '#dcfce7' };
       case 'store_edit_rejected': return { name: 'warning-outline', color: '#ef4444', bg: '#fef2f2' };
+      case 'new_review': return { name: 'star-outline', color: '#f59e0b', bg: '#fffbeb' };
       default: return { name: 'notifications-outline', color: '#6b7280', bg: '#f3f4f6' };
     }
   };
@@ -279,10 +280,16 @@ export default function StoreNotificationDetailScreen({ navigation, route }) {
   } else if (notification.type === 'store_edit_approved') {
     buttonText = '✅ กลับสู่หน้าหลักร้านค้า'; buttonColor = '#10b981'; actionTarget = 'myshop';
   }
+  // 🟢 เพิ่มบล็อกนี้ สำหรับแจ้งเตือนรีวิว
+  else if (notification.type === 'new_review') {
+    buttonText = '⭐ ไปดูหน้ารีวิวของร้าน'; buttonColor = '#f59e0b'; actionTarget = 'store_reviews';
+  }
 
   const handleActionButton = () => {
     if (actionTarget === 'store_orders') navigation.navigate('StoreOrders');
     else if (actionTarget === 'store_settings') navigation.navigate('StoreSettings');
+    // 🟢 เพิ่มเงื่อนไขนำทางไปหน้า Dashboard พร้อมส่ง Param "tab"
+    else if (actionTarget === 'store_reviews') navigation.navigate('StoreDashboard', { tab: 'reviews' });
     else navigation.navigate('MyShop');
   };
 
@@ -446,8 +453,44 @@ export default function StoreNotificationDetailScreen({ navigation, route }) {
                </View>
             )}
 
-            {/* 📋 ส่วนแสดงข้อมูลออเดอร์ */}
-            {notification.orderId && (
+            {/* 🌟 แสดงข้อมูลรีวิว (ถ้าเป็นการแจ้งเตือนรีวิว) */}
+            {notification.type === 'new_review' && (
+              <View style={styles.detailSection}>
+                <Text style={styles.sectionLabel}>รายละเอียดรีวิวจากลูกค้า</Text>
+                <View style={[styles.detailCard, { borderColor: '#fde68a', backgroundColor: '#fffbeb' }]}>
+                   <View style={styles.infoRowColumn}>
+                      <Text style={styles.infoLabel}>คะแนนที่ได้รับ</Text>
+                      <View style={{ flexDirection: 'row', marginTop: 4 }}>
+                        {[1, 2, 3, 4, 5].map((star) => (
+                          <Ionicons key={star} name="star" size={24} color={star <= notification.rating ? "#f59e0b" : "#e5e7eb"} style={{ marginRight: 2 }} />
+                        ))}
+                      </View>
+                   </View>
+
+                   {notification.comment ? (
+                     <>
+                       <View style={styles.divider} />
+                       <View style={styles.infoRowColumn}>
+                         <Text style={styles.infoLabel}>ความคิดเห็น</Text>
+                         <Text style={[styles.infoValueTextBox, { backgroundColor: '#ffffff' }]}>{notification.comment}</Text>
+                       </View>
+                     </>
+                   ) : null}
+
+                   {/* 🟢 แสดงเลขออเดอร์อ้างอิงภายในตารางรีวิวเลย */}
+                   <View style={styles.divider} />
+                   <View style={styles.infoRow}>
+                     <Text style={styles.infoLabel}>อ้างอิงจากออเดอร์</Text>
+                     <Text style={[styles.infoValueDark, { fontSize: 15, fontWeight: '700', color: '#1f2937' }]}>
+                       {formatOrderId(notification.orderId, orderData?.orderType || notification.orderType)}
+                     </Text>
+                   </View>
+                </View>
+              </View>
+            )}
+
+            {/* 📋 ส่วนแสดงข้อมูลออเดอร์และลูกค้า (จะถูกซ่อนถ้าเป็นการแจ้งเตือนรีวิว) */}
+            {notification.orderId && notification.type !== 'new_review' && (
               <>
                 <View style={styles.detailSection}>
                   <Text style={styles.sectionLabel}>ข้อมูลคำสั่งซื้อเบื้องต้น</Text>

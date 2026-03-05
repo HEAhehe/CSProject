@@ -82,10 +82,20 @@ export default function WriteReviewScreen({ navigation, route }) {
     );
   };
 
-  const executeSubmit = async () => {
+const executeSubmit = async () => {
     setLoading(true);
     try {
       const user = auth.currentUser;
+
+      // 🔴 1. เช็คสถานะล่าสุดจากฐานข้อมูลก่อนว่าออเดอร์นี้เคยรีวิวไปหรือยัง (ป้องกันเน็ตค้าง/ส่งซ้ำ)
+      const orderRef = doc(db, 'orders', order.id);
+      const orderSnap = await getDoc(orderRef);
+
+      if (orderSnap.exists() && orderSnap.data().isReviewed) {
+        showCustomAlert('แจ้งเตือน', 'ออเดอร์นี้ถูกรีวิวไปแล้ว ไม่สามารถรีวิวซ้ำได้ครับ', 'error', () => navigation.goBack());
+        setLoading(false);
+        return; // หยุดการทำงานทันที
+      }
 
       let realUserName = user.displayName;
       let realUserProfileImage = user.photoURL || null;
@@ -101,7 +111,7 @@ export default function WriteReviewScreen({ navigation, route }) {
 
       if (!realUserName) realUserName = 'ลูกค้า FoodWaste';
 
-      // สร้าง Document รีวิวใหม่ทุกครั้ง (เพราะ 1 ออเดอร์ = 1 รีวิว)
+      // 🔴 2. สร้าง Document รีวิวใหม่ (1 ออเดอร์ = 1 รีวิว)
       await addDoc(collection(db, 'reviews'), {
         storeId: targetStoreId,
         storeName: targetStoreName,
@@ -113,7 +123,7 @@ export default function WriteReviewScreen({ navigation, route }) {
         tags: selectedTags,
         comment: comment.trim(),
         reviewImage: imageUri,
-        reviewType: 'order', // กำหนดประเภทเป็นออเดอร์เสมอ
+        reviewType: 'order',
         orderId: order.id,
         orderItems: order.items || null,
         orderType: order.orderType || null,
@@ -122,15 +132,27 @@ export default function WriteReviewScreen({ navigation, route }) {
         createdAt: serverTimestamp()
       });
 
-      // อัปเดตสถานะออเดอร์นี้ว่า "รีวิวแล้ว" จะได้กดรีวิวซ้ำไม่ได้
-      if (order?.id) {
-        await updateDoc(doc(db, 'orders', order.id), {
-          isReviewed: true
-        });
-      }
+      // 🔴 3. อัปเดตสถานะออเดอร์นี้ว่า "รีวิวแล้ว"
+      await updateDoc(orderRef, {
+        isReviewed: true
+      });
+
+      // 🟢 4. สร้างแจ้งเตือนไปยังร้านค้าว่ามีรีวิวใหม่
+      const notifRef = await addDoc(collection(db, 'store_notifications'), {
+        storeId: targetStoreId,
+        type: 'new_review',
+        title: 'มีรีวิวใหม่จากลูกค้า! ⭐',
+        message: `ออเดอร์ #${order.id.slice(0, 6).toUpperCase()} ได้รับรีวิว ${rating} ดาว`,
+        orderId: order.id,
+        orderType: order.orderType || 'pickup',
+        rating: rating,
+        comment: comment.trim() || '',
+        isRead: false,
+        createdAt: new Date().toISOString()
+      });
+      await updateDoc(notifRef, { id: notifRef.id });
 
       showCustomAlert('สำเร็จ!', 'ขอบคุณสำหรับรีวิวของคุณครับ', 'success', () => navigation.goBack());
-
     } catch (error) {
       console.error("Review Error: ", error);
       showCustomAlert('ผิดพลาด', 'ไม่สามารถส่งรีวิวได้ในขณะนี้', 'error');
