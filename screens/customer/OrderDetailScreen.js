@@ -15,6 +15,8 @@ import {
   TextInput,
   Linking
 } from 'react-native';
+// ✅ 1. Import
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { db } from '../../firebase.config';
 import { doc, onSnapshot, runTransaction, increment, getDoc, collection } from 'firebase/firestore';
@@ -31,6 +33,9 @@ const cancelReasonsList = [
 
 export default function OrderDetailScreen({ navigation, route }) {
   const initialOrder = route.params?.order || {};
+
+  // ✅ 2. ดึงค่า Insets
+  const insets = useSafeAreaInsets();
 
   const [currentOrder, setCurrentOrder] = useState(initialOrder);
   const [isItemsExpanded, setIsItemsExpanded] = useState(false);
@@ -220,7 +225,8 @@ export default function OrderDetailScreen({ navigation, route }) {
     <View style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#fff" />
 
-      <View style={styles.header}>
+      {/* ✅ 3. ดัน Header ลง */}
+      <View style={[styles.header, { paddingTop: Math.max(insets.top, 15) }]}>
             <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
                 <Ionicons name="chevron-back" size={24} color="#1f2937" />
             </TouchableOpacity>
@@ -228,7 +234,11 @@ export default function OrderDetailScreen({ navigation, route }) {
             <View style={{width: 40}} />
       </View>
 
-      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        style={styles.content}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 40) + 30 }}
+      >
 
         <View style={styles.successSection}>
             <View style={[styles.successIconCircle, { backgroundColor: statusInfo.color }]}>
@@ -304,7 +314,6 @@ export default function OrderDetailScreen({ navigation, route }) {
                 </View>
             </View>
 
-            {/* แถวข้อมูลร้านค้า */}
             <View style={styles.detailRow}>
                 <View style={styles.iconBox}><Ionicons name="storefront-outline" size={20} color="#555" /></View>
                 <View style={styles.detailTextContainer}>
@@ -315,7 +324,6 @@ export default function OrderDetailScreen({ navigation, route }) {
                 </View>
             </View>
 
-            {/* ✅ แถวเบอร์โทรศัพท์ร้านค้า (แสดงแยกออกมาให้เห็นชัดเจน) */}
             {storePhone && (currentOrder.status === 'pending' || currentOrder.status === 'confirmed') && (
               <View style={styles.detailRow}>
                   <View style={styles.iconBox}><Ionicons name="call-outline" size={20} color="#555" /></View>
@@ -369,8 +377,6 @@ export default function OrderDetailScreen({ navigation, route }) {
             <Ionicons name="home" size={20} color="#10b981" style={{ marginRight: 8 }} />
             <Text style={styles.homeButtonText}>กลับไปหน้าหลัก</Text>
         </TouchableOpacity>
-
-        <View style={{height: 50}} />
       </ScrollView>
 
       <Modal visible={isCancelModalVisible} transparent animationType="fade" onRequestClose={() => setIsCancelModalVisible(false)}>
@@ -410,7 +416,8 @@ export default function OrderDetailScreen({ navigation, route }) {
               )}
             </ScrollView>
 
-            <View style={styles.modalButtonGroup}>
+            {/* ✅ 4. ดัน Modal ยกเลิกให้อยู่ในระยะปลอดภัยนิดหน่อย */}
+            <View style={[styles.modalButtonGroup, { paddingBottom: Math.max(insets.bottom, 0) }]}>
               <TouchableOpacity style={styles.modalBtnCancel} onPress={() => setIsCancelModalVisible(false)}>
                 <Text style={styles.modalBtnCancelText}>ปิด</Text>
               </TouchableOpacity>
@@ -428,7 +435,8 @@ export default function OrderDetailScreen({ navigation, route }) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f9fafb' },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 50, paddingBottom: 15, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#f3f4f6' },
+  // 🟢 เอา paddingTop ออก
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingBottom: 15, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#f3f4f6' },
   headerTitle: { fontSize: 18, fontWeight: 'bold', color: '#1f2937' },
   backButton: { padding: 5 },
   content: { flex: 1, paddingHorizontal: 20 },
@@ -458,7 +466,6 @@ const styles = StyleSheet.create({
   detailMainText: { fontSize: 15, fontWeight: 'bold', color: '#1f2937' },
   detailSubText: { fontSize: 13, color: '#6b7280', marginTop: 2 },
 
-  // ✅ สไตล์ของปุ่มโทรออกแบบมีข้อความ
   callStoreBtnText: {
     flexDirection: 'row',
     alignItems: 'center',

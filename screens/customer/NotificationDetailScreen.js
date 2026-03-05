@@ -3,13 +3,18 @@ import {
   View, Text, StyleSheet, TouchableOpacity, Platform, StatusBar, ScrollView,
   ActivityIndicator, Image, Linking, Alert
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+// ✅ 1. Import ตัวนี้มาแทน SafeAreaView
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { db } from '../../firebase.config';
 import { doc, getDoc } from 'firebase/firestore';
 
 export default function NotificationDetailScreen({ navigation, route }) {
   const { notification } = route.params || {};
+
+  // ✅ 2. ดึงค่า insets
+  const insets = useSafeAreaInsets();
+
   const [orderData, setOrderData] = useState(null);
   const [storeData, setStoreData] = useState(null);
   const [foodData, setFoodData] = useState(null);
@@ -42,7 +47,6 @@ export default function NotificationDetailScreen({ navigation, route }) {
             const fetchedFood = { id: foodSnap.id, ...foodSnap.data() };
             setFoodData(fetchedFood);
 
-            // 🔴 ดึงข้อมูลร้านค้ามาด้วย เพื่อเอามาเช็คว่าร้านเปิดหรือปิดอยู่
             const storeIdToFetch = notification.storeId || fetchedFood.storeId || fetchedFood.userId;
             if (storeIdToFetch) {
               let storeSnap = await getDoc(doc(db, 'stores', storeIdToFetch));
@@ -78,9 +82,8 @@ export default function NotificationDetailScreen({ navigation, route }) {
     );
   }
 
-  // 🔴 ฟังก์ชันเช็คว่าตอนนี้ร้านเปิดอยู่หรือไม่ (รองรับเปิดข้ามคืน)
   const checkIsStoreOpen = () => {
-    if (loadingData) return true; // ถือว่าเปิดไว้ก่อนระหว่างโหลด จะได้ไม่กระพริบ
+    if (loadingData) return true;
     if (!storeData) return false;
 
     const now = new Date();
@@ -96,7 +99,6 @@ export default function NotificationDetailScreen({ navigation, route }) {
       ? storeData.businessHours[daysMap[prevDayIdx]]
       : todayHours;
 
-    // เช็คกรณีเปิดข้ามคืนมาจากเมื่อวาน
     if (prevDayHours && prevDayHours.isOpen) {
       const [poH, poM] = prevDayHours.openTime.split(':').map(Number);
       const [pcH, pcM] = prevDayHours.closeTime.split(':').map(Number);
@@ -107,7 +109,6 @@ export default function NotificationDetailScreen({ navigation, route }) {
       }
     }
 
-    // เช็คเวลาของวันนี้
     if (todayHours && todayHours.isOpen) {
       const [toH, toM] = todayHours.openTime.split(':').map(Number);
       const [tcH, tcM] = todayHours.closeTime.split(':').map(Number);
@@ -157,7 +158,6 @@ export default function NotificationDetailScreen({ navigation, route }) {
   const theme = getNotificationTheme(notification.type);
   const isStoreOpen = checkIsStoreOpen();
 
-// 🔴 ตั้งค่าปุ่มกดตามสถานะร้านค้า
   let buttonText = 'กลับสู่หน้าหลัก';
   let buttonColor = '#1f2937';
   let actionTarget = 'home';
@@ -183,16 +183,15 @@ export default function NotificationDetailScreen({ navigation, route }) {
       actionTarget = 'store';
     }
   }
-  // 🟢 เพิ่มบล็อกนี้ สำหรับแจ้งเตือนรับอาหารสำเร็จ
   else if (notification.type === 'order_completed') {
     if (orderData) {
       if (!orderData.isReviewed) {
         buttonText = '⭐ เขียนรีวิวให้ออเดอร์นี้';
-        buttonColor = '#f59e0b'; // สีส้มเด่นๆ
+        buttonColor = '#f59e0b';
         actionTarget = 'review';
       } else {
         buttonText = '👁️ ดูรีวิวของคุณที่หน้าร้านค้า';
-        buttonColor = '#3b82f6'; // สีฟ้า
+        buttonColor = '#3b82f6';
         actionTarget = 'view_review';
       }
     } else {
@@ -210,7 +209,6 @@ export default function NotificationDetailScreen({ navigation, route }) {
     } else if (actionTarget === 'review') {
       navigation.navigate('WriteReview', { order: orderData });
     } else if (actionTarget === 'view_review') {
-      // พาไปที่หน้าร้านค้า ลูกค้าจะสามารถกดแท็บ "รีวิว" เพื่อดูรีวิวตัวเองได้
       navigation.navigate('StoreDetail', { storeId: orderData.storeId || notification.storeId });
     } else if (actionTarget === 'home') {
       navigation.navigate('Home');
@@ -220,9 +218,12 @@ export default function NotificationDetailScreen({ navigation, route }) {
   const displayImage = foodData?.imageUrl || notification.foodImage;
 
   return (
-    <SafeAreaView style={styles.container}>
+    // ✅ 3. เปลี่ยนจาก <SafeAreaView> เป็น <View> ธรรมดา
+    <View style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
-      <View style={styles.header}>
+
+      {/* ✅ 4. ดัน Header ลงมา */}
+      <View style={[styles.header, { paddingTop: Math.max(insets.top, 15) }]}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
           <Ionicons name="chevron-back" size={28} color="#1f2937" />
         </TouchableOpacity>
@@ -318,7 +319,6 @@ export default function NotificationDetailScreen({ navigation, route }) {
           </View>
         )}
 
-{/* 🟢 ส่วนแสดงรายละเอียดออเดอร์เมื่อรับอาหารสำเร็จ */}
         {notification.type === 'order_completed' && orderData && (
           <View style={[styles.detailSection, { marginTop: 10 }]}>
             <Text style={styles.sectionLabel}>สรุปรายการสั่งซื้อของคุณ</Text>
@@ -371,7 +371,8 @@ export default function NotificationDetailScreen({ navigation, route }) {
         )}
       </ScrollView>
 
-      <View style={styles.footer}>
+      {/* ✅ 5. ดันปุ่ม Action ด้านล่างขึ้นมา */}
+      <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 20) }]}>
         <TouchableOpacity
           style={[styles.actionButton, { backgroundColor: buttonColor }, actionTarget === 'none' && { opacity: 0.5 }]}
           onPress={handleActionButton}
@@ -380,14 +381,15 @@ export default function NotificationDetailScreen({ navigation, route }) {
           <Text style={styles.actionButtonText}>{buttonText}</Text>
         </TouchableOpacity>
       </View>
-    </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#ffffff' },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: Platform.OS === 'ios' ? 10 : 20, paddingBottom: 15, backgroundColor: '#ffffff' },
+  // 🟢 เอา paddingTop ออก
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingBottom: 15, backgroundColor: '#ffffff' },
   backButton: { width: 40, height: 40, justifyContent: 'center' },
   headerTitle: { fontSize: 16, fontWeight: '600', color: '#1f2937', letterSpacing: 0.5 },
   content: { flex: 1 },
@@ -397,7 +399,8 @@ const styles = StyleSheet.create({
   dateText: { fontSize: 12, color: '#9ca3af', marginBottom: 12 },
   titleText: { fontSize: 20, fontWeight: '700', color: '#1f2937', textAlign: 'center', marginBottom: 8, letterSpacing: 0.2 },
   messageText: { fontSize: 15, color: '#6b7280', lineHeight: 24, textAlign: 'center' },
-  footer: { paddingHorizontal: 24, paddingBottom: Platform.OS === 'ios' ? 30 : 20, paddingTop: 10, backgroundColor: '#ffffff' },
+  // 🟢 เอา paddingBottom ออก
+  footer: { paddingHorizontal: 24, paddingTop: 10, backgroundColor: '#ffffff' },
   actionButton: { paddingVertical: 16, borderRadius: 12, alignItems: 'center' },
   actionButtonText: { color: '#ffffff', fontSize: 15, fontWeight: '600', letterSpacing: 0.5 },
   newFoodCard: { flexDirection: 'row', backgroundColor: '#fffbeb', borderWidth: 1, borderColor: '#fde68a', borderRadius: 16, padding: 16, marginBottom: 25, alignItems: 'center', gap: 14 },

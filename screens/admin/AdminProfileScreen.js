@@ -13,8 +13,13 @@ import { Ionicons } from '@expo/vector-icons';
 import { auth, db } from '../../firebase.config';
 import { doc, getDoc } from 'firebase/firestore';
 import { useFocusEffect } from '@react-navigation/native';
+// ✅ 1. Import SafeArea
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function AdminProfileScreen({ navigation }) {
+  // ✅ 2. ดึง insets
+  const insets = useSafeAreaInsets();
+
   const [userData, setUserData] = useState(null);
 
   useFocusEffect(
@@ -60,14 +65,14 @@ export default function AdminProfileScreen({ navigation }) {
       <StatusBar barStyle="dark-content" backgroundColor="#fff" />
 
       {/* Header */}
-      <View style={styles.header}>
-        <View>
-          <Text style={styles.headerTitle}>โปรไฟล์ผู้ดูแล</Text>
-          <Text style={styles.headerSubtitle}>จัดการข้อมูลส่วนตัว</Text>
-        </View>
+      {/* ✅ 3. ดัน Header ลง และจัดข้อความให้อยู่กึ่งกลาง */}
+      <View style={[styles.header, { paddingTop: Math.max(insets.top, 15) }]}>
+        <Text style={styles.headerTitle}>โปรไฟล์ผู้ดูแล</Text>
+        <Text style={styles.headerSubtitle}>จัดการข้อมูลส่วนตัว</Text>
       </View>
 
-      <ScrollView style={styles.content}>
+      {/* ✅ 4. ดัน ScrollView */}
+      <ScrollView style={styles.content} contentContainerStyle={{ paddingBottom: insets.bottom + 90 }} showsVerticalScrollIndicator={false}>
         {/* Profile Card */}
         <View style={styles.profileCard}>
           <View style={styles.avatarContainer}>
@@ -109,7 +114,7 @@ export default function AdminProfileScreen({ navigation }) {
 
           <TouchableOpacity
             style={styles.menuItem}
-            // onPress={() => navigation.navigate('ChangePassword')}
+            onPress={() => navigation.navigate('ChangePassword')}
           >
             <View style={[styles.iconBox, { backgroundColor: '#f0fdf4' }]}>
               <Ionicons name="lock-closed-outline" size={22} color="#10b981" />
@@ -131,7 +136,8 @@ export default function AdminProfileScreen({ navigation }) {
       </ScrollView>
 
       {/* Bottom Nav */}
-      <View style={styles.bottomNav}>
+      {/* ✅ 5. ดัน Bottom Nav */}
+      <View style={[styles.bottomNav, { paddingBottom: Math.max(insets.bottom, 8) }]}>
         <TouchableOpacity
           style={styles.navItem}
           onPress={() => navigation.navigate('AdminHome')}
@@ -168,11 +174,17 @@ export default function AdminProfileScreen({ navigation }) {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f9fafb' },
   header: {
-    paddingHorizontal: 20, paddingTop: 60, paddingBottom: 20,
+    paddingHorizontal: 20,
+    paddingBottom: 20,
     backgroundColor: '#fff',
+    // 🟢 เพิ่ม 2 บรรทัดนี้เพื่อให้ Header อยู่ตรงกลาง
+    alignItems: 'center',
+    justifyContent: 'center'
   },
-  headerTitle: { fontSize: 24, fontWeight: 'bold', color: '#1f2937' },
-  headerSubtitle: { fontSize: 14, color: '#6b7280' },
+  // 🟢 เพิ่ม textAlign: 'center' ให้ตัวหนังสือ
+  headerTitle: { fontSize: 24, fontWeight: 'bold', color: '#1f2937', textAlign: 'center' },
+  headerSubtitle: { fontSize: 14, color: '#6b7280', textAlign: 'center', marginTop: 4 },
+
   content: { flex: 1, padding: 20 },
 
   profileCard: {
@@ -224,7 +236,7 @@ const styles = StyleSheet.create({
   logoutText: { fontSize: 16, fontWeight: '600', color: '#ef4444' },
 
   bottomNav: {
-    flexDirection: 'row', backgroundColor: '#fff', paddingVertical: 8,
+    flexDirection: 'row', backgroundColor: '#fff', paddingTop: 8,
     paddingHorizontal: 16, borderTopWidth: 1, borderTopColor: '#f3f4f6',
     position: 'absolute', bottom: 0, left: 0, right: 0,
   },

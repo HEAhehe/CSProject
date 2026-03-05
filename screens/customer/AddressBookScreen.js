@@ -15,6 +15,7 @@ import {
   Dimensions,
   Keyboard
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { auth, db } from '../../firebase.config';
 import { collection, addDoc, onSnapshot, deleteDoc, doc, updateDoc, getDoc } from 'firebase/firestore';
@@ -33,6 +34,7 @@ export default function AddressBookScreen({ navigation }) {
   const [editingId, setEditingId] = useState(null); // ✅ เก็บ ID ของที่อยู่ที่กำลังแก้ไข (ถ้ามี)
   const [newTitle, setNewTitle] = useState('');
   const [newDetail, setNewDetail] = useState('');
+    const insets = useSafeAreaInsets();
   const [tempLocation, setTempLocation] = useState(null);
 
   // State สำหรับระบบแผนที่
@@ -280,7 +282,7 @@ export default function AddressBookScreen({ navigation }) {
   return (
     <View style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#fff" />
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: Math.max(insets.top, 15) }]}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={24} color="#1f2937" />
         </TouchableOpacity>
@@ -295,7 +297,7 @@ export default function AddressBookScreen({ navigation }) {
           data={addresses}
           renderItem={renderItem}
           keyExtractor={item => item.id}
-          contentContainerStyle={styles.listContent}
+          contentContainerStyle={[styles.listContent, { paddingBottom: Math.max(insets.bottom, 40) + 80 }]}
           ListEmptyComponent={
             <View style={styles.emptyState}>
               <Ionicons name="map-outline" size={60} color="#d1d5db" />
@@ -306,7 +308,7 @@ export default function AddressBookScreen({ navigation }) {
         />
       )}
 
-      <View style={styles.footer}>
+      <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 20) }]}>
         <TouchableOpacity style={styles.addButton} onPress={openAddModal}>
           <Ionicons name="add-circle-outline" size={24} color="#fff" />
           <Text style={styles.addButtonText}>เพิ่มที่อยู่ใหม่</Text>
@@ -316,7 +318,7 @@ export default function AddressBookScreen({ navigation }) {
       {/* Modal สำหรับเพิ่ม/แก้ไขรายละเอียดที่อยู่ */}
       <Modal visible={isModalVisible} animationType="slide" transparent={true}>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalOverlay}>
-          <View style={styles.modalContainer}>
+          <View style={[styles.modalContainer, { paddingBottom: Math.max(insets.bottom, 25) }]}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>{editingId ? 'แก้ไขที่อยู่' : 'เพิ่มที่อยู่ใหม่'}</Text>
               <TouchableOpacity onPress={closeFormModal}>
@@ -366,7 +368,7 @@ export default function AddressBookScreen({ navigation }) {
       {/* Map Modal */}
       <Modal visible={mapModalVisible} animationType="fade" transparent={false}>
         <View style={styles.mapModalContainer}>
-          <View style={styles.searchMapContainer}>
+          <View style={[styles.searchMapContainer, { top: Math.max(insets.top, 15) }]}>
             <View style={styles.searchInputWrapper}>
               <Ionicons name="search" size={20} color="#9ca3af" />
               <TextInput
@@ -414,7 +416,7 @@ export default function AddressBookScreen({ navigation }) {
             <Ionicons name="location" size={48} color="#ef4444" style={{ marginBottom: 24 }} />
           </View>
 
-          <View style={styles.mapBottomBar}>
+          <View style={[styles.mapBottomBar, { paddingBottom: Math.max(insets.bottom, 20) }]}>
             <Text style={styles.mapGuideText}>เลื่อนแผนที่ให้หมุดตรงกับตำแหน่งที่ต้องการ</Text>
             <View style={styles.mapButtonGroup}>
               <TouchableOpacity style={styles.mapCancelBtn} onPress={() => setMapModalVisible(false)}>
@@ -434,7 +436,7 @@ export default function AddressBookScreen({ navigation }) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f9fafb' },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: Platform.OS === 'ios' ? 60 : 50, paddingBottom: 15, backgroundColor: '#fff', borderBottomWidth: 1, borderColor: '#e5e7eb' },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingBottom: 15, backgroundColor: '#fff', borderBottomWidth: 1, borderColor: '#e5e7eb' },
   backBtn: { padding: 5 },
   headerTitle: { fontSize: 18, fontWeight: 'bold', color: '#1f2937' },
   listContent: { padding: 20 },
@@ -449,12 +451,12 @@ const styles = StyleSheet.create({
   emptyState: { alignItems: 'center', marginTop: 100 },
   emptyText: { fontSize: 18, fontWeight: 'bold', color: '#374151', marginTop: 15 },
   emptySubText: { fontSize: 14, color: '#9ca3af', marginTop: 5, textAlign: 'center', paddingHorizontal: 40 },
-  footer: { padding: 20, backgroundColor: '#fff', borderTopWidth: 1, borderColor: '#e5e7eb' },
+  footer: { paddingHorizontal: 20, paddingTop: 20, backgroundColor: '#fff', borderTopWidth: 1, borderColor: '#e5e7eb' },
   addButton: { flexDirection: 'row', backgroundColor: '#1f2937', paddingVertical: 15, borderRadius: 12, alignItems: 'center', justifyContent: 'center', gap: 8 },
   addButtonText: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
 
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
-  modalContainer: { backgroundColor: '#fff', borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 25, paddingBottom: Platform.OS === 'ios' ? 40 : 25 },
+  modalContainer: { backgroundColor: '#fff', borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 25 },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
   modalTitle: { fontSize: 20, fontWeight: 'bold', color: '#1f2937' },
   label: { fontSize: 14, fontWeight: '600', color: '#374151', marginBottom: 8 },
@@ -472,13 +474,13 @@ const styles = StyleSheet.create({
   map: { flex: 1 },
   markerFixed: { position: 'absolute', left: '50%', top: '50%', marginLeft: -24, marginTop: -48, alignItems: 'center', justifyContent: 'center' },
 
-  searchMapContainer: { position: 'absolute', top: Platform.OS === 'ios' ? 50 : 30, left: 15, right: 15, flexDirection: 'row', gap: 10, zIndex: 5 },
+  searchMapContainer: { position: 'absolute', left: 15, right: 15, flexDirection: 'row', gap: 10, zIndex: 5 },
   searchInputWrapper: { flex: 1, flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', paddingHorizontal: 15, borderRadius: 12, elevation: 5, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 5 },
   searchMapInput: { flex: 1, paddingVertical: 12, marginLeft: 10, fontSize: 14, color: '#1f2937' },
   searchBtn: { backgroundColor: '#10b981', justifyContent: 'center', alignItems: 'center', paddingHorizontal: 20, borderRadius: 12, elevation: 5, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 5 },
   searchBtnText: { color: '#fff', fontWeight: 'bold', fontSize: 14 },
 
-  mapBottomBar: { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: '#fff', padding: 20, paddingBottom: Platform.OS === 'ios' ? 40 : 20, borderTopLeftRadius: 24, borderTopRightRadius: 24, shadowColor: '#000', shadowOffset: { width: 0, height: -2 }, shadowOpacity: 0.1, shadowRadius: 10, elevation: 10 },
+  mapBottomBar: { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: '#fff', padding: 20, borderTopLeftRadius: 24, borderTopRightRadius: 24, shadowColor: '#000', shadowOffset: { width: 0, height: -2 }, shadowOpacity: 0.1, shadowRadius: 10, elevation: 10 },
   mapGuideText: { textAlign: 'center', color: '#6b7280', fontSize: 14, marginBottom: 15, fontWeight: '500' },
   mapButtonGroup: { flexDirection: 'row', gap: 10 },
   mapCancelBtn: { flex: 1, backgroundColor: '#f3f4f6', paddingVertical: 15, borderRadius: 12, alignItems: 'center' },

@@ -3,6 +3,8 @@ import {
   View, Text, StyleSheet, FlatList, TouchableOpacity, StatusBar, Platform, Image,
   RefreshControl, ActivityIndicator, Animated, Dimensions, Modal, TouchableWithoutFeedback
 } from 'react-native';
+// ✅ 1. Import
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { auth, db } from '../../firebase.config';
 import { collection, query, where, doc, onSnapshot } from 'firebase/firestore';
@@ -10,12 +12,15 @@ import { collection, query, where, doc, onSnapshot } from 'firebase/firestore';
 const { width } = Dimensions.get('window');
 
 export default function OrdersScreen({ navigation }) {
+  // ✅ 2. ดึงค่า Insets
+  const insets = useSafeAreaInsets();
+
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [userData, setUserData] = useState(null);
 
-  const [unreadCount, setUnreadCount] = useState(0); // 🔴 เพิ่ม state แจ้งเตือน
+  const [unreadCount, setUnreadCount] = useState(0);
 
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const slideAnim = useRef(new Animated.Value(-width * 0.85)).current;
@@ -38,7 +43,6 @@ export default function OrdersScreen({ navigation }) {
       setLoading(false); setRefreshing(false);
     }, (error) => { console.error('Error fetching orders:', error); setLoading(false); setRefreshing(false); });
 
-    // 🔴 โค้ดดึงตัวเลขแจ้งเตือนแบบ Real-time
     const qNotif = query(collection(db, 'notifications'), where('userId', '==', user.uid), where('isRead', '==', false));
     const unsubNotif = onSnapshot(qNotif, (snapshot) => {
         setUnreadCount(snapshot.docs.length);
@@ -122,23 +126,31 @@ export default function OrdersScreen({ navigation }) {
   return (
     <View style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#fff" />
-      <View style={styles.header}>
+      {/* ✅ 3. ดัน Header ลง */}
+      <View style={[styles.header, { paddingTop: Math.max(insets.top, 15) }]}>
         <View style={styles.headerLeft}>
-            <TouchableOpacity style={styles.menuButton} onPress={toggleDrawer}><Ionicons name="menu" size={30} color="#1f2937" /></TouchableOpacity>
+            <TouchableOpacity style={styles.menuButton} onPress={toggleDrawer}>
+              <Ionicons name="menu" size={30} color="#1f2937" />
+            </TouchableOpacity>
+        </View>
+        <View style={styles.headerCenter}>
             <Text style={styles.headerTitle}>รายการคำสั่งซื้อ</Text>
         </View>
-        <TouchableOpacity onPress={() => navigation.navigate('Profile')}><Image source={userData?.profileImage ? { uri: userData.profileImage } : { uri: defaultAvatar }} style={styles.avatar} /></TouchableOpacity>
+        <View style={styles.headerRight}>
+            <TouchableOpacity onPress={() => navigation.navigate('Profile')}>
+              <Image source={userData?.profileImage ? { uri: userData.profileImage } : { uri: defaultAvatar }} style={styles.avatar} />
+            </TouchableOpacity>
+        </View>
       </View>
 
       {loading ? (<ActivityIndicator size="large" color="#10b981" style={{marginTop: 50}} />) : orders.length > 0 ? (
         <FlatList data={orders} renderItem={renderOrder} keyExtractor={item => item.id} contentContainerStyle={styles.listContent} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />} />
       ) : (<View style={styles.emptyState}><Ionicons name="receipt-outline" size={80} color="#e5e7eb" /><Text style={styles.emptyText}>ยังไม่มีคำสั่งซื้อ</Text><Text style={styles.emptySubText}>คุณสามารถเลือกซื้ออาหารราคาพิเศษเพื่อช่วยลดขยะอาหารได้เลย!</Text></View>)}
 
-      {/* 🔴 แถบเมนูด้านล่าง อัปเดตแจ้งเตือนแล้ว */}
-      <View style={styles.bottomNav}>
+      {/* ✅ 4. ดัน Bottom Nav ขึ้น */}
+      <View style={[styles.bottomNav, { paddingBottom: Math.max(insets.bottom, 10) }]}>
         <TouchableOpacity style={styles.navItem} onPress={() => navigation.navigate('Home')}><Ionicons name="home-outline" size={24} color="#9ca3af" /><Text style={styles.navLabel}>หน้าหลัก</Text></TouchableOpacity>
         <TouchableOpacity style={styles.navItem}><Ionicons name="receipt" size={24} color="#10b981" /><Text style={styles.navLabelActive}>ออเดอร์</Text></TouchableOpacity>
-
         <TouchableOpacity style={styles.navItem} onPress={() => navigation.navigate('Notifications')}>
           <View style={{ position: 'relative' }}>
             <Ionicons name="notifications-outline" size={24} color="#9ca3af" />
@@ -150,18 +162,28 @@ export default function OrdersScreen({ navigation }) {
           </View>
           <Text style={styles.navLabel}>แจ้งเตือน</Text>
         </TouchableOpacity>
-
         <TouchableOpacity style={styles.navItem} onPress={() => navigation.navigate('Profile')}><Ionicons name="person-outline" size={24} color="#9ca3af" /><Text style={styles.navLabel}>โปรไฟล์</Text></TouchableOpacity>
       </View>
 
-      {isDrawerOpen && (<Modal transparent visible={isDrawerOpen} animationType="none"><View style={styles.drawerOverlay}><TouchableWithoutFeedback onPress={toggleDrawer}><View style={styles.drawerBackdrop} /></TouchableWithoutFeedback><Animated.View style={[styles.drawerContainer, { transform: [{ translateX: slideAnim }] }]}><DrawerContent /></Animated.View></View></Modal>)}
+      {isDrawerOpen && (
+        <Modal transparent visible={isDrawerOpen} animationType="none">
+          <View style={styles.drawerOverlay}>
+            <TouchableWithoutFeedback onPress={toggleDrawer}><View style={styles.drawerBackdrop} /></TouchableWithoutFeedback>
+            {/* ✅ 5. ดันเนื้อหาใน Drawer ลงมา */}
+            <Animated.View style={[styles.drawerContainer, { transform: [{ translateX: slideAnim }], paddingTop: Math.max(insets.top, 20) }]}>
+              <DrawerContent />
+            </Animated.View>
+          </View>
+        </Modal>
+      )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f9fafb' },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingTop: Platform.OS === 'ios' ? 60 : 60, paddingBottom: 15, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#f3f4f6', zIndex: 10 },
+  // 🟢 ลบ paddingTop ออก
+  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingBottom: 15, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#f3f4f6', zIndex: 10 },
   headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 15 },
   headerTitle: { fontSize: 20, fontWeight: 'bold', color: '#1f2937' },
   menuButton: { padding: 4, marginLeft: -4 },
@@ -196,7 +218,8 @@ const styles = StyleSheet.create({
   navLabelActive: { fontSize: 10, color: '#10b981', fontWeight: 'bold', marginTop: 4 },
   drawerOverlay: { flex: 1, flexDirection: 'row' },
   drawerBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)' },
-  drawerContainer: { position: 'absolute', left: 0, top: 0, bottom: 0, width: width * 0.80, backgroundColor: '#fff', paddingTop: Platform.OS === 'ios' ? 50 : 30, shadowColor: "#000", shadowOffset: { width: 2, height: 0 }, shadowOpacity: 0.25, shadowRadius: 3.84, elevation: 5 },
+  // 🟢 ลบ paddingTop ออก
+  drawerContainer: { position: 'absolute', left: 0, top: 0, bottom: 0, width: width * 0.80, backgroundColor: '#fff', shadowColor: "#000", shadowOffset: { width: 2, height: 0 }, shadowOpacity: 0.25, shadowRadius: 3.84, elevation: 5 },
   drawerContent: { flex: 1, paddingHorizontal: 20 },
   drawerTopHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
   logoContainer: { flexDirection: 'row', alignItems: 'center', gap: 10 },
@@ -220,8 +243,6 @@ const styles = StyleSheet.create({
   drawerMenuText: { fontSize: 15, color: '#1f2937', fontWeight: '500' },
   drawerLogout: { flexDirection: 'row', alignItems: 'center', gap: 15, marginTop: 30, paddingHorizontal: 5, marginBottom: 30 },
   drawerLogoutText: { fontSize: 15, color: '#ef4444', fontWeight: 'bold' },
-
-  // 🔴 เพิ่ม CSS จุดแดงแจ้งเตือน
   notificationBadge: { position: 'absolute', top: -4, right: -6, backgroundColor: '#ef4444', borderRadius: 10, minWidth: 18, height: 18, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#fff', paddingHorizontal: 4, zIndex: 5 },
   notificationBadgeText: { color: '#fff', fontSize: 10, fontWeight: 'bold' }
 });

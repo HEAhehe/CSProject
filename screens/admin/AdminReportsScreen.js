@@ -13,8 +13,13 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { db } from '../../firebase.config';
 import { collection, getDocs } from 'firebase/firestore';
+// ✅ 1. Import SafeArea
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function AdminReportsScreen({ navigation }) {
+  // ✅ 2. ดึง insets
+  const insets = useSafeAreaInsets();
+
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -197,7 +202,8 @@ export default function AdminReportsScreen({ navigation }) {
       <StatusBar barStyle="dark-content" backgroundColor="#f9fafb" />
 
       {/* Header */}
-      <View style={styles.header}>
+      {/* ✅ 3. ดัน Header ลง */}
+      <View style={[styles.header, { paddingTop: Math.max(insets.top, 15) }]}>
         <TouchableOpacity
           style={styles.backButton}
           onPress={() => navigation.goBack()}
@@ -213,6 +219,8 @@ export default function AdminReportsScreen({ navigation }) {
 
       <ScrollView
         style={styles.content}
+        // ✅ 4. เพิ่มระยะล่างของ ScrollView
+        contentContainerStyle={{ paddingBottom: insets.bottom + 90 }}
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
       >
@@ -340,12 +348,11 @@ export default function AdminReportsScreen({ navigation }) {
             )}
           </View>
         </View>
-
-        <View style={{ height: 100 }} />
       </ScrollView>
 
       {/* Bottom Nav */}
-      <View style={styles.bottomNav}>
+      {/* ✅ 5. ดัน Bottom Nav ขึ้น */}
+      <View style={[styles.bottomNav, { paddingBottom: Math.max(insets.bottom, 8) }]}>
         <TouchableOpacity style={styles.navItem} onPress={() => navigation.navigate('AdminHome')}>
           <Ionicons name="home-outline" size={24} color="#9ca3af" />
           <Text style={styles.navLabel}>หน้าหลัก</Text>
@@ -372,9 +379,10 @@ export default function AdminReportsScreen({ navigation }) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f9fafb' },
+  // 🟢 ลบ paddingTop ออก
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 20, paddingTop: 50, paddingBottom: 15, backgroundColor: '#fff',
+    paddingHorizontal: 20, paddingBottom: 15, backgroundColor: '#fff',
     borderBottomWidth: 1, borderBottomColor: '#f3f4f6'
   },
   backButton: {
@@ -453,8 +461,9 @@ const styles = StyleSheet.create({
   emptyText: { color: '#9ca3af', fontStyle: 'italic' },
 
   // Bottom Nav
+  // 🟢 เปลี่ยน paddingVertical เป็น paddingTop
   bottomNav: {
-    flexDirection: 'row', backgroundColor: '#fff', paddingVertical: 8,
+    flexDirection: 'row', backgroundColor: '#fff', paddingTop: 8,
     paddingHorizontal: 16, borderTopWidth: 1, borderTopColor: '#f3f4f6',
     position: 'absolute', bottom: 0, left: 0, right: 0
   },

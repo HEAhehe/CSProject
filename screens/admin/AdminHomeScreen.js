@@ -7,8 +7,13 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { db, auth } from '../../firebase.config';
 import { collection, getDocs, doc, updateDoc, getDoc, query, addDoc } from 'firebase/firestore';
+// ✅ 1. Import SafeArea
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function AdminHomeScreen({ navigation }) {
+  // ✅ 2. ดึง insets
+  const insets = useSafeAreaInsets();
+
   const [requests, setRequests] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedStatus, setSelectedStatus] = useState('pending');
@@ -156,8 +161,6 @@ export default function AdminHomeScreen({ navigation }) {
             }
         }
         else if (request.type === 'store_update') {
-
-            // 🟢 ดึงข้อมูลร้านค้าปัจจุบันเผื่อไว้กรณีไม่ได้แก้รูปภาพ
             const storeSnap = await getDoc(storeDocRef);
             const currentStoreData = storeSnap.exists() ? storeSnap.data() : {};
 
@@ -185,7 +188,6 @@ export default function AdminHomeScreen({ navigation }) {
                       { id: 'mon', label: 'จันทร์' }, { id: 'tue', label: 'อังคาร' }, { id: 'wed', label: 'พุธ' },
                       { id: 'thu', label: 'พฤหัส' }, { id: 'fri', label: 'ศุกร์' }, { id: 'sat', label: 'เสาร์' }, { id: 'sun', label: 'อาทิตย์' }
                   ];
-                  // 🟢 ปรับให้แสดงทุกวัน ถ้าปิดให้ขึ้น ปิดทำการ
                   return daysOfWeek.map(d => {
                       return bh[d.id]?.isOpen ? `${d.label}: ${bh[d.id].openTime}-${bh[d.id].closeTime}` : `${d.label}: ปิดทำการ`;
                   }).join('\n');
@@ -204,7 +206,6 @@ export default function AdminHomeScreen({ navigation }) {
               });
             }
 
-            // 🟢 บังคับใส่รูปร้านค้าเข้าไป ถ้ามีรูปเดิมหรือรูปใหม่
             const finalImage = request.newData?.storeImage || request.storeImage || currentStoreData.storeImage;
             if (finalImage) {
                 mappedDetails['รูปร้านค้า'] = finalImage;
@@ -488,7 +489,8 @@ export default function AdminHomeScreen({ navigation }) {
   return (
     <View style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#f9fafb" />
-      <View style={styles.header}>
+      {/* ✅ 3. ดัน Header ลงให้พ้นรอยบาก */}
+      <View style={[styles.header, { paddingTop: Math.max(insets.top, 20) }]}>
         <View>
           <Text style={styles.headerTitle}>Admin Panel</Text>
           <Text style={styles.headerSubtitle}>จัดการคำขออนุมัติ</Text>
@@ -499,7 +501,13 @@ export default function AdminHomeScreen({ navigation }) {
         </TouchableOpacity>
       </View>
 
-      <ScrollView style={styles.content} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />} showsVerticalScrollIndicator={false}>
+      {/* ✅ 4. เพิ่ม contentContainerStyle ดันเนื้อหาล่างสุดให้พ้นเมนู */}
+      <ScrollView
+        style={styles.content}
+        contentContainerStyle={{ paddingBottom: insets.bottom + 90 }}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+        showsVerticalScrollIndicator={false}
+      >
         <View style={styles.cardsGrid}>
           <StatusCard icon="time-outline" label="รอดำเนินการ" count={counts.pending} color="#f59e0b" filterKey="pending" />
           <StatusCard icon="checkmark-circle" label="อนุมัติแล้ว" count={counts.approved} color="#10b981" filterKey="approved" />
@@ -526,7 +534,6 @@ export default function AdminHomeScreen({ navigation }) {
           {getFilteredRequests().map(item => <RequestItem key={item.id} item={item} />)}
           {getFilteredRequests().length === 0 && <View style={styles.emptyState}><Text style={styles.emptyText}>ไม่พบข้อมูล</Text></View>}
         </View>
-        <View style={{ height: 100 }} />
       </ScrollView>
 
       <Modal animationType="fade" transparent={true} visible={modalVisible}>
@@ -561,7 +568,8 @@ export default function AdminHomeScreen({ navigation }) {
         </View>
       </Modal>
 
-      <View style={styles.bottomNav}>
+      {/* ✅ 5. ดัน Bottom Nav ขึ้น */}
+      <View style={[styles.bottomNav, { paddingBottom: Math.max(insets.bottom, 10) }]}>
         <TouchableOpacity style={styles.navItem}><Ionicons name="home" size={24} color="#1f2937" /><Text style={styles.navLabelActive}>หน้าหลัก</Text></TouchableOpacity>
         <TouchableOpacity style={styles.navItem} onPress={() => navigation.navigate('AdminUsers')}><Ionicons name="people-outline" size={24} color="#9ca3af" /><Text style={styles.navLabel}>บัญชี</Text></TouchableOpacity>
         <TouchableOpacity style={styles.navItem} onPress={() => navigation.navigate('AdminReports')}><Ionicons name="stats-chart-outline" size={24} color="#9ca3af" /><Text style={styles.navLabel}>รายงาน</Text></TouchableOpacity>
@@ -573,7 +581,8 @@ export default function AdminHomeScreen({ navigation }) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f9fafb' },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingTop: 60, paddingBottom: 20, backgroundColor: '#fff' },
+  // 🟢 เอา paddingTop: 60 ออกจาก CSS เพราะเราทำ inline style ด้านบนแล้ว
+  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingBottom: 20, backgroundColor: '#fff' },
   headerTitle: { fontSize: 20, fontWeight: 'bold', color: '#1f2937' },
   headerSubtitle: { fontSize: 12, color: '#6b7280' },
   statsButton: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#f3f4f6', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20, gap: 6 },
@@ -657,7 +666,8 @@ const styles = StyleSheet.create({
   closeImageBtn: { position: 'absolute', top: 50, right: 20, zIndex: 10, padding: 10 },
   fullScreenImage: { width: '100%', height: '80%' },
 
-  bottomNav: { flexDirection: 'row', backgroundColor: '#fff', paddingVertical: 10, borderTopWidth: 1, borderTopColor: '#f3f4f6', position: 'absolute', bottom: 0, width: '100%' },
+  // 🟢 เปลี่ยน paddingVertical เป็น paddingTop เพื่อรับกับ insets
+  bottomNav: { flexDirection: 'row', backgroundColor: '#fff', paddingTop: 10, borderTopWidth: 1, borderTopColor: '#f3f4f6', position: 'absolute', bottom: 0, width: '100%' },
   navItem: { flex: 1, alignItems: 'center' },
   navLabel: { fontSize: 10, color: '#9ca3af', marginTop: 4 },
   navLabelActive: { fontSize: 10, color: '#1f2937', fontWeight: 'bold', marginTop: 4 },

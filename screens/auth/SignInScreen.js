@@ -13,41 +13,64 @@ import {
   StatusBar,
 } from 'react-native';
 import { signInWithEmailAndPassword } from 'firebase/auth';
+// 🟢 เพิ่มการ Import Firestore เข้ามาเพื่อใช้ค้นหา Username
+import { collection, query, where, getDocs } from 'firebase/firestore';
 import { auth, db } from '../../firebase.config';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function SignInScreen({ navigation }) {
-  const [username, setUsername] = useState('');
+  const insets = useSafeAreaInsets();
+
+  // 🟢 เปลี่ยนจาก email เป็น identifier (เพื่อรับทั้ง email และ username)
+  const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
   const handleSignIn = async () => {
-    if (!username || !password) {
+    if (!identifier || !password) {
       Alert.alert('ข้อผิดพลาด', 'กรุณากรอกข้อมูลให้ครบถ้วน');
       return;
     }
 
     setLoading(true);
     try {
-      const email = username.includes('@') ? username : `${username}@foodwaste.app`;
-      await signInWithEmailAndPassword(auth, email, password);
-      
-      // Navigate to Home after successful login
+      let loginEmail = identifier.trim();
+
+      // 🟢 เช็คว่าสิ่งที่กรอกมา ไม่ใช่อีเมล (ไม่มี @) ใช่หรือไม่?
+      if (!loginEmail.includes('@')) {
+        // ถ้าเป็น Username -> วิ่งไปหา Email ใน Firestore ก่อน
+        const usersRef = collection(db, 'users');
+        const q = query(usersRef, where('username', '==', loginEmail));
+        const querySnapshot = await getDocs(q);
+
+        if (querySnapshot.empty) {
+          // ถ้าหา Username ไม่เจอ
+          Alert.alert('ข้อผิดพลาด', 'ไม่พบชื่อผู้ใช้นี้ในระบบ');
+          setLoading(false);
+          return;
+        }
+
+        // ถ้าเจอ ดึงอีเมลของคนนั้นออกมาใช้ล็อกอินต่อ
+        loginEmail = querySnapshot.docs[0].data().email;
+      }
+
+      // 🟢 ล็อกอินเข้า Firebase ด้วยอีเมล
+      await signInWithEmailAndPassword(auth, loginEmail, password);
+
     } catch (error) {
       console.error(error);
       let errorMessage = 'เกิดข้อผิดพลาดในการเข้าสู่ระบบ';
-      
+
       if (error.code === 'auth/invalid-email') {
         errorMessage = 'รูปแบบอีเมลไม่ถูกต้อง';
-      } else if (error.code === 'auth/user-not-found') {
-        errorMessage = 'ไม่พบผู้ใช้งานนี้';
+      } else if (error.code === 'auth/user-not-found' || error.code === 'auth/invalid-credential') {
+        errorMessage = 'บัญชีหรือรหัสผ่านไม่ถูกต้อง';
       } else if (error.code === 'auth/wrong-password') {
         errorMessage = 'รหัสผ่านไม่ถูกต้อง';
-      } else if (error.code === 'auth/invalid-credential') {
-        errorMessage = 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง';
       }
-      
+
       Alert.alert('ข้อผิดพลาด', errorMessage);
     } finally {
       setLoading(false);
@@ -65,32 +88,34 @@ export default function SignInScreen({ navigation }) {
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
-        <View style={styles.header}>
+        <View style={[styles.header, { paddingTop: Math.max(insets.top, 20) }]}>
           <TouchableOpacity
             style={styles.backButton}
             onPress={() => navigation.goBack()}
           >
             <Ionicons name="arrow-back" size={24} color="#1f2937" />
           </TouchableOpacity>
-        </View>
-
-        <View style={styles.logoContainer}>
-          <View style={styles.logoCircle}>
-            <Ionicons name="leaf" size={60} color="#10b981" />
-          </View>
-          <Text style={styles.welcomeText}>ยินดีต้อนรับ!</Text>
+          <Text style={styles.headerTitle}>เข้าสู่ระบบ</Text>
+          <View style={styles.placeholder} />
         </View>
 
         <View style={styles.formContainer}>
+          <View style={styles.welcomeContainer}>
+            <Ionicons name="leaf" size={60} color="#10b981" style={{ marginBottom: 10 }} />
+            <Text style={styles.welcomeTitle}>ยินดีต้อนรับกลับมา!</Text>
+            <Text style={styles.welcomeSubtitle}>เข้าสู่ระบบเพื่อเริ่มช่วยโลกกับเรา</Text>
+          </View>
+
+          {/* 🟢 ช่องกรอก Username หรือ Email */}
           <View style={styles.inputContainer}>
             <View style={styles.iconContainer}>
               <Ionicons name="person" size={20} color="#10b981" />
             </View>
             <TextInput
               style={styles.input}
-              placeholder="ชื่อผู้ใช้"
-              value={username}
-              onChangeText={setUsername}
+              placeholder="ชื่อผู้ใช้ หรือ อีเมล"
+              value={identifier}
+              onChangeText={setIdentifier}
               autoCapitalize="none"
               placeholderTextColor="#9ca3af"
             />
@@ -121,9 +146,9 @@ export default function SignInScreen({ navigation }) {
             </TouchableOpacity>
           </View>
 
-          <TouchableOpacity 
-            onPress={() => navigation.navigate('ForgotPassword')}
+          <TouchableOpacity
             style={styles.forgotPasswordContainer}
+            onPress={() => navigation.navigate('ForgotPassword')}
           >
             <Text style={styles.forgotPassword}>ลืมรหัสผ่าน?</Text>
           </TouchableOpacity>
@@ -141,19 +166,12 @@ export default function SignInScreen({ navigation }) {
             )}
           </TouchableOpacity>
 
-          <View style={styles.divider}>
-            <View style={styles.dividerLine} />
-            <Text style={styles.dividerText}>หรือ</Text>
-            <View style={styles.dividerLine} />
+          <View style={styles.registerContainer}>
+            <Text style={styles.registerText}>ยังไม่มีบัญชีใช่ไหม? </Text>
+            <TouchableOpacity onPress={() => navigation.navigate('SignUp')}>
+              <Text style={styles.registerLink}>สมัครสมาชิก</Text>
+            </TouchableOpacity>
           </View>
-
-          <TouchableOpacity
-            style={styles.signUpButton}
-            onPress={() => navigation.navigate('SignUp')}
-            activeOpacity={0.8}
-          >
-            <Text style={styles.signUpButtonText}>สร้างบัญชีใหม่</Text>
-          </TouchableOpacity>
         </View>
       </ScrollView>
     </KeyboardAvoidingView>
@@ -167,11 +185,15 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     flexGrow: 1,
-    paddingVertical: 20,
+    paddingBottom: 40,
   },
   header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingTop: 40,
+    marginBottom: 30,
+    paddingBottom: 10
   },
   backButton: {
     width: 40,
@@ -181,40 +203,31 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  logoContainer: {
+  headerTitle: {
+    fontSize: 20,
+    fontWeight: '600',
+    color: '#1f2937',
+  },
+  placeholder: {
+    width: 40,
+  },
+  formContainer: {
+    paddingHorizontal: 30,
     alignItems: 'center',
-    marginTop: 20,
+  },
+  welcomeContainer: {
+    alignItems: 'center',
     marginBottom: 40,
   },
-  logoCircle: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    backgroundColor: '#f0fdf4',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 20,
-    shadowColor: '#10b981',
-    shadowOffset: {
-      width: 0,
-      height: 4,
-    },
-    shadowOpacity: 0.15,
-    shadowRadius: 8,
-    elevation: 5,
-  },
-  welcomeText: {
-    fontSize: 28,
+  welcomeTitle: {
+    fontSize: 24,
     fontWeight: 'bold',
     color: '#1f2937',
     marginBottom: 8,
   },
-  subtitle: {
+  welcomeSubtitle: {
     fontSize: 14,
     color: '#6b7280',
-  },
-  formContainer: {
-    paddingHorizontal: 30,
   },
   inputContainer: {
     flexDirection: 'row',
@@ -224,6 +237,7 @@ const styles = StyleSheet.create({
     marginBottom: 15,
     borderWidth: 1,
     borderColor: '#e5e7eb',
+    width: '100%',
   },
   iconContainer: {
     width: 50,
@@ -246,7 +260,7 @@ const styles = StyleSheet.create({
   forgotPassword: {
     fontSize: 13,
     color: '#10b981',
-    fontWeight: '500',
+    fontWeight: '600',
   },
   signInButton: {
     backgroundColor: '#10b981',
@@ -254,11 +268,9 @@ const styles = StyleSheet.create({
     borderRadius: 15,
     alignItems: 'center',
     marginBottom: 20,
+    width: '100%',
     shadowColor: '#10b981',
-    shadowOffset: {
-      width: 0,
-      height: 4,
-    },
+    shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 8,
     elevation: 8,
@@ -268,32 +280,18 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#fff',
   },
-  divider: {
+  registerContainer: {
     flexDirection: 'row',
+    marginTop: 10,
     alignItems: 'center',
-    marginVertical: 20,
   },
-  dividerLine: {
-    flex: 1,
-    height: 1,
-    backgroundColor: '#e5e7eb',
+  registerText: {
+    fontSize: 14,
+    color: '#6b7280',
   },
-  dividerText: {
-    marginHorizontal: 15,
-    fontSize: 13,
-    color: '#9ca3af',
-  },
-  signUpButton: {
-    backgroundColor: '#fff',
-    paddingVertical: 16,
-    borderRadius: 15,
-    alignItems: 'center',
-    borderWidth: 2,
-    borderColor: '#10b981',
-  },
-  signUpButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
+  registerLink: {
+    fontSize: 14,
     color: '#10b981',
+    fontWeight: '600',
   },
 });

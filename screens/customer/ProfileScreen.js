@@ -1,23 +1,20 @@
 import React, { useState, useEffect } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  TouchableOpacity,
-  Platform,
-  Image,
-  Alert,
-  StatusBar,
+  View, Text, StyleSheet, ScrollView, TouchableOpacity,
+  Platform, Image, Alert, StatusBar,
 } from 'react-native';
+// ✅ 1. Import
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { auth, db } from '../../firebase.config';
-// ✅ นำเข้า collection, query, where เพิ่มเติม
 import { doc, onSnapshot, collection, query, where } from 'firebase/firestore';
 
 export default function ProfileScreen({ navigation }) {
+  // ✅ 2. ดึงค่า Insets
+  const insets = useSafeAreaInsets();
+
   const [userData, setUserData] = useState(null);
-  const [calculatedTotalWeight, setCalculatedTotalWeight] = useState(0); // ✅ State ใหม่สำหรับเก็บน้ำหนักที่คำนวณแล้ว
+  const [calculatedTotalWeight, setCalculatedTotalWeight] = useState(0);
 
   useEffect(() => {
     const user = auth.currentUser;
@@ -25,14 +22,12 @@ export default function ProfileScreen({ navigation }) {
     let unsubscribeOrders;
 
     if (user) {
-      // 1. ดึงข้อมูล User ทั่วไป (โปรไฟล์, ชื่อ, เบอร์โทร)
       unsubscribeUser = onSnapshot(doc(db, 'users', user.uid), (doc) => {
         if (doc.exists()) {
           setUserData(doc.data());
         }
       });
 
-      // 2. ✅ Query ดึงเฉพาะออเดอร์ที่ "เสร็จสมบูรณ์" มาคำนวณน้ำหนัก
       const ordersRef = collection(db, 'orders');
       const q = query(
         ordersRef,
@@ -44,39 +39,26 @@ export default function ProfileScreen({ navigation }) {
         let total = 0;
         snapshot.forEach((doc) => {
           const orderData = doc.data();
-          // นำ totalOrderWeight ของแต่ละออเดอร์ที่ completed มาบวกกัน
           total += (Number(orderData.totalOrderWeight) || 0);
         });
         setCalculatedTotalWeight(total);
       });
     }
 
-    // Cleanup function เมื่อออกจากหน้า Profile
     return () => {
       if (unsubscribeUser) unsubscribeUser();
       if (unsubscribeOrders) unsubscribeOrders();
     };
   }, []);
 
-  // ✅ ใช้น้ำหนักที่คำนวณจาก orders แทน userData
   const totalWeight = calculatedTotalWeight || 0;
   const co2Saved = totalWeight * 2.5;
 
   const handleLogout = () => {
-    Alert.alert(
-      'ออกจากระบบ',
-      'คุณต้องการออกจากระบบหรือไม่?',
-      [
+    Alert.alert('ออกจากระบบ', 'คุณต้องการออกจากระบบหรือไม่?', [
         { text: 'ยกเลิก', style: 'cancel' },
-        {
-          text: 'ออกจากระบบ',
-          style: 'destructive',
-          onPress: async () => {
-            await auth.signOut();
-          },
-        },
-      ]
-    );
+        { text: 'ออกจากระบบ', style: 'destructive', onPress: async () => { await auth.signOut(); } }
+    ]);
   };
 
   const menuItems = [
@@ -90,15 +72,19 @@ export default function ProfileScreen({ navigation }) {
   return (
     <View style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#fff" />
-      <View style={styles.header}>
+      {/* ✅ 3. ดัน Header ลงมา */}
+      <View style={[styles.header, { paddingTop: Math.max(insets.top, 15) }]}>
         <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
           <Ionicons name="arrow-back" size={24} color="#1f2937" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>โปรไฟล์</Text>
         <View style={styles.placeholder} />
       </View>
-
-      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+        <ScrollView
+          style={styles.content}
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 40) + 20 }}
+        >
         <View style={styles.profileSection}>
           <View style={styles.profileImageContainer}>
             {userData?.profileImage ? (
@@ -108,42 +94,24 @@ export default function ProfileScreen({ navigation }) {
             )}
             <View style={[styles.statusDot, { backgroundColor: userData?.currentRole === 'store' ? '#f59e0b' : '#10b981' }]} />
           </View>
-
           <Text style={styles.profileName}>{userData?.username || 'User'}</Text>
-
           <View style={styles.phoneBadge}>
             <Ionicons name="call" size={14} color="#10b981" />
-            <Text style={styles.profilePhone}>
-              {userData?.phoneNumber || userData?.phone || userData?.tel || 'ไม่ได้ระบุเบอร์โทรศัพท์'}
-            </Text>
+            <Text style={styles.profilePhone}>{userData?.phoneNumber || userData?.phone || userData?.tel || 'ไม่ได้ระบุเบอร์โทรศัพท์'}</Text>
           </View>
 
-          {/* Impact Dashboard */}
           <View style={styles.impactContainer}>
-            <TouchableOpacity
-              style={styles.impactCard}
-              activeOpacity={0.7}
-              onPress={() => navigation.navigate('ImpactHistory', { initialTab: 'food' })}
-            >
-              <View style={styles.impactIconBg}>
-                <Ionicons name="leaf" size={20} color="#10b981" />
-              </View>
+            <TouchableOpacity style={styles.impactCard} activeOpacity={0.7} onPress={() => navigation.navigate('ImpactHistory', { initialTab: 'food' })}>
+              <View style={styles.impactIconBg}><Ionicons name="leaf" size={20} color="#10b981" /></View>
               <View style={styles.valueRow}>
-                {/* แสดงทศนิยม 1 ตำแหน่งเสมอ */}
                 <Text style={styles.impactValue}>{totalWeight.toFixed(1)}</Text>
                 <Text style={styles.unitText}> kg</Text>
               </View>
               <Text style={styles.impactLabel}>ลดขยะอาหาร</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity
-              style={[styles.impactCard, { borderColor: '#dbeafe', backgroundColor: '#eff6ff' }]}
-              activeOpacity={0.7}
-              onPress={() => navigation.navigate('ImpactHistory', { initialTab: 'co2' })}
-            >
-              <View style={[styles.impactIconBg, { backgroundColor: '#dbeafe' }]}>
-                <Ionicons name="cloud-done" size={20} color="#3b82f6" />
-              </View>
+            <TouchableOpacity style={[styles.impactCard, { borderColor: '#dbeafe', backgroundColor: '#eff6ff' }]} activeOpacity={0.7} onPress={() => navigation.navigate('ImpactHistory', { initialTab: 'co2' })}>
+              <View style={[styles.impactIconBg, { backgroundColor: '#dbeafe' }]}><Ionicons name="cloud-done" size={20} color="#3b82f6" /></View>
               <View style={styles.valueRow}>
                 <Text style={[styles.impactValue, { color: '#3b82f6' }]}>{co2Saved.toFixed(1)}</Text>
                 <Text style={[styles.unitText, { color: '#3b82f6' }]}> kg</Text>
@@ -158,9 +126,7 @@ export default function ProfileScreen({ navigation }) {
             if (item.requiresGuest && userData?.currentRole === 'store') return null;
             return (
               <TouchableOpacity key={index} style={styles.menuItem} onPress={() => item.screen && navigation.navigate(item.screen)}>
-                <View style={[styles.menuIcon, { backgroundColor: `${item.color}15` }]}>
-                  <Ionicons name={item.icon} size={24} color={item.color} />
-                </View>
+                <View style={[styles.menuIcon, { backgroundColor: `${item.color}15` }]}><Ionicons name={item.icon} size={24} color={item.color} /></View>
                 <View style={styles.menuContent}>
                   <Text style={styles.menuTitle}>{item.title}</Text>
                   <Text style={styles.menuSubtitle}>{item.subtitle}</Text>
@@ -171,11 +137,12 @@ export default function ProfileScreen({ navigation }) {
           })}
         </View>
 
+        {/* ✅ 4. ดันปุ่มล่างให้พ้นขอบจอเวลารูดลงสุด */}
         <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
           <Ionicons name="log-out-outline" size={22} color="#ef4444" />
           <Text style={styles.logoutText}>ออกจากระบบ</Text>
         </TouchableOpacity>
-        <Text style={styles.versionText}>เวอร์ชัน 1.0.0</Text>
+        <Text style={[styles.versionText, { paddingBottom: Math.max(insets.bottom, 10) }]}>เวอร์ชัน 1.0.0</Text>
       </ScrollView>
     </View>
   );
@@ -183,7 +150,8 @@ export default function ProfileScreen({ navigation }) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f9fafb' },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: Platform.OS === 'ios' ? 60 : 60, paddingBottom: 15, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#f3f4f6' },
+  // 🟢 เอา paddingTop ออก
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingBottom: 15, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#f3f4f6' },
   backButton: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#f3f4f6', alignItems: 'center', justifyContent: 'center' },
   headerTitle: { fontSize: 18, fontWeight: '600', color: '#1f2937' },
   placeholder: { width: 40 },
@@ -211,5 +179,5 @@ const styles = StyleSheet.create({
   menuSubtitle: { fontSize: 12, color: '#9ca3af' },
   logoutButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: '#fff', marginHorizontal: 20, paddingVertical: 15, borderRadius: 12, marginBottom: 20 },
   logoutText: { fontSize: 16, fontWeight: '600', color: '#ef4444', marginLeft: 8 },
-  versionText: { fontSize: 12, color: '#9ca3af', textAlign: 'center', marginBottom: 30 },
+  versionText: { fontSize: 12, color: '#9ca3af', textAlign: 'center' },
 });

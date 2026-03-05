@@ -3,6 +3,7 @@ import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, StatusBar, Image, TextInput,
   ActivityIndicator, Animated, Dimensions, Modal, TouchableWithoutFeedback, Alert, Platform, FlatList
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { auth, db } from '../../firebase.config';
 import { doc, collection, getDocs, query, where, onSnapshot, setDoc, deleteDoc, getDoc } from 'firebase/firestore';
@@ -41,6 +42,7 @@ export default function HomeScreen({ navigation }) {
   const [foodItems, setFoodItems] = useState([]);
   const [filteredFood, setFilteredFood] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
+  const insets = useSafeAreaInsets();
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -292,7 +294,7 @@ export default function HomeScreen({ navigation }) {
   };
 
   const DrawerContent = () => (
-    <View style={styles.drawerWrapper}>
+    <View style={[styles.drawerWrapper, { paddingTop: Math.max(insets.top, 20) }]}>
       <ScrollView style={styles.drawerContent} showsVerticalScrollIndicator={false}>
         <View style={styles.drawerTopHeader}>
            <View style={styles.logoContainer}><View style={styles.logoCircle}><Ionicons name="leaf" size={20} color="#10b981" /></View><View><Text style={styles.appName}>Food Waste</Text><Text style={styles.appSlogan}>รักษ์โลกด้วยมือเรา</Text></View></View>
@@ -355,7 +357,8 @@ export default function HomeScreen({ navigation }) {
   return (
     <View style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#fff" />
-      <View style={styles.header}>
+     {/* 🟢 2. ดัน Header ลงมาไม่ให้ทับ Status Bar / รอยบาก */}
+        <View style={[styles.header, { paddingTop: Math.max(insets.top, 20) + 10 }]}>
         <View style={styles.headerLeft}>
             <TouchableOpacity style={styles.menuButton} onPress={toggleDrawer}><Ionicons name="menu" size={30} color="#1f2937" /></TouchableOpacity>
             <TouchableOpacity style={styles.profileTextButton} onPress={() => navigation.navigate('Profile')} activeOpacity={0.6}><Text style={styles.greeting}>สวัสดี, {userData?.username || 'User'}</Text></TouchableOpacity>
@@ -393,7 +396,8 @@ export default function HomeScreen({ navigation }) {
       )}
 
       {/* 🔴 แถบเมนูด้านล่าง อัปเดตแจ้งเตือนแล้ว */}
-      <View style={styles.bottomNav}>
+      {/* 🟢 3. ดัน Bottom Nav ขึ้นมาไม่ให้ทับขอบจอด้านล่าง (Home Indicator) */}
+      <View style={[styles.bottomNav, { paddingBottom: Math.max(insets.bottom, 10) }]}>
         <TouchableOpacity style={styles.navItem}><Ionicons name="home" size={24} color="#10b981" /><Text style={styles.navLabelActive}>หน้าหลัก</Text></TouchableOpacity>
         <TouchableOpacity style={styles.navItem} onPress={() => navigation.navigate('Orders')}><Ionicons name="receipt-outline" size={24} color="#9ca3af" /><Text style={styles.navLabel}>ออเดอร์</Text></TouchableOpacity>
 
@@ -420,7 +424,7 @@ export default function HomeScreen({ navigation }) {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f9fafb' },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingTop: Platform.OS === 'ios' ? 60 : 60, paddingBottom: 15, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#f3f4f6', zIndex: 10 },
+  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingBottom: 15, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#f3f4f6', zIndex: 10 },
   headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 },
   headerRight: { flexDirection: 'row', alignItems: 'center', gap: 15 },
   menuButton: { padding: 4 },
@@ -476,7 +480,7 @@ const styles = StyleSheet.create({
   drawerOverlay: { flex: 1, flexDirection: 'row' },
   drawerBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)' },
   drawerContainer: { position: 'absolute', left: 0, top: 0, bottom: 0, width: width * 0.80, backgroundColor: '#fff', shadowColor: "#000", shadowOffset: { width: 2, height: 0 }, shadowOpacity: 0.25, shadowRadius: 3.84, elevation: 5 },
-  drawerWrapper: { flex: 1, paddingTop: Platform.OS === 'ios' ? 30 : 30 },
+  drawerWrapper: { flex: 1 },
   drawerContent: { flex: 1, paddingHorizontal: 20 },
   drawerTopHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15 },
   logoContainer: { flexDirection: 'row', alignItems: 'center', gap: 10 },

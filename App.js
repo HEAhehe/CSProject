@@ -3,6 +3,8 @@ import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { onAuthStateChanged } from 'firebase/auth';
 import { auth } from './firebase.config';
+// ✅ 1. Import SafeAreaProvider เข้ามา
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 // --- 📂 AUTH Screens ---
 import WelcomeScreen from './screens/auth/WelcomeScreen';
@@ -39,6 +41,7 @@ import StoreSettingsScreen from './screens/store/StoreSettingsScreen';
 import StoreProfileScreen from './screens/store/StoreProfileScreen';
 import StoreNotificationsScreen from './screens/store/StoreNotificationsScreen';
 import StoreNotificationDetailScreen from './screens/store/StoreNotificationDetailScreen.js'
+
 // --- 📂 ADMIN Screens ---
 import AdminHomeScreen from './screens/admin/AdminHomeScreen';
 import AdminApprovalsScreen from './screens/admin/AdminApprovalsScreen';
@@ -63,71 +66,67 @@ export default function App() {
   if (initializing) return null;
 
   return (
-    <NavigationContainer>
-      <Stack.Navigator
-        initialRouteName={user ? "Home" : "Welcome"}
-        screenOptions={{
-          headerShown: false,
-          animation: 'slide_from_right',
-        }}
-      >
-        {user ? (
-          // ✅ Authenticated Stack (ล็อกอินแล้ว)
-          <>
-            {/* --- Customer Flow --- */}
-            <Stack.Screen name="Home" component={HomeScreen} />
-            <Stack.Screen name="Profile" component={ProfileScreen} />
-            <Stack.Screen name="EditProfile" component={EditProfileScreen} />
-            <Stack.Screen name="ChangePassword" component={ChangePasswordScreen} />
+    // ✅ 2. ครอบแอปทั้งหมดด้วย SafeAreaProvider
+    <SafeAreaProvider>
+      <NavigationContainer>
+        <Stack.Navigator
+          initialRouteName={user ? "Home" : "Welcome"}
+          screenOptions={{
+            headerShown: false,
+            animation: 'slide_from_right',
+          }}
+        >
+          {user ? (
+            // ✅ Authenticated Stack (ล็อกอินแล้ว)
+            <>
+              {/* --- Customer Flow --- */}
+              <Stack.Screen name="Home" component={HomeScreen} />
+              <Stack.Screen name="Profile" component={ProfileScreen} />
+              <Stack.Screen name="EditProfile" component={EditProfileScreen} />
+              <Stack.Screen name="ChangePassword" component={ChangePasswordScreen} />
+              <Stack.Screen name="AddressBook" component={AddressBookScreen} />
+              <Stack.Screen name="FoodDetail" component={FoodDetailScreen} />
+              <Stack.Screen name="StoreDetail" component={StoreDetailScreen} options={{ headerShown: false }} />
+              <Stack.Screen name="WriteReview" component={WriteReviewScreen} />
+              <Stack.Screen name="Cart" component={CartScreen} />
+              <Stack.Screen name="Orders" component={OrdersScreen} />
+              <Stack.Screen name="OrderDetail" component={OrderDetailScreen} />
+              <Stack.Screen name="Notifications" component={NotificationsScreen} />
+              <Stack.Screen name="NotificationDetail" component={NotificationDetailScreen} />
+              <Stack.Screen name="FavoriteStores" component={FavoriteStoresScreen} />
+              <Stack.Screen name="ImpactHistory" component={ImpactHistoryScreen} />
 
-            <Stack.Screen name="AddressBook" component={AddressBookScreen} />
+              {/* --- Store Flow (Registration & Management) --- */}
+              <Stack.Screen name="MyShop" component={MyShopScreen} />
+              <Stack.Screen name="StoreDashboard" component={StoreDashboardScreen} />
+              <Stack.Screen name="CreateListing" component={CreateListingScreen} />
+              <Stack.Screen name="StoreOrders" component={StoreOrdersScreen} />
+              <Stack.Screen name="StoreSettings" component={StoreSettingsScreen} />
+              <Stack.Screen name="StoreProfile" component={StoreProfileScreen} />
+              <Stack.Screen name="StoreNotifications" component={StoreNotificationsScreen} />
+              <Stack.Screen name="StoreNotificationDetail" component={StoreNotificationDetailScreen} />
+              <Stack.Screen name="RegisterStoreStep1" component={RegisterStoreStep1Screen} />
+              <Stack.Screen name="RegisterStoreStep2" component={RegisterStoreStep2Screen} />
+              <Stack.Screen name="RegisterStoreStep3" component={RegisterStoreStep3Screen} />
 
-            <Stack.Screen name="FoodDetail" component={FoodDetailScreen} />
-            <Stack.Screen name="StoreDetail" component={StoreDetailScreen} options={{ headerShown: false }} />
-            <Stack.Screen name="WriteReview" component={WriteReviewScreen} />
-
-            <Stack.Screen name="Cart" component={CartScreen} />
-
-            <Stack.Screen name="Orders" component={OrdersScreen} />
-            <Stack.Screen name="OrderDetail" component={OrderDetailScreen} />
-
-            <Stack.Screen name="Notifications" component={NotificationsScreen} />
-            <Stack.Screen name="NotificationDetail" component={NotificationDetailScreen} />
-            <Stack.Screen name="FavoriteStores" component={FavoriteStoresScreen} />
-            <Stack.Screen name="ImpactHistory" component={ImpactHistoryScreen} />
-
-
-            {/* --- Store Flow (Registration & Management) --- */}
-            <Stack.Screen name="MyShop" component={MyShopScreen} />
-            <Stack.Screen name="StoreDashboard" component={StoreDashboardScreen} />
-            <Stack.Screen name="CreateListing" component={CreateListingScreen} />
-            <Stack.Screen name="StoreOrders" component={StoreOrdersScreen} />
-            <Stack.Screen name="StoreSettings" component={StoreSettingsScreen} />
-            <Stack.Screen name="StoreProfile" component={StoreProfileScreen} />
-            <Stack.Screen name="StoreNotifications" component={StoreNotificationsScreen} />
-            <Stack.Screen name="StoreNotificationDetail" component={StoreNotificationDetailScreen} />
-            <Stack.Screen name="RegisterStoreStep1" component={RegisterStoreStep1Screen} />
-            <Stack.Screen name="RegisterStoreStep2" component={RegisterStoreStep2Screen} />
-            <Stack.Screen name="RegisterStoreStep3" component={RegisterStoreStep3Screen} />
-            
-
-            {/* --- Admin Flow --- */}
-            <Stack.Screen name="AdminHome" component={AdminHomeScreen} />
-            <Stack.Screen name="AdminUsers" component={AdminUsersScreen} />
-            <Stack.Screen name="AdminApprovals" component={AdminApprovalsScreen} />
-            <Stack.Screen name="AdminReports" component={AdminReportsScreen} />
-            <Stack.Screen name="AdminProfile" component={AdminProfileScreen} />
-          </>
-        ) : (
-          // 🔒 Auth Stack (ยังไม่ล็อกอิน)
-          <>
-            <Stack.Screen name="Welcome" component={WelcomeScreen} />
-            <Stack.Screen name="SignIn" component={SignInScreen} />
-            <Stack.Screen name="SignUp" component={SignUpScreen} />
-            <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
-          </>
-        )}
-      </Stack.Navigator>
-    </NavigationContainer>
+              {/* --- Admin Flow --- */}
+              <Stack.Screen name="AdminHome" component={AdminHomeScreen} />
+              <Stack.Screen name="AdminUsers" component={AdminUsersScreen} />
+              <Stack.Screen name="AdminApprovals" component={AdminApprovalsScreen} />
+              <Stack.Screen name="AdminReports" component={AdminReportsScreen} />
+              <Stack.Screen name="AdminProfile" component={AdminProfileScreen} />
+            </>
+          ) : (
+            // 🔒 Auth Stack (ยังไม่ล็อกอิน)
+            <>
+              <Stack.Screen name="Welcome" component={WelcomeScreen} />
+              <Stack.Screen name="SignIn" component={SignInScreen} />
+              <Stack.Screen name="SignUp" component={SignUpScreen} />
+              <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
+            </>
+          )}
+        </Stack.Navigator>
+      </NavigationContainer>
+    </SafeAreaProvider>
   );
 }

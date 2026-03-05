@@ -1,24 +1,19 @@
 import React, { useState, useEffect } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  TextInput,
-  TouchableOpacity,
-  Image,
-  Alert,
-  ActivityIndicator,
-  KeyboardAvoidingView,
-  Platform,
-  ScrollView,
-  StatusBar,
+  View, Text, StyleSheet, TextInput, TouchableOpacity, Image, Alert,
+  ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView, StatusBar,
 } from 'react-native';
+// ✅ 1. Import
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { auth, db } from '../../firebase.config';
 import { doc, updateDoc, onSnapshot } from 'firebase/firestore';
 import * as ImagePicker from 'expo-image-picker';
 
 export default function EditProfileScreen({ navigation }) {
+  // ✅ 2. ดึงค่า Insets
+  const insets = useSafeAreaInsets();
+
   const [userData, setUserData] = useState(null);
   const [username, setUsername] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
@@ -44,54 +39,30 @@ export default function EditProfileScreen({ navigation }) {
 
   const pickImage = async () => {
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (status !== 'granted') {
-        Alert.alert('ขออนุญาต', 'แอปต้องการสิทธิ์เข้าถึงคลังรูปภาพ');
-        return;
-      }
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: true,
-        aspect: [1, 1],
-        quality: 0.3,
-        base64: true,
-      });
-      if (!result.canceled) {
-        setProfileImage(result.assets[0].uri);
-        setPickedImageBase64(result.assets[0].base64);
-      }
-    };
+      if (status !== 'granted') { Alert.alert('ขออนุญาต', 'แอปต้องการสิทธิ์เข้าถึงคลังรูปภาพ'); return; }
+      const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsEditing: true, aspect: [1, 1], quality: 0.3, base64: true });
+      if (!result.canceled) { setProfileImage(result.assets[0].uri); setPickedImageBase64(result.assets[0].base64); }
+  };
 
   const handleSave = async () => {
-    if (!username || !phoneNumber) {
-      Alert.alert('ข้อผิดพลาด', 'กรุณากรอกข้อมูลให้ครบถ้วน');
-      return;
-    }
+    if (!username || !phoneNumber) { Alert.alert('ข้อผิดพลาด', 'กรุณากรอกข้อมูลให้ครบถ้วน'); return; }
     setLoading(true);
     try {
       const user = auth.currentUser;
       let finalProfileImage = userData?.profileImage;
-      if (pickedImageBase64) {
-        finalProfileImage = `data:image/jpeg;base64,${pickedImageBase64}`;
-      }
-      await updateDoc(doc(db, 'users', user.uid), {
-        username: username,
-        phoneNumber: phoneNumber,
-        profileImage: finalProfileImage,
-        updatedAt: new Date().toISOString(),
-      });
+      if (pickedImageBase64) finalProfileImage = `data:image/jpeg;base64,${pickedImageBase64}`;
+      await updateDoc(doc(db, 'users', user.uid), { username: username, phoneNumber: phoneNumber, profileImage: finalProfileImage, updatedAt: new Date().toISOString() });
       Alert.alert('สำเร็จ', 'อัปเดตโปรไฟล์สำเร็จ', [{ text: 'ตกลง', onPress: () => navigation.goBack() }]);
-    } catch (error) {
-      console.error('Error updating profile:', error);
-      Alert.alert('ข้อผิดพลาด', 'เกิดข้อผิดพลาดในการอัปเดตโปรไฟล์');
-    } finally {
-      setLoading(false);
-    }
+    } catch (error) { console.error('Error updating profile:', error); Alert.alert('ข้อผิดพลาด', 'เกิดข้อผิดพลาดในการอัปเดตโปรไฟล์'); }
+    finally { setLoading(false); }
   };
 
   return (
     <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#fff" />
-      <View style={styles.header}>
+
+      {/* ✅ 3. ดัน Header ลงมา */}
+      <View style={[styles.header, { paddingTop: Math.max(insets.top, 15) }]}>
         <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
           <Ionicons name="arrow-back" size={24} color="#1f2937" />
         </TouchableOpacity>
@@ -101,14 +72,14 @@ export default function EditProfileScreen({ navigation }) {
         </TouchableOpacity>
       </View>
 
-      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        style={styles.content}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 40) + 20 }}
+      >
         <View style={styles.imageSection}>
           <TouchableOpacity style={styles.profileImageContainer} onPress={pickImage} activeOpacity={0.7}>
-            {profileImage ? (
-              <Image source={{ uri: profileImage }} style={styles.profileImage} />
-            ) : (
-              <View style={styles.profilePlaceholder}><Ionicons name="person" size={60} color="#9ca3af" /></View>
-            )}
+            {profileImage ? (<Image source={{ uri: profileImage }} style={styles.profileImage} />) : (<View style={styles.profilePlaceholder}><Ionicons name="person" size={60} color="#9ca3af" /></View>)}
             <View style={styles.editIconContainer}><Ionicons name="camera" size={20} color="#fff" /></View>
           </TouchableOpacity>
           <Text style={styles.changePhotoText}>เปลี่ยนรูปโปรไฟล์</Text>
@@ -148,6 +119,7 @@ export default function EditProfileScreen({ navigation }) {
           </View>
         </View>
 
+        {/* ✅ 4. ดันปุ่มลบบัญชีให้พ้นขอบล่างเวลาเลื่อนสุด */}
         <TouchableOpacity style={styles.deleteButton}>
           <Ionicons name="trash-outline" size={20} color="#ef4444" />
           <Text style={styles.deleteText}>ลบบัญชี</Text>
@@ -159,17 +131,8 @@ export default function EditProfileScreen({ navigation }) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f9fafb' },
-header: {
-  flexDirection: 'row',
-  alignItems: 'center',
-  justifyContent: 'space-between',
-  paddingHorizontal: 20,
-  paddingTop: Platform.OS === 'ios' ? 60 : 60,
-  paddingBottom: 15,
-  backgroundColor: '#fff',
-  borderBottomWidth: 1, // ✅ เพิ่มเส้นขอบล่าง
-  borderBottomColor: '#f3f4f6'
-},
+  // 🟢 ลบ paddingTop ออก
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingBottom: 15, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#f3f4f6' },
   backButton: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#f3f4f6', alignItems: 'center', justifyContent: 'center' },
   headerTitle: { fontSize: 18, fontWeight: '600', color: '#1f2937' },
   saveButton: { width: 70, alignItems: 'flex-end' },
@@ -195,6 +158,6 @@ header: {
   infoLabel: { fontSize: 14, color: '#6b7280' },
   infoValue: { fontSize: 14, fontWeight: '500', color: '#1f2937' },
   infoDivider: { height: 1, backgroundColor: '#e5e7eb', marginVertical: 5 },
-  deleteButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: '#fff', marginHorizontal: 20, paddingVertical: 15, borderRadius: 12, marginBottom: 30, borderWidth: 1, borderColor: '#fee2e2' },
+  deleteButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: '#fff', marginHorizontal: 20, paddingVertical: 15, borderRadius: 12, borderWidth: 1, borderColor: '#fee2e2' },
   deleteText: { fontSize: 15, fontWeight: '500', color: '#ef4444', marginLeft: 8 },
 });

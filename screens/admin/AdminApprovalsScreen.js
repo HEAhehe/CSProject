@@ -8,8 +8,13 @@ import { useFocusEffect } from '@react-navigation/native';
 import { db, auth } from '../../firebase.config';
 // 🟢 เพิ่ม getDoc ตรงนี้
 import { collection, getDocs, doc, updateDoc, query, addDoc, getDoc } from 'firebase/firestore';
+// ✅ 1. Import SafeArea
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function AdminApprovalsScreen({ navigation }) {
+  // ✅ 2. ดึงค่า Insets
+  const insets = useSafeAreaInsets();
+
   const [selectedTab, setSelectedTab] = useState('pending');
   const [modalVisible, setModalVisible] = useState(false);
   const [selectedRequest, setSelectedRequest] = useState(null);
@@ -256,7 +261,8 @@ export default function AdminApprovalsScreen({ navigation }) {
   return (
     <View style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#fff" />
-      <View style={styles.header}>
+      {/* ✅ 3. ดัน Header ลงมา */}
+      <View style={[styles.header, { paddingTop: Math.max(insets.top, 15) }]}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
           <Ionicons name="arrow-back" size={24} color="#1f2937" />
         </TouchableOpacity>
@@ -281,7 +287,8 @@ export default function AdminApprovalsScreen({ navigation }) {
           data={filteredRequests}
           renderItem={renderRequest}
           keyExtractor={(item) => item.id}
-          contentContainerStyle={styles.requestsList}
+          // ✅ 4. เผื่อระยะการเลื่อนด้านล่าง
+          contentContainerStyle={[styles.requestsList, { paddingBottom: insets.bottom + 40 }]}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
         />
       ) : (
@@ -294,7 +301,8 @@ export default function AdminApprovalsScreen({ navigation }) {
       {/* Modal */}
       <Modal animationType="slide" transparent={true} visible={modalVisible}>
         <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
+          {/* ✅ 5. ดัน Modal ด้านล่างไม่ให้ชิดขอบจอ */}
+          <View style={[styles.modalContent, { paddingBottom: Math.max(insets.bottom, 20) }]}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>รายละเอียดคำขอ</Text>
               <TouchableOpacity onPress={() => { setModalVisible(false); setRejectReason(''); }}>
@@ -385,7 +393,8 @@ export default function AdminApprovalsScreen({ navigation }) {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#fff' },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: 50, paddingBottom: 12 },
+  // 🟢 ลบ paddingTop: 50 ออก
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingBottom: 12 },
   backButton: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
   headerTitle: { fontSize: 16, fontWeight: '600', color: '#1f2937' },
   placeholder: { width: 40 },
@@ -396,7 +405,8 @@ const styles = StyleSheet.create({
   tabText: { fontSize: 12, color: '#9ca3af', fontWeight: '500' },
   tabTextActive: { color: '#1f2937', fontWeight: '600' },
 
-  requestsList: { paddingHorizontal: 20, paddingBottom: 100 },
+  // 🟢 ลบ paddingBottom: 100 ออก (ไปกำหนดใน style ของ Component แทน)
+  requestsList: { paddingHorizontal: 20 },
   requestCard: { backgroundColor: '#f9fafb', borderRadius: 12, padding: 16, marginBottom: 12, borderWidth: 1, borderColor: '#e5e7eb' },
   requestHeader: { flexDirection: 'row', alignItems: 'center' },
   typeIcon: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', marginRight: 12 },
@@ -418,6 +428,7 @@ const styles = StyleSheet.create({
 
   // Modal
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+  // 🟢 เอา paddingBottom เดิมออก
   modalContent: { backgroundColor: '#fff', borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: '85%', minHeight: '50%' },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 20, borderBottomWidth: 1, borderBottomColor: '#f3f4f6' },
   modalTitle: { fontSize: 18, fontWeight: '700', color: '#1f2937' },

@@ -15,8 +15,13 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { db, auth } from '../../firebase.config';
 import { collection, getDocs, doc, updateDoc, deleteDoc } from 'firebase/firestore';
+// ✅ 1. Import SafeArea
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function AdminUsersScreen({ navigation, route }) {
+  // ✅ 2. ดึง insets
+  const insets = useSafeAreaInsets();
+
   const [users, setUsers] = useState([]);
   const [filteredUsers, setFilteredUsers] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -191,7 +196,8 @@ export default function AdminUsersScreen({ navigation, route }) {
     <View style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#fff" />
 
-      <View style={styles.header}>
+      {/* ✅ 3. ดัน Header ลง */}
+      <View style={[styles.header, { paddingTop: Math.max(insets.top, 15) }]}>
         <TouchableOpacity
           style={styles.backButton}
           onPress={() => navigation.goBack()}
@@ -235,7 +241,8 @@ export default function AdminUsersScreen({ navigation, route }) {
         data={filteredUsers}
         renderItem={renderUser}
         keyExtractor={(item) => item.id}
-        contentContainerStyle={styles.usersList}
+        // ✅ 4. ดันให้พ้น Bottom Nav
+        contentContainerStyle={[styles.usersList, { paddingBottom: insets.bottom + 90 }]}
         showsVerticalScrollIndicator={false}
         ListEmptyComponent={
           <View style={styles.emptyState}>
@@ -251,7 +258,8 @@ export default function AdminUsersScreen({ navigation, route }) {
         onRequestClose={() => setModalVisible(false)}
       >
         <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
+          {/* ✅ 5. ดัน Modal */}
+          <View style={[styles.modalContent, { paddingBottom: Math.max(insets.bottom, 40) }]}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>รายละเอียดบัญชี</Text>
               <TouchableOpacity onPress={() => setModalVisible(false)}>
@@ -331,7 +339,8 @@ export default function AdminUsersScreen({ navigation, route }) {
         </View>
       </Modal>
 
-      <View style={styles.bottomNav}>
+      {/* ✅ 6. ดัน Bottom Nav */}
+      <View style={[styles.bottomNav, { paddingBottom: Math.max(insets.bottom, 8) }]}>
         <TouchableOpacity
           style={styles.navItem}
           onPress={() => navigation.navigate('AdminHome')}
@@ -367,9 +376,10 @@ export default function AdminUsersScreen({ navigation, route }) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#fff' },
+  // 🟢 ลบ paddingTop ออก
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 16, paddingTop: 50, paddingBottom: 12,
+    paddingHorizontal: 16, paddingBottom: 12,
   },
   backButton: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
   headerTitle: { fontSize: 16, fontWeight: '600', color: '#1f2937' },
@@ -385,7 +395,8 @@ const styles = StyleSheet.create({
   filterChipActive: { backgroundColor: '#1f2937' },
   filterText: { fontSize: 12, color: '#6b7280', fontWeight: '500' },
   filterTextActive: { color: '#fff' },
-  usersList: { paddingHorizontal: 20, paddingBottom: 100 },
+  // 🟢 ลบ paddingBottom ออก ไปกำหนดที่ component
+  usersList: { paddingHorizontal: 20 },
   emptyState: { alignItems: 'center', marginTop: 50 },
   emptyText: { color: '#9ca3af', fontSize: 16 },
   userCard: {
@@ -407,7 +418,8 @@ const styles = StyleSheet.create({
 
   // Modal Styles
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
-  modalContent: { backgroundColor: '#fff', borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingBottom: 40, maxHeight: '80%' },
+  // 🟢 ลบ paddingBottom: 40 ออก
+  modalContent: { backgroundColor: '#fff', borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: '80%' },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 20, borderBottomWidth: 1, borderBottomColor: '#f3f4f6' },
   modalTitle: { fontSize: 18, fontWeight: '700', color: '#1f2937' },
   modalBody: { padding: 20 },
@@ -426,7 +438,8 @@ const styles = StyleSheet.create({
   modalButtonDangerText: { fontSize: 14, fontWeight: '600', color: '#fff' },
 
   // Bottom Nav
-  bottomNav: { flexDirection: 'row', backgroundColor: '#fff', paddingVertical: 8, paddingHorizontal: 16, borderTopWidth: 1, borderTopColor: '#f3f4f6', position: 'absolute', bottom: 0, left: 0, right: 0 },
+  // 🟢 เปลี่ยน paddingVertical เป็น paddingTop
+  bottomNav: { flexDirection: 'row', backgroundColor: '#fff', paddingTop: 8, paddingHorizontal: 16, borderTopWidth: 1, borderTopColor: '#f3f4f6', position: 'absolute', bottom: 0, left: 0, right: 0 },
   navItem: { flex: 1, alignItems: 'center', paddingVertical: 8 },
   navLabel: { fontSize: 11, color: '#9ca3af', marginTop: 4 },
   navLabelActive: { fontSize: 11, color: '#1f2937', fontWeight: '600', marginTop: 4 },

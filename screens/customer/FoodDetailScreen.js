@@ -1,35 +1,15 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  TouchableOpacity,
-  StatusBar,
-  Image,
-  Platform,
-  Dimensions,
-  ActivityIndicator,
-  Linking,
-  Modal,
-  Alert
+  View, Text, StyleSheet, ScrollView, TouchableOpacity, StatusBar, Image,
+  Platform, Dimensions, ActivityIndicator, Linking, Modal, Alert
 } from 'react-native';
+// ✅ 1. Import
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { db, auth } from '../../firebase.config';
 import {
-  collection,
-  addDoc,
-  doc,
-  onSnapshot,
-  runTransaction,
-  getDoc,
-  query,
-  where,
-  getDocs,
-  setDoc,
-  deleteDoc,
-  updateDoc,
-  increment
+  collection, addDoc, doc, onSnapshot, runTransaction, getDoc, query, where,
+  getDocs, setDoc, deleteDoc, updateDoc, increment
 } from 'firebase/firestore';
 import * as Location from 'expo-location';
 
@@ -50,10 +30,14 @@ const calculateDistance = (lat1, lon1, lat2, lon2) => {
 
 export default function FoodDetailScreen({ navigation, route }) {
   const { food } = route.params;
+
+  // ✅ 2. ดึงค่า Insets
+  const insets = useSafeAreaInsets();
+
   const [loading, setLoading] = useState(false);
   const [isFavorite, setIsFavorite] = useState(false);
   const [quantity, setQuantity] = useState(1);
-  const isProcessing = useRef(false); // 🟢 ตัวล็อกด่านแรก
+  const isProcessing = useRef(false);
 
   const [storeData, setStoreData] = useState(null);
   const [activeClosingTime, setActiveClosingTime] = useState('20:00');
@@ -76,14 +60,8 @@ export default function FoodDetailScreen({ navigation, route }) {
 
   const [alertVisible, setAlertVisible] = useState(false);
   const [alertConfig, setAlertConfig] = useState({
-    title: '',
-    message: '',
-    type: 'error',
-    onConfirm: null,
-    showCancel: false,
-    onCancel: null,
-    confirmText: 'ตกลง',
-    cancelText: 'ยกเลิก'
+    title: '', message: '', type: 'error', onConfirm: null,
+    showCancel: false, onCancel: null, confirmText: 'ตกลง', cancelText: 'ยกเลิก'
   });
 
   const sellingUnit = food.sellingUnit || food.unit || 'ชุด';
@@ -95,31 +73,20 @@ export default function FoodDetailScreen({ navigation, route }) {
 
   const showCustomAlert = (title, message, type = 'error', options = {}) => {
       setAlertConfig({
-        title,
-        message,
-        type,
-        showCancel: false,
-        confirmText: 'ตกลง',
-        cancelText: 'ยกเลิก',
-        onConfirm: null,
-        onCancel: null,
-        ...options
+        title, message, type, showCancel: false, confirmText: 'ตกลง',
+        cancelText: 'ยกเลิก', onConfirm: null, onCancel: null, ...options
       });
       setAlertVisible(true);
-    };
+  };
 
   useEffect(() => {
     (async () => {
       try {
         let { status } = await Location.requestForegroundPermissionsAsync();
-        if (status !== 'granted') {
-          return;
-        }
+        if (status !== 'granted') return;
         let location = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
         setUserLocation(location.coords);
-      } catch (error) {
-        console.log('หาพิกัด GPS ไม่สำเร็จ');
-      }
+      } catch (error) { console.log('หาพิกัด GPS ไม่สำเร็จ'); }
     })();
   }, []);
 
@@ -132,9 +99,7 @@ export default function FoodDetailScreen({ navigation, route }) {
     const user = auth.currentUser;
     if(user) {
         const unsubUser = onSnapshot(doc(db, 'users', user.uid), doc => {
-            if(doc.exists()) {
-                setCurrentUserData(doc.data());
-            }
+            if(doc.exists()) setCurrentUserData(doc.data());
         });
         return unsubUser;
     }
@@ -179,25 +144,17 @@ export default function FoodDetailScreen({ navigation, route }) {
                 const favRef = doc(db, 'users', user.uid, 'favorites', realStoreId);
                 onSnapshot(favRef, (docSnapshot) => setIsFavorite(docSnapshot.exists()));
             }
-        } catch (error) {
-            console.error("❌ Error fetching store data:", error);
-        }
+        } catch (error) { console.error("❌ Error fetching store data:", error); }
     };
     fetchStoreData();
   }, [food]);
 
   useEffect(() => {
     if (!targetStoreIdForNav) return;
-
-    const reviewsQuery = query(
-      collection(db, 'reviews'),
-      where('storeId', '==', targetStoreIdForNav)
-    );
-
+    const reviewsQuery = query(collection(db, 'reviews'), where('storeId', '==', targetStoreIdForNav));
     const unsubscribe = onSnapshot(reviewsQuery, (snapshot) => {
       const reviews = snapshot.docs.map(doc => doc.data());
       const count = reviews.length;
-
       if (count > 0) {
         const totalRating = reviews.reduce((acc, curr) => acc + (curr.rating || 0), 0);
         setSyncRating(totalRating / count);
@@ -207,7 +164,6 @@ export default function FoodDetailScreen({ navigation, route }) {
         setSyncReviewCount(0);
       }
     });
-
     return () => unsubscribe();
   }, [targetStoreIdForNav]);
 
@@ -216,12 +172,7 @@ export default function FoodDetailScreen({ navigation, route }) {
     const targetLng = currentUserData?.longitude || userLocation?.longitude;
 
     if (targetLat && targetLng && storeData?.latitude && storeData?.longitude) {
-      const dist = calculateDistance(
-        targetLat,
-        targetLng,
-        storeData.latitude,
-        storeData.longitude
-      );
+      const dist = calculateDistance(targetLat, targetLng, storeData.latitude, storeData.longitude);
       setDistanceDisplay(`${dist} กม.`);
     } else if (storeData && (!storeData.latitude || !storeData.longitude)) {
       setDistanceDisplay('ร้านไม่ระบุพิกัด');
@@ -232,7 +183,6 @@ export default function FoodDetailScreen({ navigation, route }) {
 
   useEffect(() => {
     if (!storeData) return;
-
     const calculateTimeLeft = () => {
         const now = currentTime;
         const daysMap = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
@@ -332,7 +282,7 @@ export default function FoodDetailScreen({ navigation, route }) {
   const handleToggleFavorite = async () => {
     const user = auth.currentUser;
     if (!user) {
-      showCustomAlert('แจ้งเตือน', 'กรุณาเข้าสู่ระบบเพื่อบันทึกร้านโปรด');
+      showCustomAlert('แจ้งเตือน', 'กรุณาเข้าสู่ระบบเพื่อบันรับร้านโปรด');
       return;
     }
     if (!targetStoreIdForNav) return;
@@ -347,20 +297,15 @@ export default function FoodDetailScreen({ navigation, route }) {
           savedAt: new Date().toISOString()
         });
       }
-    } catch (error) {
-      console.error("Error toggling favorite store:", error);
-    }
+    } catch (error) { console.error("Error toggling favorite store:", error); }
   };
 
   const getCalculatedWeightInKg = () => {
       let itemWeightInKg = 0.4;
       if (food.measureValue) {
           const val = Number(food.measureValue);
-          if (food.measureUnit === 'g' || food.measureUnit === 'กรัม') {
-              itemWeightInKg = val / 1000;
-          } else {
-              itemWeightInKg = val;
-          }
+          if (food.measureUnit === 'g' || food.measureUnit === 'กรัม') itemWeightInKg = val / 1000;
+          else itemWeightInKg = val;
       }
       return itemWeightInKg;
   };
@@ -378,58 +323,37 @@ export default function FoodDetailScreen({ navigation, route }) {
 
         try {
           const cartRef = collection(db, 'users', user.uid, 'cart');
-
-          const q = query(
-            cartRef,
-            where('foodId', '==', food.id),
-            where('deliveryMethod', '==', selectedMethod)
-          );
-
+          const q = query(cartRef, where('foodId', '==', food.id), where('deliveryMethod', '==', selectedMethod));
           const querySnapshot = await getDocs(q);
           const actualWeight = getCalculatedWeightInKg();
 
           if (!querySnapshot.empty) {
             const existingDoc = querySnapshot.docs[0];
             const currentQty = existingDoc.data().quantity || 0;
-
             await updateDoc(doc(db, 'users', user.uid, 'cart', existingDoc.id), {
-               quantity: currentQty + quantity,
-               weight: actualWeight
+               quantity: currentQty + quantity, weight: actualWeight
             });
-
           } else {
             const newCartItem = {
-                foodId: food.id || 'unknown_id',
-                foodName: food.name || food.foodName || 'ไม่ระบุชื่ออาหาร',
-                price: price || 0,
-                originalPrice: originalPrice || 0,
-                quantity: quantity || 1,
-                unit: sellingUnit || 'ชุด',
-                weight: actualWeight || 0.4,
-                storeName: storeName || 'ไม่ระบุชื่อร้าน',
-                storeId: targetStoreIdForNav || 'unknown_store',
-                imageUrl: food.imageUrl || null,
-                deliveryMethod: selectedMethod || 'pickup',
-                addedAt: new Date().toISOString()
+                foodId: food.id || 'unknown_id', foodName: food.name || food.foodName || 'ไม่ระบุชื่ออาหาร',
+                price: price || 0, originalPrice: originalPrice || 0, quantity: quantity || 1,
+                unit: sellingUnit || 'ชุด', weight: actualWeight || 0.4, storeName: storeName || 'ไม่ระบุชื่อร้าน',
+                storeId: targetStoreIdForNav || 'unknown_store', imageUrl: food.imageUrl || null,
+                deliveryMethod: selectedMethod || 'pickup', addedAt: new Date().toISOString()
             };
-
             const cleanCartItem = JSON.parse(JSON.stringify(newCartItem));
             await addDoc(cartRef, cleanCartItem);
           }
 
           showCustomAlert('สำเร็จ!', 'เพิ่มอาหารลงตะกร้าเรียบร้อยแล้ว', 'success', {
-            showCancel: true,
-            confirmText: 'ไปตะกร้า',
-            cancelText: 'ซื้อต่อ',
+            showCancel: true, confirmText: 'ไปตะกร้า', cancelText: 'ซื้อต่อ',
             onConfirm: () => navigation.navigate('Cart')
           });
         } catch (e) {
           console.error(e);
           showCustomAlert('ผิดพลาด', 'ไม่สามารถเพิ่มลงตะกร้าได้ กรุณาลองใหม่');
-        }
-        finally {
-            setLoading(false);
-            isProcessing.current = false;
+        } finally {
+            setLoading(false); isProcessing.current = false;
         }
       };
 
@@ -452,7 +376,6 @@ export default function FoodDetailScreen({ navigation, route }) {
       try {
         const newOrderRef = doc(collection(db, 'orders'));
         const orderId = newOrderRef.id;
-
         const actualWeight = getCalculatedWeightInKg();
         const orderWeight = actualWeight * quantity;
 
@@ -464,31 +387,19 @@ export default function FoodDetailScreen({ navigation, route }) {
           transaction.update(foodRef, { quantity: foodDoc.data().quantity - quantity });
 
           const orderData = {
-            id: orderId,
-            userId: user.uid,
-            storeId: targetStoreIdForNav || 'unknown_store',
+            id: orderId, userId: user.uid, storeId: targetStoreIdForNav || 'unknown_store',
             storeName: storeName || 'ร้านค้า',
             items: [{
-                foodId: food.id || 'unknown_id',
-                foodName: food.name || food.foodName || 'ไม่ระบุชื่ออาหาร',
-                quantity: quantity || 1,
-                price: price || 0,
-                unit: sellingUnit || 'ชุด',
-                weight: actualWeight || 0.4,
-                imageUrl: food.imageUrl || null
+                foodId: food.id || 'unknown_id', foodName: food.name || food.foodName || 'ไม่ระบุชื่ออาหาร',
+                quantity: quantity || 1, price: price || 0, unit: sellingUnit || 'ชุด',
+                weight: actualWeight || 0.4, imageUrl: food.imageUrl || null
             }],
             foodName: food.name || food.foodName || 'ไม่ระบุชื่ออาหาร',
-            totalPrice: (price || 0) * (quantity || 1),
-            quantity: quantity || 1,
-            totalOrderWeight: orderWeight || 0,
-            status: 'pending',
-            orderType: selectedMethod || 'pickup',
-            customerAddressTitle: currentUserData?.addressTitle || null,
-            customerAddress: currentUserData?.address || null,
-            customerLat: currentUserData?.latitude || null,
-            customerLng: currentUserData?.longitude || null,
-            customerPhone: currentUserData?.phone || null,
-            closingTime: activeClosingTime || '20:00',
+            totalPrice: (price || 0) * (quantity || 1), quantity: quantity || 1,
+            totalOrderWeight: orderWeight || 0, status: 'pending', orderType: selectedMethod || 'pickup',
+            customerAddressTitle: currentUserData?.addressTitle || null, customerAddress: currentUserData?.address || null,
+            customerLat: currentUserData?.latitude || null, customerLng: currentUserData?.longitude || null,
+            customerPhone: currentUserData?.phone || null, closingTime: activeClosingTime || '20:00',
             createdAt: new Date().toISOString()
           };
 
@@ -497,24 +408,17 @@ export default function FoodDetailScreen({ navigation, route }) {
           transaction.set(newOrderRef, cleanOrderData);
 
           const notifRef = doc(collection(db, 'store_notifications'));
-                    const notifData = {
-                      id: notifRef.id,
-                      storeId: targetStoreIdForNav || 'unknown_store',
-                      type: 'new_order',
-                      title: 'มีออเดอร์ใหม่เข้ามา! 🛒',
-                      message: `ออเดอร์ #${newOrderRef.id.slice(0, 6).toUpperCase()} จำนวน ${quantity} ${sellingUnit}`,
-                      orderId: newOrderRef.id,
-                      orderType: selectedMethod || 'pickup',
-                      isRead: false,
-                      createdAt: new Date().toISOString()
-                    };
-                    transaction.set(notifRef, JSON.parse(JSON.stringify(notifData)));
+          const notifData = {
+              id: notifRef.id, storeId: targetStoreIdForNav || 'unknown_store', type: 'new_order',
+              title: 'มีออเดอร์ใหม่เข้ามา! 🛒', message: `ออเดอร์ #${newOrderRef.id.slice(0, 6).toUpperCase()} จำนวน ${quantity} ${sellingUnit}`,
+              orderId: newOrderRef.id, orderType: selectedMethod || 'pickup',
+              isRead: false, createdAt: new Date().toISOString()
+          };
+          transaction.set(notifRef, JSON.parse(JSON.stringify(notifData)));
         });
 
         const userRef = doc(db, 'users', user.uid);
-        await updateDoc(userRef, {
-            totalWeightSaved: increment(orderWeight)
-        });
+        await updateDoc(userRef, { totalWeightSaved: increment(orderWeight) });
 
         setLoading(false);
         isProcessing.current = false;
@@ -526,8 +430,7 @@ export default function FoodDetailScreen({ navigation, route }) {
             }
         });
       } catch (error) {
-        setLoading(false);
-        isProcessing.current = false;
+        setLoading(false); isProcessing.current = false;
         showCustomAlert('จองไม่สำเร็จ', typeof error === 'string' ? error : 'เกิดข้อผิดพลาดในการจอง');
       }
     };
@@ -535,58 +438,47 @@ export default function FoodDetailScreen({ navigation, route }) {
   return (
     <View style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="transparent" translucent />
+
       <View style={styles.imageContainer}>
          {food.imageUrl ? <Image source={{ uri: food.imageUrl }} style={styles.foodImage} /> : <View style={styles.placeholderImage}><Ionicons name="fast-food" size={80} color="#ccc" /></View>}
-         <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
+
+         {/* ✅ 3. ดันปุ่ม Back ลง */}
+         <TouchableOpacity style={[styles.backButton, { top: Math.max(insets.top, 15) }]} onPress={() => navigation.goBack()}>
              <Ionicons name="chevron-back" size={24} color="#000" />
          </TouchableOpacity>
-         <TouchableOpacity style={styles.favoriteButton} onPress={handleToggleFavorite}>
+
+         {/* ✅ 4. ดันปุ่มหัวใจ ลง */}
+         <TouchableOpacity style={[styles.favoriteButton, { top: Math.max(insets.top, 15) }]} onPress={handleToggleFavorite}>
              <Ionicons name={isFavorite ? "heart" : "heart-outline"} size={24} color={isFavorite ? "#ef4444" : "#000"} />
          </TouchableOpacity>
+
          {discountPercent > 0 && <View style={styles.discountBadge}><Text style={styles.discountText}>ลด {discountPercent}%</Text><Ionicons name="flame" size={16} color="#e51c23" /></View>}
       </View>
 
       <ScrollView style={styles.contentContainer} showsVerticalScrollIndicator={false}>
          <View style={styles.headerSection}>
             <View style={styles.titleRow}>
-                <View style={{flex: 1, paddingRight: 10}}>
-                  <Text style={styles.foodName}>{food.name}</Text>
-                </View>
-                <View style={styles.priceBlock}>
-                  <Text style={styles.currentPrice}>{price} ฿</Text>
-                  {originalPrice > price && <Text style={styles.originalPrice}>{originalPrice} ฿</Text>}
-                </View>
+                <View style={{flex: 1, paddingRight: 10}}><Text style={styles.foodName}>{food.name}</Text></View>
+                <View style={styles.priceBlock}><Text style={styles.currentPrice}>{price} ฿</Text>{originalPrice > price && <Text style={styles.originalPrice}>{originalPrice} ฿</Text>}</View>
             </View>
 
             <TouchableOpacity
                 style={styles.storeRow}
                 activeOpacity={0.7}
                 onPress={() => {
-                    if (targetStoreIdForNav) {
-                        navigation.navigate('StoreDetail', {
-                          storeId: targetStoreIdForNav,
-                          initialTab: 'menu'
-                        });
-                    } else {
-                        showCustomAlert('แจ้งเตือน', 'ไม่พบข้อมูลร้านค้า', 'warning');
-                    }
+                    if (targetStoreIdForNav) navigation.navigate('StoreDetail', { storeId: targetStoreIdForNav, initialTab: 'menu' });
+                    else showCustomAlert('แจ้งเตือน', 'ไม่พบข้อมูลร้านค้า', 'warning');
                 }}
             >
                 <Ionicons name="storefront-outline" size={16} color="#10b981" />
-                <Text style={[styles.storeName, { color: '#10b981', textDecorationLine: 'underline' }]}>
-                    {storeName}
-                </Text>
+                <Text style={[styles.storeName, { color: '#10b981', textDecorationLine: 'underline' }]}>{storeName}</Text>
                 <Ionicons name="chevron-forward" size={14} color="#10b981" />
             </TouchableOpacity>
 
             <View style={styles.ratingRow}>
                 <Ionicons name="star" size={14} color="#f59e0b" />
-                <Text style={styles.ratingText}>
-                    {syncReviewCount > 0 ? syncRating.toFixed(1) : 'ยังไม่มีคะแนน'}
-                </Text>
-                {syncReviewCount > 0 && (
-                    <Text style={styles.reviewCountText}>({syncReviewCount} รีวิว)</Text>
-                )}
+                <Text style={styles.ratingText}>{syncReviewCount > 0 ? syncRating.toFixed(1) : 'ยังไม่มีคะแนน'}</Text>
+                {syncReviewCount > 0 && <Text style={styles.reviewCountText}>({syncReviewCount} รีวิว)</Text>}
             </View>
           </View>
 
@@ -595,30 +487,20 @@ export default function FoodDetailScreen({ navigation, route }) {
               <Text style={styles.descriptionTitle}>รายละเอียด</Text>
               <Text style={styles.descriptionText}>{description}</Text>
             </View>
-          ) : (
-            <View style={styles.sectionDivider} />
-          )}
+          ) : (<View style={styles.sectionDivider} />)}
 
           <Text style={styles.subHeader}>วิธีรับสินค้า</Text>
           {storeDeliveryMethod === 'both' ? (
             <View style={styles.methodRow}>
-              <TouchableOpacity
-                style={[styles.methodBtn, selectedMethod === 'pickup' && styles.methodBtnActive]}
-                onPress={() => setSelectedMethod('pickup')}
-              >
+              <TouchableOpacity style={[styles.methodBtn, selectedMethod === 'pickup' && styles.methodBtnActive]} onPress={() => setSelectedMethod('pickup')}>
                   <Ionicons name="storefront" size={18} color={selectedMethod === 'pickup' ? '#fff' : '#10b981'} />
                   <Text style={[styles.methodBtnText, selectedMethod === 'pickup' && styles.methodBtnTextActive]}>รับที่ร้าน</Text>
               </TouchableOpacity>
-
               <TouchableOpacity
                 style={[styles.methodBtn, selectedMethod === 'delivery' && styles.methodBtnActive]}
                 onPress={() => {
                   if (!currentUserData?.address) {
-                    showCustomAlert(
-                      'ไม่สามารถเลือกได้',
-                      'กรุณาระบุที่อยู่จัดส่งที่หน้าโฮม (Home) ของคุณก่อนเลือกวิธีนี้',
-                      'warning'
-                    );
+                    showCustomAlert('ไม่สามารถเลือกได้', 'กรุณาระบุที่อยู่จัดส่งที่หน้าโฮม (Home) ของคุณก่อนเลือกวิธีนี้', 'warning');
                     return;
                   }
                   setSelectedMethod('delivery');
@@ -631,9 +513,7 @@ export default function FoodDetailScreen({ navigation, route }) {
           ) : (
             <View style={styles.singleMethodBadge}>
               <Ionicons name={storeDeliveryMethod === 'delivery' ? "bicycle" : "storefront"} size={20} color="#10b981" />
-              <Text style={styles.singleMethodText}>
-                {storeDeliveryMethod === 'delivery' ? "จัดส่งเท่านั้น (Delivery Only)" : "รับเองที่ร้านเท่านั้น (Pickup Only)"}
-              </Text>
+              <Text style={styles.singleMethodText}>{storeDeliveryMethod === 'delivery' ? "จัดส่งเท่านั้น (Delivery Only)" : "รับเองที่ร้านเท่านั้น (Pickup Only)"}</Text>
             </View>
           )}
 
@@ -648,38 +528,16 @@ export default function FoodDetailScreen({ navigation, route }) {
          </View>
 
          <View style={styles.statsContainer}>
-            <View style={styles.statItem}>
-              <Ionicons name="cube-outline" size={20} color="#333" />
-              <Text style={styles.statLabel}>คงเหลือ</Text>
-              <Text style={styles.statValue}>{food.quantity} {sellingUnit}</Text>
-            </View>
-            <View style={styles.statItem}>
-              <Ionicons name="time-outline" size={20} color="#333" />
-              <Text style={styles.statLabel}>รับได้ถึง</Text>
-              <Text style={styles.statValueTime}>{closingTimeDisplay}</Text>
-            </View>
-            <View style={styles.statItem}>
-              <Ionicons name="location-outline" size={20} color="#333" />
-              <Text style={styles.statLabel}>ระยะทาง</Text>
-              <Text style={styles.statValue}>{distanceDisplay}</Text>
-            </View>
+            <View style={styles.statItem}><Ionicons name="cube-outline" size={20} color="#333" /><Text style={styles.statLabel}>คงเหลือ</Text><Text style={styles.statValue}>{food.quantity} {sellingUnit}</Text></View>
+            <View style={styles.statItem}><Ionicons name="time-outline" size={20} color="#333" /><Text style={styles.statLabel}>รับได้ถึง</Text><Text style={styles.statValueTime}>{closingTimeDisplay}</Text></View>
+            <View style={styles.statItem}><Ionicons name="location-outline" size={20} color="#333" /><Text style={styles.statLabel}>ระยะทาง</Text><Text style={styles.statValue}>{distanceDisplay}</Text></View>
          </View>
 
          <View style={styles.locationSection}>
-             <Text style={[styles.sectionTitle, { fontWeight: 'bold' }]}>
-                 <Ionicons name="location-outline" size={18} color="#000" /> ที่อยู่ร้าน
-             </Text>
-             <View style={styles.mapBox}>
-                 <View style={styles.mapIconCircle}>
-                     <Ionicons name="location" size={32} color="#ef4444" />
-                     <Text style={styles.mapStoreName}>{storeName}</Text>
-                 </View>
-             </View>
+             <Text style={[styles.sectionTitle, { fontWeight: 'bold' }]}><Ionicons name="location-outline" size={18} color="#000" /> ที่อยู่ร้าน</Text>
+             <View style={styles.mapBox}><View style={styles.mapIconCircle}><Ionicons name="location" size={32} color="#ef4444" /><Text style={styles.mapStoreName}>{storeName}</Text></View></View>
              <Text style={styles.addressText}>{storeData?.location || "กำลังโหลดที่อยู่..."}</Text>
-             <TouchableOpacity style={styles.mapsBtn} onPress={openInGoogleMaps}>
-                 <Ionicons name="navigate" size={20} color="#333" />
-                 <Text style={styles.mapsBtnText}>เปิด Google Maps</Text>
-             </TouchableOpacity>
+             <TouchableOpacity style={styles.mapsBtn} onPress={openInGoogleMaps}><Ionicons name="navigate" size={20} color="#333" /><Text style={styles.mapsBtnText}>เปิด Google Maps</Text></TouchableOpacity>
          </View>
          <View style={{height: 150}} />
       </ScrollView>
@@ -687,21 +545,8 @@ export default function FoodDetailScreen({ navigation, route }) {
       <Modal animationType="fade" transparent={true} visible={alertVisible} onRequestClose={() => setAlertVisible(false)}>
         <View style={styles.alertOverlay}>
           <View style={styles.alertBox}>
-            <View style={[styles.alertIconCircle,
-              alertConfig.type === 'success' ? { backgroundColor: '#dcfce7' } :
-              alertConfig.type === 'warning' ? { backgroundColor: '#fef3c7' } : { backgroundColor: '#fee2e2' }
-            ]}>
-              <Ionicons
-                name={
-                  alertConfig.type === 'success' ? "checkmark" :
-                  alertConfig.type === 'warning' ? "warning" : "close"
-                }
-                size={36}
-                color={
-                  alertConfig.type === 'success' ? '#10b981' :
-                  alertConfig.type === 'warning' ? '#f59e0b' : '#ef4444'
-                }
-              />
+            <View style={[styles.alertIconCircle, alertConfig.type === 'success' ? { backgroundColor: '#dcfce7' } : alertConfig.type === 'warning' ? { backgroundColor: '#fef3c7' } : { backgroundColor: '#fee2e2' }]}>
+              <Ionicons name={alertConfig.type === 'success' ? "checkmark" : alertConfig.type === 'warning' ? "warning" : "close"} size={36} color={alertConfig.type === 'success' ? '#10b981' : alertConfig.type === 'warning' ? '#f59e0b' : '#ef4444'} />
             </View>
             <Text style={styles.alertTitle}>{alertConfig.title}</Text>
             <Text style={styles.alertMessage}>{alertConfig.message}</Text>
@@ -712,14 +557,8 @@ export default function FoodDetailScreen({ navigation, route }) {
                 </TouchableOpacity>
               )}
               <TouchableOpacity
-                style={[
-                  styles.alertButton,
-                  alertConfig.type === 'success' ? { backgroundColor: '#10b981' } :
-                  alertConfig.type === 'warning' ? { backgroundColor: '#f59e0b' } : { backgroundColor: '#111827' },
-                  alertConfig.showCancel && { flex: 1 }
-                ]}
+                style={[styles.alertButton, alertConfig.type === 'success' ? { backgroundColor: '#10b981' } : alertConfig.type === 'warning' ? { backgroundColor: '#f59e0b' } : { backgroundColor: '#111827' }, alertConfig.showCancel && { flex: 1 }]}
                 onPress={() => {
-                  // 🟢 เคลียร์ Memory ล็อกไม่ให้รันซ้ำ
                   if (alertConfig.onConfirm) {
                     const action = alertConfig.onConfirm;
                     alertConfig.onConfirm = null;
@@ -735,7 +574,8 @@ export default function FoodDetailScreen({ navigation, route }) {
         </View>
       </Modal>
 
-      <View style={styles.bottomBar}>
+      {/* ✅ 5. ดัน Bottom Bar ขึ้น */}
+      <View style={[styles.bottomBar, { paddingBottom: Math.max(insets.bottom, 20) }]}>
          <View style={styles.totalPriceContainer}>
              <Text style={styles.totalLabel}>ยอดรวม</Text>
              <Text style={styles.totalPrice}>{price * quantity} ฿</Text>
@@ -758,8 +598,9 @@ const styles = StyleSheet.create({
   imageContainer: { width: '100%', height: 280, backgroundColor: '#f0f0f0' },
   foodImage: { width: '100%', height: '100%' },
   placeholderImage: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  backButton: { position: 'absolute', top: 50, left: 20, width: 40, height: 40, borderRadius: 20, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' },
-  favoriteButton: { position: 'absolute', top: 50, right: 20, width: 40, height: 40, borderRadius: 20, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 3, elevation: 3 },
+  // 🟢 ลบ top ออก
+  backButton: { position: 'absolute', left: 20, width: 40, height: 40, borderRadius: 20, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' },
+  favoriteButton: { position: 'absolute', right: 20, width: 40, height: 40, borderRadius: 20, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 3, elevation: 3 },
   discountBadge: { position: 'absolute', bottom: 30, right: 20, backgroundColor: '#e0e0e0', flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, borderRadius: 20, gap: 5 },
   discountText: { fontWeight: 'bold', fontSize: 14 },
   contentContainer: { flex: 1, borderTopLeftRadius: 30, borderTopRightRadius: 30, backgroundColor: '#fff', marginTop: -20, paddingTop: 25, paddingHorizontal: 20 },
@@ -804,7 +645,8 @@ const styles = StyleSheet.create({
   addressText: { fontSize: 13, color: '#9ca3af', marginTop: 10, textAlign: 'left', paddingHorizontal: 5 },
   mapsBtn: { flexDirection: 'row', backgroundColor: '#e5e7eb', padding: 15, borderRadius: 12, marginTop: 15, justifyContent: 'center', alignItems: 'center', gap: 10 },
   mapsBtnText: { fontWeight: 'bold', color: '#1f2937' },
-  bottomBar: { flexDirection: 'row', alignItems: 'center', padding: 20, paddingBottom: Platform.OS === 'ios' ? 35 : 20, backgroundColor: '#fff', borderTopWidth: 1, borderTopColor: '#f0f0f0', gap: 15, position: 'absolute', bottom: 0, left: 0, right: 0, elevation: 20, shadowColor: '#000', shadowOffset: { width: 0, height: -3 }, shadowOpacity: 0.1, shadowRadius: 5 },
+  // 🟢 แยก padding ออก
+  bottomBar: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingTop: 20, backgroundColor: '#fff', borderTopWidth: 1, borderTopColor: '#f0f0f0', gap: 15, position: 'absolute', bottom: 0, left: 0, right: 0, elevation: 20, shadowColor: '#000', shadowOffset: { width: 0, height: -3 }, shadowOpacity: 0.1, shadowRadius: 5 },
   totalPriceContainer: { flex: 1 },
   totalLabel: { fontSize: 12, color: '#888' },
   totalPrice: { fontSize: 20, fontWeight: 'bold', color: '#1f2937' },
