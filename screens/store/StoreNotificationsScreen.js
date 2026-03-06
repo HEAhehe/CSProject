@@ -4,6 +4,7 @@ import {
   RefreshControl, Image, Animated, Dimensions, Modal, TouchableWithoutFeedback,
   ScrollView, Alert
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { auth, db } from '../../firebase.config';
 import {
@@ -14,6 +15,7 @@ import {
 const { width } = Dimensions.get('window');
 
 export default function StoreNotificationsScreen({ navigation }) {
+  const insets = useSafeAreaInsets();
   const [notifications, setNotifications] = useState([]);
   const [refreshing, setRefreshing] = useState(false);
   const [filter, setFilter] = useState('all');
@@ -188,18 +190,12 @@ export default function StoreNotificationsScreen({ navigation }) {
 
   const getNotificationIcon = (type) => {
     switch (type) {
-      case 'new_order':
-        return { name: 'receipt', color: '#10b981', bg: '#dcfce7' };
-      case 'order_cancelled_by_customer':
-        return { name: 'close-circle', color: '#ef4444', bg: '#fee2e2' };
-      case 'store_edit_approved':
-        return { name: 'checkmark-circle', color: '#10b981', bg: '#dcfce7' };
-      case 'store_edit_rejected':
-        return { name: 'warning', color: '#ef4444', bg: '#fee2e2' };
-      case 'new_review':
-              return { name: 'star', color: '#f59e0b', bg: '#fef3c7' };
-      default:
-        return { name: 'notifications', color: '#6b7280', bg: '#f3f4f6' };
+      case 'new_order': return { name: 'receipt', color: '#10b981', bg: '#dcfce7' };
+      case 'order_cancelled_by_customer': return { name: 'close-circle', color: '#ef4444', bg: '#fee2e2' };
+      case 'store_edit_approved': return { name: 'checkmark-circle', color: '#10b981', bg: '#dcfce7' };
+      case 'store_edit_rejected': return { name: 'warning', color: '#ef4444', bg: '#fee2e2' };
+      case 'new_review': return { name: 'star', color: '#f59e0b', bg: '#fef3c7' };
+      default: return { name: 'notifications', color: '#6b7280', bg: '#f3f4f6' };
     }
   };
 
@@ -287,7 +283,7 @@ export default function StoreNotificationsScreen({ navigation }) {
                   <Ionicons name="receipt-outline" size={10} color="#6b7280" style={{ marginRight: 4 }} />
                   <Text style={styles.orderIdText}>#{formatOrderId(item.orderId, item.orderType)}</Text>
                 </View>
-                {item.orderType && (
+                {!!item.orderType && (
                   <View style={[styles.typeBadge, item.orderType === 'delivery' ? styles.badgeDelivery : styles.badgePickup]}>
                     <Ionicons name={item.orderType === 'delivery' ? 'bicycle' : 'storefront'} size={10} color={item.orderType === 'delivery' ? '#0284c7' : '#10b981'} style={{marginRight: 4}} />
                     <Text style={[styles.typeText, item.orderType === 'delivery' ? styles.textDelivery : styles.textPickup]}>
@@ -306,7 +302,7 @@ export default function StoreNotificationsScreen({ navigation }) {
 
   const DrawerContent = () => {
     return (
-      <ScrollView contentContainerStyle={styles.drawerScrollContent} showsVerticalScrollIndicator={false}>
+      <ScrollView contentContainerStyle={[styles.drawerScrollContent, { paddingTop: insets.top + 20, paddingBottom: insets.bottom + 40 }]} showsVerticalScrollIndicator={false}>
         <View style={styles.drawerContentPadding}>
 
           <View style={styles.drawerTopHeader}>
@@ -410,8 +406,7 @@ export default function StoreNotificationsScreen({ navigation }) {
     <View style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#fafafa" />
 
-      {/* Header สไตล์ Minimal */}
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: insets.top + 15 }]}>
         <TouchableOpacity onPress={toggleDrawer} style={styles.menuButton}>
           <Ionicons name="menu" size={26} color="#1f2937" />
         </TouchableOpacity>
@@ -421,7 +416,6 @@ export default function StoreNotificationsScreen({ navigation }) {
         </TouchableOpacity>
       </View>
 
-      {/* Filter Tabs สไตล์ Pill */}
       <View style={styles.filterContainer}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10, paddingRight: 20 }}>
             {['all', 'unread', 'read'].map(f => (
@@ -438,7 +432,6 @@ export default function StoreNotificationsScreen({ navigation }) {
         </ScrollView>
       </View>
 
-      {/* Notification List มี Shadow สวยๆ */}
       {filteredNotifications.length > 0 ? (
         <FlatList
           data={filteredNotifications}
@@ -455,8 +448,7 @@ export default function StoreNotificationsScreen({ navigation }) {
         </View>
       )}
 
-      {/* Bottom Nav สีขาวมินิมอล */}
-      <View style={styles.bottomNav}>
+      <View style={[styles.bottomNav, { paddingBottom: insets.bottom > 0 ? insets.bottom : 12 }]}>
         <TouchableOpacity style={styles.navItem} onPress={() => navigation.navigate('MyShop')}>
           <Ionicons name="storefront-outline" size={24} color="#9ca3af" />
           <Text style={styles.navLabel}>ร้านค้าของฉัน</Text>
@@ -482,7 +474,6 @@ export default function StoreNotificationsScreen({ navigation }) {
         </TouchableOpacity>
       </View>
 
-      {/* Drawer Overlay */}
       {isDrawerOpen && (
         <Modal transparent visible={isDrawerOpen} animationType="none">
           <View style={styles.drawerOverlay}>
@@ -501,43 +492,19 @@ export default function StoreNotificationsScreen({ navigation }) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#fafafa' },
-
-  // Header ขาวคลีน
-  header: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 24, paddingTop: Platform.OS === 'ios' ? 60 : 50, paddingBottom: 15,
-    backgroundColor: '#fafafa',
-  },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 24, paddingBottom: 15, backgroundColor: '#fafafa' },
   menuButton: { padding: 4 },
   headerTitle: { fontSize: 18, fontWeight: '700', color: '#1f2937', letterSpacing: 0.5 },
   headerAvatar: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#e5e7eb' },
-
-  // Filter
-  filterContainer: {
-    paddingHorizontal: 24, paddingBottom: 16,
-    backgroundColor: '#fafafa',
-  },
-  filterTab: {
-    paddingHorizontal: 20, paddingVertical: 10, borderRadius: 24,
-    backgroundColor: '#ffffff', borderWidth: 1, borderColor: '#e5e7eb',
-    shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.03, shadowRadius: 4, elevation: 1,
-  },
+  filterContainer: { paddingHorizontal: 24, paddingBottom: 16, backgroundColor: '#fafafa' },
+  filterTab: { paddingHorizontal: 20, paddingVertical: 10, borderRadius: 24, backgroundColor: '#ffffff', borderWidth: 1, borderColor: '#e5e7eb', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.03, shadowRadius: 4, elevation: 1 },
   filterTabActive: { backgroundColor: '#1f2937', borderColor: '#1f2937' },
   filterText: { fontSize: 13, color: '#6b7280', fontWeight: '600' },
   filterTextActive: { color: '#ffffff', fontWeight: '700' },
-
-  // List & Cards
   listContent: { paddingHorizontal: 24, paddingBottom: 100 },
-  notificationCard: {
-    flexDirection: 'row', backgroundColor: '#ffffff', padding: 16, borderRadius: 16,
-    marginBottom: 16,
-    shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 3,
-  },
+  notificationCard: { flexDirection: 'row', backgroundColor: '#ffffff', padding: 16, borderRadius: 16, marginBottom: 16, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 3 },
   notificationCardUnread: { backgroundColor: '#f0fdf4', borderWidth: 1, borderColor: '#dcfce7' },
-  iconContainer: {
-    width: 48, height: 48, borderRadius: 24,
-    alignItems: 'center', justifyContent: 'center', marginRight: 16, flexShrink: 0,
-  },
+  iconContainer: { width: 48, height: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center', marginRight: 16, flexShrink: 0 },
   notificationContent: { flex: 1 },
   notificationHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 6 },
   notificationTitle: { flex: 1, fontSize: 15, fontWeight: '700', color: '#4b5563' },
@@ -545,13 +512,8 @@ const styles = StyleSheet.create({
   notificationMessage: { fontSize: 13, color: '#6b7280', lineHeight: 22, marginBottom: 8 },
   reasonHighlightText: { fontSize: 13, color: '#ef4444', fontWeight: '600', marginTop: 2, marginBottom: 8 },
   notificationFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 },
-
   badgeRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  orderIdBadge: {
-    flexDirection: 'row', alignItems: 'center',
-    backgroundColor: '#f9fafb', paddingHorizontal: 8, paddingVertical: 4,
-    borderRadius: 8, borderWidth: 1, borderColor: '#e5e7eb',
-  },
+  orderIdBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#f9fafb', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, borderWidth: 1, borderColor: '#e5e7eb' },
   orderIdText: { fontSize: 11, fontWeight: '700', color: '#4b5563' },
   typeBadge: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, borderWidth: 1 },
   badgeDelivery: { backgroundColor: '#e0f2fe', borderColor: '#bae6fd' },
@@ -559,38 +521,19 @@ const styles = StyleSheet.create({
   typeText: { fontSize: 11, fontWeight: '700' },
   textDelivery: { color: '#0284c7' },
   textPickup: { color: '#10b981' },
-
   notificationTime: { fontSize: 12, color: '#9ca3af', fontWeight: '500' },
-
-  // Empty State
   emptyState: { flex: 1, alignItems: 'center', justifyContent: 'center', marginTop: 60 },
   emptyText: { fontSize: 15, fontWeight: '600', color: '#9ca3af', marginTop: 12 },
-
-  // Bottom Nav
-  bottomNav: {
-    flexDirection: 'row', backgroundColor: '#fff', paddingVertical: 12,
-    borderTopWidth: 1, borderTopColor: '#f3f4f6', position: 'absolute', bottom: 0, width: '100%',
-    shadowColor: '#000', shadowOffset: { width: 0, height: -2 }, shadowOpacity: 0.05, shadowRadius: 2, elevation: 8,
-  },
+  bottomNav: { flexDirection: 'row', backgroundColor: '#fff', paddingTop: 12, borderTopWidth: 1, borderTopColor: '#f3f4f6', position: 'absolute', bottom: 0, width: '100%', shadowColor: '#000', shadowOffset: { width: 0, height: -2 }, shadowOpacity: 0.05, shadowRadius: 2, elevation: 8 },
   navItem: { flex: 1, alignItems: 'center' },
   navLabel: { fontSize: 10, color: '#6b7280', marginTop: 4, fontWeight: '500' },
   navLabelActive: { fontSize: 10, color: '#1f2937', fontWeight: 'bold', marginTop: 4 },
-  notificationBadge: {
-    position: 'absolute', top: -4, right: -6, backgroundColor: '#ef4444',
-    borderRadius: 10, minWidth: 18, height: 18, justifyContent: 'center',
-    alignItems: 'center', borderWidth: 1, borderColor: '#fff', paddingHorizontal: 4, zIndex: 5,
-  },
+  notificationBadge: { position: 'absolute', top: -4, right: -6, backgroundColor: '#ef4444', borderRadius: 10, minWidth: 18, height: 18, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#fff', paddingHorizontal: 4, zIndex: 5 },
   notificationBadgeText: { color: '#fff', fontSize: 10, fontWeight: 'bold' },
-
-  // Drawer
   drawerOverlay: { flex: 1, flexDirection: 'row' },
   drawerBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)' },
-  drawerContainer: {
-    position: 'absolute', left: 0, top: 0, bottom: 0,
-    width: width * 0.85, backgroundColor: '#fff',
-    shadowColor: '#000', shadowOffset: { width: 4, height: 0 }, shadowOpacity: 0.2, shadowRadius: 10, elevation: 10,
-  },
-  drawerScrollContent: { flexGrow: 1, paddingTop: Platform.OS === 'ios' ? 50 : 30, paddingBottom: 40 },
+  drawerContainer: { position: 'absolute', left: 0, top: 0, bottom: 0, width: width * 0.85, backgroundColor: '#fff', shadowColor: '#000', shadowOffset: { width: 4, height: 0 }, shadowOpacity: 0.2, shadowRadius: 10, elevation: 10 },
+  drawerScrollContent: { flexGrow: 1 },
   drawerContentPadding: { paddingHorizontal: 20 },
   drawerTopHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
   logoContainer: { flexDirection: 'row', alignItems: 'center', gap: 10 },

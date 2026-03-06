@@ -6,13 +6,14 @@ import {
   TextInput,
   TouchableOpacity,
   ScrollView,
-  SafeAreaView,
   StatusBar,
   Modal,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function RegisterStoreStep1Screen({ navigation, route }) {
+  const insets = useSafeAreaInsets();
   const [storeName, setStoreName] = useState('');
   const [storeOwner, setStoreOwner] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
@@ -41,9 +42,7 @@ export default function RegisterStoreStep1Screen({ navigation, route }) {
 
   const [showBusinessHoursModal, setShowBusinessHoursModal] = useState(false);
 
-  // ฟังก์ชันจัดการการกรอกเวลาให้ถูกต้องตามเงื่อนไข (ชั่วโมง 0-23, นาที 0-5)
   const handleTimeInputChange = (dayId, type, text) => {
-    // ถ้าลบจนหมด ให้เซ็ตเป็นค่าว่างเพื่อให้ placeholder ทำงาน
     if (text === '') {
       setBusinessHours(prev => ({
         ...prev,
@@ -84,12 +83,10 @@ export default function RegisterStoreStep1Screen({ navigation, route }) {
 
     let [hours, minutes] = text.split(':');
 
-    // เติม 0 ข้างหน้าชั่วโมงถ้ามีหลักเดียว (เช่น "8" -> "08")
     if (hours && hours.length === 1) {
       hours = '0' + hours;
     }
 
-    // จัดการส่วนนาทีให้ครบ 2 หลัก
     if (!minutes) {
       minutes = '00';
     } else if (minutes.length === 1) {
@@ -118,13 +115,11 @@ export default function RegisterStoreStep1Screen({ navigation, route }) {
   };
 
   const handleNext = () => {
-    // 1. เช็คข้อมูลทั่วไป
     if (!storeName || !storeOwner || !phoneNumber || !selectedDelivery) {
       alert('กรุณากรอกข้อมูลร้านค้าให้ครบถ้วน');
       return;
     }
 
-    // 2. เช็คเวลาทำการ (เฉพาะวันที่เลือกเปิด)
     const days = Object.keys(businessHours);
     for (let day of days) {
       if (businessHours[day].isOpen) {
@@ -137,20 +132,18 @@ export default function RegisterStoreStep1Screen({ navigation, route }) {
       }
     }
 
-    // 3. เช็คว่าต้องเปิดอย่างน้อย 1 วัน
     const hasOpenDay = days.some(day => businessHours[day].isOpen);
     if (!hasOpenDay) {
       alert('กรุณาเลือกวันเปิดทำการอย่างน้อย 1 วัน');
       return;
     }
 
-    // ✅ ส่งค่า businessHours ที่เป็น String "HH:mm" ไปได้เลยโดยไม่ต้อง Map ใหม่
     navigation.navigate('RegisterStoreStep2', {
       step1Data: {
         storeName,
         storeOwner,
         phoneNumber,
-        businessHours, // ส่งก้อน Object นี้ไปได้เลย
+        businessHours,
         storeDetails,
         deliveryMethod: selectedDelivery
       }
@@ -166,16 +159,15 @@ export default function RegisterStoreStep1Screen({ navigation, route }) {
   );
 
   return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="dark-content" />
-      <View style={styles.header}>
+    <View style={styles.container}>
+      <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
+      <View style={[styles.header, { paddingTop: insets.top + 15 }]}>
         <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
           <Ionicons name="chevron-back" size={24} color="#333" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>สมัครเป็นร้านค้า</Text>
       </View>
 
-      {/* Progress Indicator */}
       <View style={styles.progressContainer}>
         <View style={styles.stepContainer}>
           <View style={[styles.stepCircle, styles.stepActive]}>
@@ -231,13 +223,12 @@ export default function RegisterStoreStep1Screen({ navigation, route }) {
         <View style={styles.spacer} />
       </ScrollView>
 
-      <View style={styles.footer}>
+      <View style={[styles.footer, { paddingBottom: insets.bottom > 0 ? insets.bottom : 20 }]}>
         <TouchableOpacity style={styles.nextButton} onPress={handleNext}>
           <Text style={styles.nextButtonText}>ถัดไป</Text>
         </TouchableOpacity>
       </View>
 
-      {/* Modal เวลาทำการที่นำปุ่มก๊อปปี้ออกแล้ว */}
       <Modal visible={showBusinessHoursModal} animationType="slide" transparent={true}>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
@@ -294,7 +285,7 @@ export default function RegisterStoreStep1Screen({ navigation, route }) {
                 </View>
               ))}
             </ScrollView>
-            <View style={styles.modalFooter}>
+            <View style={[styles.modalFooter, { paddingBottom: insets.bottom > 0 ? insets.bottom + 10 : 20 }]}>
               <TouchableOpacity style={styles.modalDoneButton} onPress={() => setShowBusinessHoursModal(false)}>
                 <Text style={styles.modalDoneButtonText}>เสร็จสิ้น</Text>
               </TouchableOpacity>
@@ -302,13 +293,13 @@ export default function RegisterStoreStep1Screen({ navigation, route }) {
           </View>
         </View>
       </Modal>
-    </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F5F5F5' },
-  header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 15, backgroundColor: '#FFFFFF', borderBottomWidth: 1, borderBottomColor: '#E0E0E0' },
+  header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingBottom: 15, backgroundColor: '#FFFFFF', borderBottomWidth: 1, borderBottomColor: '#E0E0E0' },
   backButton: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#F0F0F0', justifyContent: 'center', alignItems: 'center' },
   headerTitle: { fontSize: 18, fontWeight: '600', color: '#333', flex: 1, textAlign: 'center', marginRight: 40 },
   content: { flex: 1, paddingHorizontal: 20 },
@@ -325,7 +316,7 @@ const styles = StyleSheet.create({
   deliveryTitleSelected: { color: '#4CAF50' },
   deliverySubtitle: { fontSize: 12, color: '#666', marginTop: 5, textAlign: 'center' },
   spacer: { height: 20 },
-  footer: { padding: 20, backgroundColor: '#FFFFFF', borderTopWidth: 1, borderTopColor: '#E0E0E0' },
+  footer: { paddingHorizontal: 20, paddingTop: 20, backgroundColor: '#FFFFFF', borderTopWidth: 1, borderTopColor: '#E0E0E0' },
   nextButton: { backgroundColor: '#4CAF50', borderRadius: 12, paddingVertical: 15, alignItems: 'center' },
   nextButtonText: { fontSize: 16, fontWeight: '600', color: '#FFFFFF' },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
@@ -346,52 +337,15 @@ const styles = StyleSheet.create({
   dash: { marginHorizontal: 10, color: '#999' },
   closedContainer: { backgroundColor: '#F5F5F5', padding: 10, borderRadius: 8, alignItems: 'center' },
   closedText: { color: '#999', fontSize: 14, fontStyle: 'italic' },
-  modalFooter: { padding: 20, borderTopWidth: 1, borderTopColor: '#EEE' },
+  modalFooter: { paddingHorizontal: 20, paddingTop: 20, borderTopWidth: 1, borderTopColor: '#EEE' },
   modalDoneButton: { backgroundColor: '#4CAF50', borderRadius: 12, paddingVertical: 15, alignItems: 'center' },
   modalDoneButtonText: { color: '#FFF', fontWeight: '600' },
-  progressContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 30,
-    paddingVertical: 20,
-    backgroundColor: '#FFFFFF',
-  },
-  stepContainer: {
-    alignItems: 'center',
-  },
-  stepCircle: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#E0E0E0',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 5,
-  },
-  stepActive: {
-    backgroundColor: '#4CAF50',
-  },
-  stepText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#999',
-  },
-  stepTextActive: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#FFFFFF',
-  },
-  stepLabel: {
-    fontSize: 12,
-    color: '#666',
-    marginTop: 5,
-  },
-  progressLine: {
-    flex: 1,
-    height: 2,
-    backgroundColor: '#E0E0E0',
-    marginHorizontal: 10,
-    marginBottom: 20,
-  },
+  progressContainer: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 30, paddingVertical: 20, backgroundColor: '#FFFFFF' },
+  stepContainer: { alignItems: 'center' },
+  stepCircle: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#E0E0E0', justifyContent: 'center', alignItems: 'center', marginBottom: 5 },
+  stepActive: { backgroundColor: '#4CAF50' },
+  stepText: { fontSize: 16, fontWeight: '600', color: '#999' },
+  stepTextActive: { fontSize: 16, fontWeight: '600', color: '#FFFFFF' },
+  stepLabel: { fontSize: 12, color: '#666', marginTop: 5 },
+  progressLine: { flex: 1, height: 2, backgroundColor: '#E0E0E0', marginHorizontal: 10, marginBottom: 20 },
 });

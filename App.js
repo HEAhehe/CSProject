@@ -41,6 +41,7 @@ import StoreSettingsScreen from './screens/store/StoreSettingsScreen';
 import StoreProfileScreen from './screens/store/StoreProfileScreen';
 import StoreNotificationsScreen from './screens/store/StoreNotificationsScreen';
 import StoreNotificationDetailScreen from './screens/store/StoreNotificationDetailScreen.js'
+import StoreImpactHistoryScreen from './screens/store/StoreImpactHistoryScreen';
 
 // --- 📂 ADMIN Screens ---
 import AdminHomeScreen from './screens/admin/AdminHomeScreen';
@@ -108,6 +109,7 @@ export default function App() {
               <Stack.Screen name="RegisterStoreStep1" component={RegisterStoreStep1Screen} />
               <Stack.Screen name="RegisterStoreStep2" component={RegisterStoreStep2Screen} />
               <Stack.Screen name="RegisterStoreStep3" component={RegisterStoreStep3Screen} />
+              <Stack.Screen name="StoreImpactHistory" component={StoreImpactHistoryScreen} />
 
               {/* --- Admin Flow --- */}
               <Stack.Screen name="AdminHome" component={AdminHomeScreen} />

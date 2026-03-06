@@ -3,14 +3,12 @@ import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
   Platform, Image, Alert, StatusBar,
 } from 'react-native';
-// ✅ 1. Import
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { auth, db } from '../../firebase.config';
 import { doc, onSnapshot, collection, query, where } from 'firebase/firestore';
 
 export default function ProfileScreen({ navigation }) {
-  // ✅ 2. ดึงค่า Insets
   const insets = useSafeAreaInsets();
 
   const [userData, setUserData] = useState(null);
@@ -72,7 +70,6 @@ export default function ProfileScreen({ navigation }) {
   return (
     <View style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#fff" />
-      {/* ✅ 3. ดัน Header ลงมา */}
       <View style={[styles.header, { paddingTop: Math.max(insets.top, 15) }]}>
         <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
           <Ionicons name="arrow-back" size={24} color="#1f2937" />
@@ -95,10 +92,9 @@ export default function ProfileScreen({ navigation }) {
             <View style={[styles.statusDot, { backgroundColor: userData?.currentRole === 'store' ? '#f59e0b' : '#10b981' }]} />
           </View>
           <Text style={styles.profileName}>{userData?.username || 'User'}</Text>
-          <View style={styles.phoneBadge}>
-            <Ionicons name="call" size={14} color="#10b981" />
-            <Text style={styles.profilePhone}>{userData?.phoneNumber || userData?.phone || userData?.tel || 'ไม่ได้ระบุเบอร์โทรศัพท์'}</Text>
-          </View>
+
+          {/* 🟢 เปลี่ยนจากเบอร์โทรศัพท์ เป็นการแสดงอีเมลแทน */}
+          <Text style={styles.profileEmail}>{auth.currentUser?.email || 'ไม่ระบุอีเมล'}</Text>
 
           <View style={styles.impactContainer}>
             <TouchableOpacity style={styles.impactCard} activeOpacity={0.7} onPress={() => navigation.navigate('ImpactHistory', { initialTab: 'food' })}>
@@ -108,6 +104,12 @@ export default function ProfileScreen({ navigation }) {
                 <Text style={styles.unitText}> kg</Text>
               </View>
               <Text style={styles.impactLabel}>ลดขยะอาหาร</Text>
+
+              {/* 🟢 คำใบ้ให้กดได้ */}
+              <View style={styles.clickHintRow}>
+                <Text style={[styles.clickHintText, { color: '#10b981' }]}>ดูประวัติ</Text>
+                <Ionicons name="chevron-forward" size={10} color="#10b981" />
+              </View>
             </TouchableOpacity>
 
             <TouchableOpacity style={[styles.impactCard, { borderColor: '#dbeafe', backgroundColor: '#eff6ff' }]} activeOpacity={0.7} onPress={() => navigation.navigate('ImpactHistory', { initialTab: 'co2' })}>
@@ -117,6 +119,12 @@ export default function ProfileScreen({ navigation }) {
                 <Text style={[styles.unitText, { color: '#3b82f6' }]}> kg</Text>
               </View>
               <Text style={styles.impactLabel}>ลด CO2 สะสม</Text>
+
+              {/* 🟢 คำใบ้ให้กดได้ */}
+              <View style={styles.clickHintRow}>
+                <Text style={[styles.clickHintText, { color: '#3b82f6' }]}>ดูประวัติ</Text>
+                <Ionicons name="chevron-forward" size={10} color="#3b82f6" />
+              </View>
             </TouchableOpacity>
           </View>
         </View>
@@ -137,12 +145,11 @@ export default function ProfileScreen({ navigation }) {
           })}
         </View>
 
-        {/* ✅ 4. ดันปุ่มล่างให้พ้นขอบจอเวลารูดลงสุด */}
         <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
           <Ionicons name="log-out-outline" size={22} color="#ef4444" />
           <Text style={styles.logoutText}>ออกจากระบบ</Text>
         </TouchableOpacity>
-        <Text style={[styles.versionText, { paddingBottom: Math.max(insets.bottom, 10) }]}>เวอร์ชัน 1.0.0</Text>
+        <Text style={[styles.versionText, { paddingBottom: Math.max(insets.bottom, 10) }]}>เวอร์ชัน 0.0.1</Text>
       </ScrollView>
     </View>
   );
@@ -150,7 +157,6 @@ export default function ProfileScreen({ navigation }) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f9fafb' },
-  // 🟢 เอา paddingTop ออก
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingBottom: 15, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#f3f4f6' },
   backButton: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#f3f4f6', alignItems: 'center', justifyContent: 'center' },
   headerTitle: { fontSize: 18, fontWeight: '600', color: '#1f2937' },
@@ -162,15 +168,23 @@ const styles = StyleSheet.create({
   profilePlaceholder: { width: 100, height: 100, borderRadius: 50, backgroundColor: '#f0fdf4', alignItems: 'center', justifyContent: 'center', borderWidth: 3, borderColor: '#10b981' },
   statusDot: { position: 'absolute', bottom: 5, right: 5, width: 20, height: 20, borderRadius: 10, borderWidth: 3, borderColor: '#fff' },
   profileName: { fontSize: 22, fontWeight: 'bold', color: '#1f2937', marginBottom: 6 },
-  phoneBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#ecfdf5', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, marginBottom: 25, gap: 6, borderWidth: 1, borderColor: '#dcfce7' },
-  profilePhone: { fontSize: 14, color: '#10b981', fontWeight: '600', letterSpacing: 0.5 },
+
+  // 🟢 สไตล์สำหรับอีเมล
+  profileEmail: { fontSize: 14, color: '#6b7280', marginBottom: 25 },
+
   impactContainer: { flexDirection: 'row', paddingHorizontal: 20, width: '100%', justifyContent: 'center', gap: 15 },
-  impactCard: { flex: 1, maxWidth: 170, backgroundColor: '#f0fdf4', borderRadius: 20, paddingVertical: 20, paddingHorizontal: 10, alignItems: 'center', borderWidth: 1, borderColor: '#dcfce7', elevation: 2, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 4 },
+  // 🟢 ปรับ padding เล็กน้อยเพื่อให้การ์ดดูสมดุลเมื่อใส่คำใบ้
+  impactCard: { flex: 1, maxWidth: 170, backgroundColor: '#f0fdf4', borderRadius: 20, paddingTop: 20, paddingBottom: 12, paddingHorizontal: 10, alignItems: 'center', borderWidth: 1, borderColor: '#dcfce7', elevation: 2, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 4 },
   impactIconBg: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#dcfce7', alignItems: 'center', justifyContent: 'center', marginBottom: 10 },
   valueRow: { flexDirection: 'row', alignItems: 'baseline' },
   impactValue: { fontSize: 22, fontWeight: 'bold', color: '#10b981' },
   unitText: { fontSize: 14, fontWeight: '600', color: '#10b981' },
   impactLabel: { fontSize: 12, color: '#6b7280', marginTop: 4, fontWeight: '500' },
+
+  // 🟢 สไตล์คำใบ้กดดูประวัติ
+  clickHintRow: { flexDirection: 'row', alignItems: 'center', marginTop: 12, gap: 2, backgroundColor: '#ffffff90', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 10 },
+  clickHintText: { fontSize: 10, fontWeight: '700' },
+
   menuSection: { backgroundColor: '#fff', paddingVertical: 10, marginBottom: 15 },
   menuItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 15, paddingHorizontal: 20 },
   menuIcon: { width: 45, height: 45, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginRight: 15 },

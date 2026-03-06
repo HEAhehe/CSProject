@@ -5,7 +5,6 @@ import {
   StyleSheet,
   TouchableOpacity,
   ScrollView,
-  SafeAreaView,
   StatusBar,
   Alert,
   Image,
@@ -15,8 +14,8 @@ import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { db, auth } from '../../firebase.config';
 import { doc, setDoc, addDoc, collection } from 'firebase/firestore';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-// เพิ่มข้อมูลวันสำหรับสรุปเวลาทำการ
 const daysOfWeek = [
   { id: 'mon', label: 'จันทร์' },
   { id: 'tue', label: 'อังคาร' },
@@ -28,6 +27,7 @@ const daysOfWeek = [
 ];
 
 export default function RegisterStoreStep3Screen({ navigation, route }) {
+  const insets = useSafeAreaInsets();
   const { step1Data, step2Data } = route.params || {};
   const [selectedImage, setSelectedImage] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -55,12 +55,11 @@ export default function RegisterStoreStep3Screen({ navigation, route }) {
           mediaTypes: ImagePicker.MediaTypeOptions.Images,
           allowsEditing: true,
           aspect: [16, 9],
-          quality: 0.2, // ✅ ปรับลดขนาดลงมานิดนึงเพื่อไม่ให้ Base64 ใหญ่เกินไป
-          base64: true, // ✅ เพิ่มคำสั่งนี้ เพื่อแปลงรูปเป็นข้อความ
+          quality: 0.2,
+          base64: true,
         });
 
         if (!result.canceled && result.assets[0]) {
-          // ✅ นำข้อมูล Base64 มาใช้งานแทน path ชั่วคราว
           setSelectedImage(`data:image/jpeg;base64,${result.assets[0].base64}`);
           setErrorMessage('');
         }
@@ -89,7 +88,6 @@ export default function RegisterStoreStep3Screen({ navigation, route }) {
         return;
       }
 
-      // 🕒 สรุปเวลาทำการเพื่อใช้แสดงผลในเมนูสรุปของ Admin
       const bh = step1Data?.businessHours || {};
       const formattedHoursSummary = Object.keys(bh)
         .filter(day => bh[day].isOpen)
@@ -99,13 +97,11 @@ export default function RegisterStoreStep3Screen({ navigation, route }) {
         })
         .join('\n');
 
-      // ======== 1. สร้างข้อมูลร้านค้าใน stores collection ========
       const storeData = {
         userId: user.uid,
         storeName: step1Data?.storeName || '',
         storeOwner: step1Data?.storeOwner || '',
         phoneNumber: step1Data?.phoneNumber || '',
-        // ✅ บันทึกข้อมูลเวลาที่เป็น Object แยกรายวันลงไปตรงๆ
         businessHours: step1Data?.businessHours || {},
         storeDetails: step1Data?.storeDetails || '',
         deliveryMethod: step1Data?.deliveryMethod || 'pickup',
@@ -118,12 +114,11 @@ export default function RegisterStoreStep3Screen({ navigation, route }) {
         createdAt: new Date().toISOString(),
         rating: 0,
         totalOrders: 0,
-        isActive: false, // บันทึกเป็น false ก่อนรอ Admin อนุมัติ
+        isActive: false,
       };
 
       await setDoc(doc(db, 'stores', user.uid), storeData);
 
-      // ======== 2. สร้างคำขออนุมัติใน approval_requests collection ========
       const approvalRequest = {
         type: 'store_registration',
         userId: user.uid,
@@ -136,7 +131,7 @@ export default function RegisterStoreStep3Screen({ navigation, route }) {
           'ชื่อร้าน': step1Data?.storeName || '',
           'เจ้าของร้าน': step1Data?.storeOwner || '',
           'เบอร์โทร': step1Data?.phoneNumber || '',
-          'เวลาทำการ': formattedHoursSummary, // ✅ แสดงผลเป็นสรุปรายวัน
+          'เวลาทำการ': formattedHoursSummary,
           'การจัดส่ง': step1Data?.deliveryMethod === 'pickup' ? 'รับที่ร้าน' :
                        step1Data?.deliveryMethod === 'delivery' ? 'เดลิเวอรี่' : 'ทั้งสองแบบ',
           'ที่อยู่': step2Data?.location || '',
@@ -147,7 +142,6 @@ export default function RegisterStoreStep3Screen({ navigation, route }) {
 
       await addDoc(collection(db, 'approval_requests'), approvalRequest);
 
-      // ======== 3. อัปเดต user profile ========
       await setDoc(doc(db, 'users', user.uid), {
         hasStorePending: true,
         storeId: user.uid,
@@ -166,21 +160,16 @@ export default function RegisterStoreStep3Screen({ navigation, route }) {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="dark-content" />
-      
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity 
-          style={styles.backButton}
-          onPress={handleBack}
-        >
+    <View style={styles.container}>
+      <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
+
+      <View style={[styles.header, { paddingTop: insets.top + 15 }]}>
+        <TouchableOpacity style={styles.backButton} onPress={handleBack}>
           <Ionicons name="chevron-back" size={24} color="#333" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>สมัครเป็นร้านค้า</Text>
       </View>
 
-      {/* Progress Indicator */}
       <View style={styles.progressContainer}>
         <View style={styles.stepContainer}>
           <View style={[styles.stepCircle, styles.stepActive]}>
@@ -211,65 +200,42 @@ export default function RegisterStoreStep3Screen({ navigation, route }) {
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
         <Text style={styles.sectionTitle}>รูปร้านค้า</Text>
 
-        {/* Image Preview */}
         {selectedImage ? (
           <View style={styles.imagePreviewContainer}>
-            <Image 
-              source={{ uri: selectedImage }} 
-              style={styles.imagePreview}
-              resizeMode="cover"
-            />
-            <TouchableOpacity 
-              style={styles.changeImageButton}
-              onPress={handleSelectImage}
-            >
+            <Image source={{ uri: selectedImage }} style={styles.imagePreview} resizeMode="cover" />
+            <TouchableOpacity style={styles.changeImageButton} onPress={handleSelectImage}>
               <Ionicons name="camera" size={20} color="#FFFFFF" />
               <Text style={styles.changeImageText}>เปลี่ยนรูป</Text>
             </TouchableOpacity>
           </View>
         ) : (
-          <TouchableOpacity 
-            style={styles.imagePickerContainer}
-            onPress={handleSelectImage}
-          >
+          <TouchableOpacity style={styles.imagePickerContainer} onPress={handleSelectImage}>
             <Ionicons name="camera-outline" size={48} color="#999" />
             <Text style={styles.imagePickerTitle}>รูปหน้าร้าน</Text>
-            <Text style={styles.imagePickerSubtitle}>
-              อัปโหลดรูปภาพที่ชัดเจน
-            </Text>
+            <Text style={styles.imagePickerSubtitle}>อัปโหลดรูปภาพที่ชัดเจน</Text>
             <View style={styles.selectButton}>
               <Text style={styles.selectButtonText}>เลือกรูปภาพ</Text>
             </View>
           </TouchableOpacity>
         )}
 
-        {/* Error Message */}
         {errorMessage ? (
           <View style={styles.errorContainer}>
-            <Text style={styles.errorText}>
-              หมายเหตุ: {errorMessage}
-            </Text>
+            <Text style={styles.errorText}>หมายเหตุ: {errorMessage}</Text>
           </View>
         ) : null}
 
         <View style={styles.spacer} />
       </ScrollView>
 
-      {/* Footer Buttons */}
-      <View style={styles.footer}>
-        <TouchableOpacity 
-          style={styles.backFooterButton}
-          onPress={handleBack}
-          disabled={loading}
-        >
+      <View style={[styles.footer, { paddingBottom: insets.bottom > 0 ? insets.bottom : 15 }]}>
+        <TouchableOpacity style={styles.backFooterButton} onPress={handleBack} disabled={loading}>
           <Text style={styles.backFooterButtonText}>ย้อนกลับ</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity 
+        <TouchableOpacity
           style={[styles.submitButton, loading && styles.submitButtonDisabled]}
-          onPress={handleSubmit}
-          disabled={loading}
-        >
+          onPress={handleSubmit} disabled={loading}>
           {loading ? (
             <ActivityIndicator color="#FFFFFF" />
           ) : (
@@ -277,211 +243,42 @@ export default function RegisterStoreStep3Screen({ navigation, route }) {
           )}
         </TouchableOpacity>
       </View>
-    </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#F5F5F5',
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 15,
-    backgroundColor: '#FFFFFF',
-    borderBottomWidth: 1,
-    borderBottomColor: '#E0E0E0',
-  },
-  backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#F0F0F0',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#333',
-    flex: 1,
-    textAlign: 'center',
-    marginRight: 40,
-  },
-  progressContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 30,
-    paddingVertical: 20,
-    backgroundColor: '#FFFFFF',
-  },
-  stepContainer: {
-    alignItems: 'center',
-  },
-  stepCircle: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#E0E0E0',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 5,
-  },
-  stepActive: {
-    backgroundColor: '#4CAF50',
-  },
-  stepText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#999',
-  },
-  stepTextActive: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#FFFFFF',
-  },
-  stepLabel: {
-    fontSize: 12,
-    color: '#666',
-    marginTop: 5,
-  },
-  progressLine: {
-    flex: 1,
-    height: 2,
-    backgroundColor: '#E0E0E0',
-    marginHorizontal: 10,
-    marginBottom: 20,
-  },
-  progressLineActive: {
-    backgroundColor: '#4CAF50',
-  },
-  content: {
-    flex: 1,
-    paddingHorizontal: 20,
-  },
-  sectionTitle: {
-    fontSize: 20,
-    fontWeight: '600',
-    color: '#333',
-    marginTop: 20,
-    marginBottom: 20,
-    textAlign: 'center',
-  },
-  imagePickerContainer: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    padding: 40,
-    marginTop: 10,
-    borderWidth: 2,
-    borderColor: '#E0E0E0',
-    borderStyle: 'dashed',
-    alignItems: 'center',
-  },
-  imagePickerTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#333',
-    marginTop: 15,
-  },
-  imagePickerSubtitle: {
-    fontSize: 14,
-    color: '#666',
-    marginTop: 5,
-    marginBottom: 20,
-  },
-  selectButton: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 8,
-    paddingVertical: 10,
-    paddingHorizontal: 30,
-    borderWidth: 1.5,
-    borderColor: '#4CAF50',
-  },
-  selectButtonText: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#4CAF50',
-  },
-  imagePreviewContainer: {
-    marginTop: 10,
-    borderRadius: 12,
-    overflow: 'hidden',
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#E0E0E0',
-  },
-  imagePreview: {
-    width: '100%',
-    height: 250,
-    backgroundColor: '#F0F0F0',
-  },
-  changeImageButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#4CAF50',
-    paddingVertical: 12,
-    gap: 8,
-  },
-  changeImageText: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#FFFFFF',
-  },
-  errorContainer: {
-    backgroundColor: '#FFE5E5',
-    borderRadius: 8,
-    padding: 12,
-    marginTop: 15,
-    borderWidth: 1,
-    borderColor: '#FF6B6B',
-  },
-  errorText: {
-    fontSize: 13,
-    color: '#D32F2F',
-    textAlign: 'center',
-  },
-  spacer: {
-    height: 40,
-  },
-  footer: {
-    flexDirection: 'row',
-    paddingHorizontal: 20,
-    paddingVertical: 15,
-    backgroundColor: '#FFFFFF',
-    borderTopWidth: 1,
-    borderTopColor: '#E0E0E0',
-    gap: 10,
-  },
-  backFooterButton: {
-    flex: 1,
-    backgroundColor: '#F0F0F0',
-    borderRadius: 12,
-    paddingVertical: 15,
-    alignItems: 'center',
-  },
-  backFooterButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#666',
-  },
-  submitButton: {
-    flex: 1,
-    backgroundColor: '#4CAF50',
-    borderRadius: 12,
-    paddingVertical: 15,
-    alignItems: 'center',
-  },
-  submitButtonDisabled: {
-    backgroundColor: '#A5D6A7',
-  },
-  submitButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#FFFFFF',
-  },
+  container: { flex: 1, backgroundColor: '#F5F5F5' },
+  header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingBottom: 15, backgroundColor: '#FFFFFF', borderBottomWidth: 1, borderBottomColor: '#E0E0E0' },
+  backButton: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#F0F0F0', justifyContent: 'center', alignItems: 'center' },
+  headerTitle: { fontSize: 18, fontWeight: '600', color: '#333', flex: 1, textAlign: 'center', marginRight: 40 },
+  progressContainer: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 30, paddingVertical: 20, backgroundColor: '#FFFFFF' },
+  stepContainer: { alignItems: 'center' },
+  stepCircle: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#E0E0E0', justifyContent: 'center', alignItems: 'center', marginBottom: 5 },
+  stepActive: { backgroundColor: '#4CAF50' },
+  stepText: { fontSize: 16, fontWeight: '600', color: '#999' },
+  stepTextActive: { fontSize: 16, fontWeight: '600', color: '#FFFFFF' },
+  stepLabel: { fontSize: 12, color: '#666', marginTop: 5 },
+  progressLine: { flex: 1, height: 2, backgroundColor: '#E0E0E0', marginHorizontal: 10, marginBottom: 20 },
+  progressLineActive: { backgroundColor: '#4CAF50' },
+  content: { flex: 1, paddingHorizontal: 20 },
+  sectionTitle: { fontSize: 20, fontWeight: '600', color: '#333', marginTop: 20, marginBottom: 20, textAlign: 'center' },
+  imagePickerContainer: { backgroundColor: '#FFFFFF', borderRadius: 12, padding: 40, marginTop: 10, borderWidth: 2, borderColor: '#E0E0E0', borderStyle: 'dashed', alignItems: 'center' },
+  imagePickerTitle: { fontSize: 18, fontWeight: '600', color: '#333', marginTop: 15 },
+  imagePickerSubtitle: { fontSize: 14, color: '#666', marginTop: 5, marginBottom: 20 },
+  selectButton: { backgroundColor: '#FFFFFF', borderRadius: 8, paddingVertical: 10, paddingHorizontal: 30, borderWidth: 1.5, borderColor: '#4CAF50' },
+  selectButtonText: { fontSize: 15, fontWeight: '600', color: '#4CAF50' },
+  imagePreviewContainer: { marginTop: 10, borderRadius: 12, overflow: 'hidden', backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#E0E0E0' },
+  imagePreview: { width: '100%', height: 250, backgroundColor: '#F0F0F0' },
+  changeImageButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: '#4CAF50', paddingVertical: 12, gap: 8 },
+  changeImageText: { fontSize: 15, fontWeight: '600', color: '#FFFFFF' },
+  errorContainer: { backgroundColor: '#FFE5E5', borderRadius: 8, padding: 12, marginTop: 15, borderWidth: 1, borderColor: '#FF6B6B' },
+  errorText: { fontSize: 13, color: '#D32F2F', textAlign: 'center' },
+  spacer: { height: 40 },
+  footer: { flexDirection: 'row', paddingHorizontal: 20, paddingTop: 15, backgroundColor: '#FFFFFF', borderTopWidth: 1, borderTopColor: '#E0E0E0', gap: 10 },
+  backFooterButton: { flex: 1, backgroundColor: '#F0F0F0', borderRadius: 12, paddingVertical: 15, alignItems: 'center' },
+  backFooterButtonText: { fontSize: 16, fontWeight: '600', color: '#666' },
+  submitButton: { flex: 1, backgroundColor: '#4CAF50', borderRadius: 12, paddingVertical: 15, alignItems: 'center' },
+  submitButtonDisabled: { backgroundColor: '#A5D6A7' },
+  submitButtonText: { fontSize: 16, fontWeight: '600', color: '#FFFFFF' },
 });

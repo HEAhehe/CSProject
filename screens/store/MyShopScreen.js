@@ -8,6 +8,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { auth, db } from '../../firebase.config';
 import { collection, getDocs, query, where, deleteDoc, doc, updateDoc, getDoc, writeBatch, onSnapshot } from 'firebase/firestore';
 import { useFocusEffect } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const { width } = Dimensions.get('window');
 
@@ -23,6 +24,7 @@ const CATEGORY_OPTIONS = [
 ];
 
 export default function MyShopScreen({ navigation }) {
+  const insets = useSafeAreaInsets();
   const [storeData, setStoreData] = useState(null);
   const [activeListings, setActiveListings] = useState([]);
   const [soldListings, setSoldListings] = useState([]);
@@ -233,16 +235,13 @@ export default function MyShopScreen({ navigation }) {
 
     return (
       <View key={item.id} style={styles.listingCard}>
-
-        {/* รูปสินค้า */}
         <View style={styles.imageWrap}>
           {item.imageUrl ? (
             <Image source={{ uri: item.imageUrl }} style={styles.cardImage} />
           ) : (
             <View style={styles.noImage}><Ionicons name="image-outline" size={36} color="#d1d5db" /></View>
           )}
-          {/* Overlay gradient ด้านล่างรูป */}
-          {item.imageUrl && <View style={styles.imageOverlay} />}
+          {!!item.imageUrl && <View style={styles.imageOverlay} />}
 
           {discountPercent > 0 && (
             <View style={styles.discountTag}>
@@ -250,7 +249,6 @@ export default function MyShopScreen({ navigation }) {
             </View>
           )}
 
-          {/* Eco impact bar ซ้อนบนรูป ด้านล่าง — แสดงเฉพาะที่มีข้อมูล */}
           {hasImpact && (
             <View style={styles.ecoOverlayBar}>
               {item.foodWasteSaved > 0 && (
@@ -276,7 +274,6 @@ export default function MyShopScreen({ navigation }) {
           )}
         </View>
 
-        {/* รายละเอียด */}
         <View style={styles.cardDetails}>
           <Text style={styles.cardTitle} numberOfLines={1}>{item.name}</Text>
 
@@ -286,7 +283,7 @@ export default function MyShopScreen({ navigation }) {
           </View>
 
           <View style={styles.tagsContainer}>
-            {item.category && (
+            {!!item.category && (
               <View style={[styles.tag, styles.tagCategory]}>
                 <Ionicons name={CATEGORY_OPTIONS.find(c => c.label === item.category)?.icon || 'pricetag-outline'} size={12} color="#10b981" />
                 <Text style={[styles.tagText, { color: '#065f46' }]}>{item.category}</Text>
@@ -296,7 +293,7 @@ export default function MyShopScreen({ navigation }) {
               <Ionicons name="cube-outline" size={12} color="#6b7280" />
               <Text style={styles.tagText}>{item.quantity} {item.unit}</Text>
             </View>
-            {item.expiryDate && (
+            {!!item.expiryDate && (
               <View style={styles.tag}>
                 <Ionicons name="time-outline" size={12} color="#6b7280" />
                 <Text style={styles.tagText}>{formatExpiryDate(item.expiryDate)?.split(' ')[0]}</Text>
@@ -304,7 +301,6 @@ export default function MyShopScreen({ navigation }) {
             )}
           </View>
 
-          {/* Impact detail row ใต้ tags */}
           {hasImpact && (
             <View style={styles.impactDetailRow}>
               {item.foodWasteSaved > 0 && (
@@ -333,7 +329,6 @@ export default function MyShopScreen({ navigation }) {
           )}
         </View>
 
-        {/* ปุ่มแก้ไข / ลบ */}
         <View style={styles.actionContainer}>
           <TouchableOpacity style={[styles.actionBtn, styles.editBtn]} onPress={() => navigation.navigate('CreateListing', { editItem: item })}>
             <Ionicons name="pencil-outline" size={15} color="#4b5563" />
@@ -411,7 +406,7 @@ export default function MyShopScreen({ navigation }) {
 
   const DrawerContent = () => {
     return (
-      <ScrollView contentContainerStyle={styles.drawerScrollContent} showsVerticalScrollIndicator={false}>
+      <ScrollView contentContainerStyle={[styles.drawerScrollContent, { paddingTop: insets.top + 20, paddingBottom: insets.bottom + 40 }]} showsVerticalScrollIndicator={false}>
         <View style={styles.drawerContentPadding}>
 
           <View style={styles.drawerTopHeader}>
@@ -515,8 +510,7 @@ export default function MyShopScreen({ navigation }) {
     <View style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
 
-      {/* Header - เสริมเงาด้านล่าง */}
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: insets.top + 15 }]}>
         <TouchableOpacity onPress={toggleDrawer} style={styles.menuButton}>
           <Ionicons name="menu" size={26} color="#1f2937" />
         </TouchableOpacity>
@@ -532,8 +526,6 @@ export default function MyShopScreen({ navigation }) {
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor="#10b981" />}
       >
-
-        {/* ชื่อร้านค้าและสถานะ */}
         <View style={styles.storeBanner}>
           <Text style={styles.greeting}>สวัสดี, 👋</Text>
           <View style={styles.storeNameRow}>
@@ -545,7 +537,6 @@ export default function MyShopScreen({ navigation }) {
           </View>
         </View>
 
-        {/* สถิติแบบการ์ด - เสริมเงาให้มีมิติ */}
         <View style={styles.statsRow}>
           <View style={styles.statCard}>
             <Ionicons name="albums-outline" size={20} color="#10b981" style={styles.statIcon} />
@@ -564,26 +555,34 @@ export default function MyShopScreen({ navigation }) {
           </View>
         </View>
 
-        {/* 🌿 Eco Impact */}
+        {/* 🟢 แก้ให้การ์ด Eco กดได้ เพื่อนำไปหน้า Impact History */}
         <View style={styles.ecoCard}>
           <View style={styles.ecoRow}>
-            <View style={styles.ecoItem}>
+            <TouchableOpacity
+              style={styles.ecoItem}
+              activeOpacity={0.7}
+              onPress={() => navigation.navigate('StoreImpactHistory', { initialTab: 'food' })}
+            >
               <Ionicons name="leaf" size={15} color="#10b981" />
               <Text style={styles.ecoNum}>
                 {storeData?.totalFoodSaved ? Number(storeData.totalFoodSaved).toFixed(1) : '0.0'}{' '}
                 <Text style={styles.ecoUnit}>kg</Text>
               </Text>
               <Text style={styles.ecoLabel}>ลดขยะอาหาร</Text>
-            </View>
+            </TouchableOpacity>
             <View style={styles.ecoSep} />
-            <View style={styles.ecoItem}>
+            <TouchableOpacity
+              style={styles.ecoItem}
+              activeOpacity={0.7}
+              onPress={() => navigation.navigate('StoreImpactHistory', { initialTab: 'co2' })}
+            >
               <Ionicons name="cloud-done" size={15} color="#6366f1" />
               <Text style={[styles.ecoNum, { color: '#6366f1' }]}>
                 {storeData?.totalCO2Saved ? Number(storeData.totalCO2Saved).toFixed(1) : '0.0'}{' '}
                 <Text style={styles.ecoUnit}>kg</Text>
               </Text>
               <Text style={styles.ecoLabel}>ลด CO₂ สะสม</Text>
-            </View>
+            </TouchableOpacity>
           </View>
         </View>
 
@@ -591,7 +590,6 @@ export default function MyShopScreen({ navigation }) {
           <Text style={styles.sectionTitle}>สินค้าที่ลงขาย</Text>
         </View>
 
-        {/* รายการสินค้า - เสริมเงาให้เหมือนหน้าออเดอร์ */}
         <View style={styles.listContainer}>
             {loading ? (
               <ActivityIndicator size="small" color="#10b981" style={{ marginTop: 40 }} />
@@ -607,18 +605,18 @@ export default function MyShopScreen({ navigation }) {
               </View>
             )}
         </View>
-
       </ScrollView>
 
-      {/* Floating Action Button - ปรับเงาให้กลมกลืน */}
       {storeData?.status === 'approved' && (
-        <TouchableOpacity style={styles.fab} onPress={() => navigation.navigate('CreateListing')}>
+        <TouchableOpacity
+          style={[styles.fab, { bottom: insets.bottom + 85 }]}
+          onPress={() => navigation.navigate('CreateListing')}
+        >
           <Ionicons name="add" size={30} color="#fff" />
         </TouchableOpacity>
       )}
 
-      {/* Bottom Nav - เสริมเงาด้านบน */}
-      <View style={styles.bottomNav}>
+      <View style={[styles.bottomNav, { paddingBottom: insets.bottom > 0 ? insets.bottom : 12 }]}>
         <TouchableOpacity style={styles.navItem}>
           <Ionicons name="storefront" size={24} color="#1f2937" />
           <Text style={styles.navLabelActive}>ร้านค้า</Text>
@@ -644,7 +642,6 @@ export default function MyShopScreen({ navigation }) {
         </TouchableOpacity>
       </View>
 
-      {/* Drawer */}
       {isDrawerOpen && (
         <Modal transparent visible={isDrawerOpen} animationType="none">
           <View style={styles.drawerOverlay}>
@@ -662,15 +659,12 @@ export default function MyShopScreen({ navigation }) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#fafafa' }, // พื้นหลังเทาอ่อนมากๆ เพื่อให้การ์ดขาวเด่น
+  container: { flex: 1, backgroundColor: '#fafafa' },
   content: { flex: 1 },
-
-  // Header 🟢 เสริมเงา
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 15, paddingTop: Platform.OS === 'ios' ? 60 : 50, paddingBottom: 15,
+    paddingHorizontal: 15, paddingBottom: 15,
     backgroundColor: '#ffffff',
-    // Shadow สำหรับมิติ
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.1,
@@ -682,8 +676,6 @@ const styles = StyleSheet.create({
   menuButton: { padding: 4 },
   headerTitle: { fontSize: 16, fontWeight: '700', color: '#1f2937' },
   avatar: { width: 34, height: 34, borderRadius: 17, backgroundColor: '#f3f4f6' },
-
-  // Store Banner
   storeBanner: { padding: 20 },
   greeting: { fontSize: 13, color: '#6b7280' },
   storeNameRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 4 },
@@ -693,186 +685,77 @@ const styles = StyleSheet.create({
   statusClosed: { backgroundColor: '#fee2e2' },
   statusDot: { width: 6, height: 6, borderRadius: 3, marginRight: 5 },
   statusText: { fontSize: 12, fontWeight: '700' },
-
-  // Stats - 🟡 เสริมเงาให้มิติ
   statsRow: { flexDirection: 'row', gap: 10, paddingHorizontal: 15, marginBottom: 20 },
   statCard: {
     flex: 1, backgroundColor: '#ffffff', padding: 15, borderRadius: 12,
-    borderWidth: 1, borderColor: '#f3f4f6',
-    alignItems: 'center',
-    // Shadow ให้การ์ดลอยขึ้น
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 4,
-    elevation: 3,
+    borderWidth: 1, borderColor: '#f3f4f6', alignItems: 'center',
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.08, shadowRadius: 4, elevation: 3,
   },
   statIcon: { marginBottom: 8 },
   statValue: { fontSize: 18, fontWeight: '700', color: '#1f2937' },
   statLabel: { fontSize: 11, color: '#9ca3af', marginTop: 2 },
-
-  // Eco Impact — minimal
-  ecoCard: {
-    marginHorizontal: 15,
-    marginBottom: 20,
-    borderRadius: 14,
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
-  },
-  ecoRow: {
-    flexDirection: 'row',
-    paddingVertical: 16,
-    paddingHorizontal: 8,
-  },
-  ecoItem: {
-    flex: 1,
-    alignItems: 'center',
-    gap: 4,
-  },
-  ecoSep: {
-    width: 1,
-    backgroundColor: '#f3f4f6',
-    marginVertical: 4,
-  },
-  ecoNum: {
-    fontSize: 22,
-    fontWeight: '700',
-    color: '#10b981',
-    letterSpacing: -0.5,
-  },
-  ecoUnit: {
-    fontSize: 13,
-    fontWeight: '500',
-  },
-  ecoLabel: {
-    fontSize: 11,
-    color: '#9ca3af',
-    fontWeight: '400',
-  },
-
+  ecoCard: { marginHorizontal: 15, marginBottom: 20, borderRadius: 14, backgroundColor: '#fff', borderWidth: 1, borderColor: '#e5e7eb' },
+  ecoRow: { flexDirection: 'row', paddingVertical: 16, paddingHorizontal: 8 },
+  ecoItem: { flex: 1, alignItems: 'center', gap: 4 }, // 🟢 gap นี้ช่วยรองรับ TouchableOpacity แบบเดิมได้เลย
+  ecoSep: { width: 1, backgroundColor: '#f3f4f6', marginVertical: 4 },
+  ecoNum: { fontSize: 22, fontWeight: '700', color: '#10b981', letterSpacing: -0.5 },
+  ecoUnit: { fontSize: 13, fontWeight: '500' },
+  ecoLabel: { fontSize: 11, color: '#9ca3af', fontWeight: '400' },
   sectionHeader: { paddingHorizontal: 20, marginBottom: 15 },
   sectionTitle: { fontSize: 16, fontWeight: '700', color: '#1f2937' },
-
-  // รายการสินค้า - 🔴 ปรับโครงสร้างและเสริมเงาให้เหมือนหน้าออเดอร์
   listContainer: { paddingHorizontal: 15 },
   listingCard: {
     backgroundColor: '#ffffff', borderRadius: 12, marginBottom: 15,
-    borderWidth: 1, borderColor: '#f3f4f6',
-    overflow: 'hidden',
-    // Shadow เหมือนหน้าออเดอร์
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 6,
-    elevation: 4,
+    borderWidth: 1, borderColor: '#f3f4f6', overflow: 'hidden',
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 6, elevation: 4,
   },
   imageWrap: { height: 150, backgroundColor: '#f3f4f6', position: 'relative', overflow: 'hidden' },
   cardImage: { width: '100%', height: '100%' },
-  imageOverlay: {
-    position: 'absolute', bottom: 0, left: 0, right: 0, height: 60,
-    backgroundColor: 'rgba(0,0,0,0.25)',
-  },
+  imageOverlay: { position: 'absolute', bottom: 0, left: 0, right: 0, height: 60, backgroundColor: 'rgba(0,0,0,0.25)' },
   noImage: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#f9fafb' },
   discountTag: { position: 'absolute', top: 10, right: 10, backgroundColor: '#ef4444', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8 },
   discountTagText: { fontSize: 11, fontWeight: '800', color: '#fff', letterSpacing: 0.5 },
-
-  // Eco overlay bar on image
-  ecoOverlayBar: {
-    position: 'absolute', bottom: 0, left: 0, right: 0,
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-    paddingVertical: 7, paddingHorizontal: 12, gap: 10,
-    backgroundColor: 'rgba(16, 185, 129, 0.82)',
-  },
+  ecoOverlayBar: { position: 'absolute', bottom: 0, left: 0, right: 0, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 7, paddingHorizontal: 12, gap: 10, backgroundColor: 'rgba(16, 185, 129, 0.82)' },
   ecoOverlayItem: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   ecoOverlayText: { fontSize: 12, fontWeight: '700', color: '#fff', letterSpacing: 0.2 },
   ecoOverlayDivider: { width: 1, height: 14, backgroundColor: 'rgba(255,255,255,0.4)' },
-
-  // Impact detail chips inside card
-  impactDetailRow: {
-    flexDirection: 'row', gap: 8, marginTop: 10,
-  },
-  impactDetailChip: {
-    flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8,
-    backgroundColor: '#f0fdf4', borderRadius: 10,
-    paddingVertical: 8, paddingHorizontal: 10,
-    borderWidth: 1, borderColor: '#bbf7d0',
-  },
-  impactDetailChipBlue: {
-    backgroundColor: '#eff6ff', borderColor: '#bfdbfe',
-  },
-  impactDetailIconWrap: {
-    width: 28, height: 28, borderRadius: 8,
-    backgroundColor: '#d1fae5',
-    alignItems: 'center', justifyContent: 'center',
-  },
-  impactDetailIconBlue: {
-    backgroundColor: '#dbeafe',
-  },
-  impactDetailVal: {
-    fontSize: 13, fontWeight: '800', color: '#059669', letterSpacing: -0.3,
-  },
-  impactDetailLbl: {
-    fontSize: 10, color: '#6b7280', fontWeight: '500', marginTop: 1,
-  },
-
+  impactDetailRow: { flexDirection: 'row', gap: 8, marginTop: 10 },
+  impactDetailChip: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#f0fdf4', borderRadius: 10, paddingVertical: 8, paddingHorizontal: 10, borderWidth: 1, borderColor: '#bbf7d0' },
+  impactDetailChipBlue: { backgroundColor: '#eff6ff', borderColor: '#bfdbfe' },
+  impactDetailIconWrap: { width: 28, height: 28, borderRadius: 8, backgroundColor: '#d1fae5', alignItems: 'center', justifyContent: 'center' },
+  impactDetailIconBlue: { backgroundColor: '#dbeafe' },
+  impactDetailVal: { fontSize: 13, fontWeight: '800', color: '#059669', letterSpacing: -0.3 },
+  impactDetailLbl: { fontSize: 10, color: '#6b7280', fontWeight: '500', marginTop: 1 },
   cardDetails: { padding: 15, paddingBottom: 10 },
   cardTitle: { fontSize: 15, fontWeight: '600', color: '#1f2937', marginBottom: 4 },
   priceContainer: { flexDirection: 'row', alignItems: 'flex-end', marginBottom: 10 },
   newPrice: { fontSize: 18, fontWeight: 'bold', color: '#10b981', marginRight: 8 },
   oldPrice: { fontSize: 12, color: '#9ca3af', textDecorationLine: 'line-through', marginBottom: 2 },
-
   tagsContainer: { flexDirection: 'row', gap: 8 },
   tag: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#f9fafb', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, borderWidth: 1, borderColor: '#f3f4f6' },
   tagCategory: { backgroundColor: '#f0fdf4', borderColor: '#bbf7d0' },
   tagText: { fontSize: 11, color: '#6b7280', fontWeight: '500' },
-
-  // ส่วนปุ่มจัดการแบบใหม่
   actionContainer: { flexDirection: 'row', borderTopWidth: 1, borderTopColor: '#f3f4f6', marginTop: 10 },
   actionBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 12, gap: 5 },
   editBtn: { borderRightWidth: 1, borderRightColor: '#f3f4f6' },
   deleteBtn: { },
   editBtnText: { fontSize: 13, color: '#4b5563', fontWeight: '600' },
   deleteBtnText: { fontSize: 13, color: '#ef4444', fontWeight: '600' },
-
   emptyState: { alignItems: 'center', marginTop: 40 },
   emptyStateText: { fontSize: 14, color: '#9ca3af', marginTop: 10 },
   addFirstBtn: { marginTop: 15, backgroundColor: '#10b981', paddingHorizontal: 15, paddingVertical: 10, borderRadius: 8 },
   addFirstBtnText: { color: '#fff', fontSize: 14, fontWeight: '700' },
-
-  // FAB - 🟢 ปรับเงาให้กลมกลืน
-  fab: {
-    position: 'absolute', bottom: 90, right: 20,
-    width: 56, height: 56, borderRadius: 28,
-    backgroundColor: '#10b981', alignItems: 'center', justifyContent: 'center',
-    shadowColor: '#000', // ปรับเป็นสีดำเพื่อให้เงาดูจริง
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 6,
-    elevation: 6,
-  },
-
-  // Bottom Nav - 🟡 เสริมเงาด้านบน
-  bottomNav: {
-    flexDirection: 'row', backgroundColor: '#fff', paddingVertical: 12,
-    position: 'absolute', bottom: 0, width: '100%',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -2 }, // เงาชี้ขึ้นบน
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 8,
-  },
+  fab: { position: 'absolute', right: 20, width: 56, height: 56, borderRadius: 28, backgroundColor: '#10b981', alignItems: 'center', justifyContent: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 6, elevation: 6 },
+  bottomNav: { flexDirection: 'row', backgroundColor: '#fff', paddingTop: 12, position: 'absolute', bottom: 0, width: '100%', shadowColor: '#000', shadowOffset: { width: 0, height: -2 }, shadowOpacity: 0.05, shadowRadius: 2, elevation: 8 },
   navItem: { flex: 1, alignItems: 'center' },
   navLabel: { fontSize: 10, color: '#9ca3af', marginTop: 4 },
   navLabelActive: { fontSize: 10, color: '#1f2937', fontWeight: 'bold', marginTop: 4 },
   notifBadge: { position: 'absolute', top: -4, right: -6, backgroundColor: '#ef4444', borderRadius: 10, minWidth: 18, height: 18, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#fff', paddingHorizontal: 4, zIndex: 5 },
   notifBadgeText: { color: '#fff', fontSize: 10, fontWeight: 'bold' },
-
-  // Drawer
   drawerOverlay: { flex: 1, flexDirection: 'row' },
   drawerBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)' },
   drawerContainer: { position: 'absolute', left: 0, top: 0, bottom: 0, width: width * 0.85, backgroundColor: '#fff', shadowColor: "#000", shadowOffset: { width: 2, height: 0 }, shadowOpacity: 0.25, shadowRadius: 3.84, elevation: 5 },
-  drawerScrollContent: { flexGrow: 1, paddingTop: Platform.OS === 'ios' ? 50 : 30, paddingBottom: 40 },
+  drawerScrollContent: { flexGrow: 1 },
   drawerContentPadding: { paddingHorizontal: 20 },
   drawerTopHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
   logoContainer: { flexDirection: 'row', alignItems: 'center', gap: 10 },
@@ -890,7 +773,6 @@ const styles = StyleSheet.create({
   modeButtonInactive: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, paddingVertical: 8, backgroundColor: '#f3f4f6', borderRadius: 8 },
   modeTextActive: { fontSize: 11, fontWeight: 'bold', color: '#fff' },
   modeTextInactive: { fontSize: 11, color: '#6b7280' },
-  sectionTitle: { fontSize: 14, color: '#9ca3af', marginBottom: 10, marginLeft: 5, marginTop: 5, fontWeight: 'bold' },
   drawerMenuItem: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', paddingVertical: 10, paddingHorizontal: 5, marginBottom: 5 },
   menuIconBox: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#f9fafb', alignItems: 'center', justifyContent: 'center', marginRight: 15 },
   drawerMenuText: { fontSize: 15, color: '#1f2937', fontWeight: '500' },

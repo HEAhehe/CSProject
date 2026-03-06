@@ -7,6 +7,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { auth, db } from '../../firebase.config';
 import { collection, addDoc, doc, updateDoc, serverTimestamp, getDoc, getDocs, writeBatch } from 'firebase/firestore';
 import * as ImagePicker from 'expo-image-picker';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const UNIT_OPTIONS = ['กล่อง', 'ถุง', 'ชิ้น', 'แพ็ค', 'โหล', 'กิโลกรัม', 'ลิตร', 'ขวด', 'ถาด', 'ชุด'];
 
@@ -25,6 +26,7 @@ const WEIGHT_PER_BOX_KG = 0.4;
 const CO2_COEFFICIENT = 2.5;
 
 export default function CreateListingScreen({ navigation, route }) {
+  const insets = useSafeAreaInsets();
   const editItem = route.params?.editItem || null;
   const isEditMode = !!editItem;
 
@@ -190,7 +192,8 @@ export default function CreateListingScreen({ navigation, route }) {
   return (
     <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#10b981" />
-      <View style={styles.header}>
+
+      <View style={[styles.header, { paddingTop: insets.top + 14 }]}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={24} color="#fff" />
         </TouchableOpacity>
@@ -339,7 +342,7 @@ export default function CreateListingScreen({ navigation, route }) {
         ) : null}
       </ScrollView>
 
-      <View style={styles.footer}>
+      <View style={[styles.footer, { paddingBottom: insets.bottom > 0 ? insets.bottom : 16 }]}>
         <TouchableOpacity style={[styles.submitBtn, loading && { opacity: 0.7 }]} onPress={handleSubmit} disabled={loading} activeOpacity={0.85}>
           {loading
             ? <ActivityIndicator color="#fff" />
@@ -387,7 +390,7 @@ export default function CreateListingScreen({ navigation, route }) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f9fafb' },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: Platform.OS === 'ios' ? 58 : 46, paddingBottom: 14, backgroundColor: '#10b981' },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingBottom: 14, backgroundColor: '#10b981' },
   backBtn: { width: 40, height: 40, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.2)', alignItems: 'center', justifyContent: 'center' },
   headerTitle: { fontSize: 17, fontWeight: '800', color: '#fff', letterSpacing: 0.5 },
   content: { flex: 1 },
@@ -429,7 +432,7 @@ const styles = StyleSheet.create({
   impactDivider: { width: 1, height: 36, backgroundColor: '#e5e7eb', marginHorizontal: 8 },
   impactLabel: { fontSize: 11, color: '#6b7280', fontWeight: '600' },
   impactValue: { fontSize: 15, fontWeight: '800', color: '#10b981', marginTop: 1 },
-  footer: { padding: 16, paddingBottom: Platform.OS === 'ios' ? 32 : 16, backgroundColor: '#fff', borderTopWidth: 1, borderTopColor: '#f3f4f6' },
+  footer: { padding: 16, backgroundColor: '#fff', borderTopWidth: 1, borderTopColor: '#f3f4f6' },
   submitBtn: { backgroundColor: '#10b981', borderRadius: 14, paddingVertical: 15, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, shadowColor: '#10b981', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.3, shadowRadius: 12, elevation: 6 },
   submitBtnText: { fontSize: 16, fontWeight: '800', color: '#fff', letterSpacing: 0.5 },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'center', alignItems: 'center', padding: 24 },

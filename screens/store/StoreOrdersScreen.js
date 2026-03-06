@@ -22,17 +22,19 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { auth, db } from '../../firebase.config';
-import { collection, query, where, updateDoc, doc, getDoc, getDocs, increment, runTransaction, onSnapshot, writeBatch, setDoc } from 'firebase/firestore';
+import { collection, query, where, updateDoc, doc, getDoc, getDocs, increment, runTransaction, onSnapshot, writeBatch } from 'firebase/firestore';
 import * as Clipboard from 'expo-clipboard';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const { width } = Dimensions.get('window');
 
 export default function StoreOrdersScreen({ navigation }) {
+  const insets = useSafeAreaInsets();
   const [orders, setOrders] = useState([]);
   const [allOrders, setAllOrders] = useState([]);
   const [refreshing, setRefreshing] = useState(false);
   const [filter, setFilter] = useState('pending');
-  const [sortOrder, setSortOrder] = useState('asc'); // 🟢 State สำหรับเรียงลำดับ
+  const [sortOrder, setSortOrder] = useState('asc');
   const [storeData, setStoreData] = useState(null);
   const [isStoreOpen, setIsStoreOpen] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -45,7 +47,6 @@ export default function StoreOrdersScreen({ navigation }) {
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
   const [cancelModalVisible, setCancelModalVisible] = useState(false);
-  const seenOrderIds = useRef(null);
   const [cancelOrderId, setCancelOrderId] = useState(null);
   const [cancelReason, setCancelReason] = useState('');
 
@@ -158,8 +159,6 @@ export default function StoreOrdersScreen({ navigation }) {
       enrichedOrders.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
       setAllOrders(enrichedOrders);
 
-      // 🔴 ลบบล็อก "ตรวจจับออเดอร์ใหม่ และเขียน store_notifications" ออกไปแล้วจากตรงนี้ เพื่อไม่ให้แจ้งเตือนเด้งเบิ้ล
-
       const pendingCount = enrichedOrders.filter(o => o.status === 'pending').length;
       const completedOrders = enrichedOrders.filter(o => o.status === 'completed');
       const totalRevenue = completedOrders.reduce((sum, o) => sum + (Number(o.totalPrice) || 0), 0);
@@ -193,7 +192,6 @@ export default function StoreOrdersScreen({ navigation }) {
     return () => { unsubscribe(); unsubscribeNotif(); };
   }, []);
 
-  // 🟢 Effect สำหรับจัดเรียงและคัดกรองออเดอร์
   useEffect(() => {
     let filtered = allOrders.filter(o => o.status === filter);
 
@@ -470,7 +468,7 @@ export default function StoreOrdersScreen({ navigation }) {
 
   const DrawerContent = () => {
     return (
-      <ScrollView contentContainerStyle={styles.drawerScrollContent} showsVerticalScrollIndicator={false}>
+      <ScrollView contentContainerStyle={[styles.drawerScrollContent, { paddingTop: insets.top + 20, paddingBottom: insets.bottom + 40 }]} showsVerticalScrollIndicator={false}>
         <View style={styles.drawerContentPadding}>
 
           <View style={styles.drawerTopHeader}>
@@ -638,7 +636,7 @@ export default function StoreOrdersScreen({ navigation }) {
             <Text style={[styles.uiInfoText, item.customerPhone && { color: '#10b981', fontWeight: '700' }]}>
               {item.customerPhone ? item.customerPhone : 'ไม่ระบุเบอร์โทร'}
             </Text>
-            {item.customerPhone && (
+            {!!item.customerPhone && (
               <View style={styles.phoneCallBadge}>
                 <Text style={styles.phoneCallBadgeText}>โทร</Text>
               </View>
@@ -703,7 +701,7 @@ export default function StoreOrdersScreen({ navigation }) {
     <View style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#f9fafb" />
 
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: insets.top + 15 }]}>
         <TouchableOpacity onPress={toggleDrawer} style={styles.menuButton}>
           <Ionicons name="menu" size={26} color="#1f2937" />
         </TouchableOpacity>
@@ -756,7 +754,6 @@ export default function StoreOrdersScreen({ navigation }) {
           </ScrollView>
         </View>
 
-        {/* 🟢 ส่วนที่เพิ่มใหม่: แถบหัวข้อรายการและปุ่มเรียงลำดับ */}
         <View style={styles.sortContainer}>
            <Text style={styles.listHeaderText}>รายการคำสั่งซื้อ ({orders.length})</Text>
            <TouchableOpacity
@@ -823,7 +820,7 @@ export default function StoreOrdersScreen({ navigation }) {
         </View>
       </Modal>
 
-      <View style={styles.bottomNav}>
+      <View style={[styles.bottomNav, { paddingBottom: insets.bottom > 0 ? insets.bottom : 12 }]}>
         <TouchableOpacity style={styles.navItem} onPress={() => navigation.navigate('MyShop')}>
           <Ionicons name="storefront-outline" size={24} color="#9ca3af" />
           <Text style={styles.navLabel}>ร้านค้าของฉัน</Text>
@@ -867,7 +864,7 @@ export default function StoreOrdersScreen({ navigation }) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f9fafb' },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: Platform.OS === 'ios' ? 60 : 50, paddingBottom: 15, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#f3f4f6' },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingBottom: 15, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#f3f4f6' },
   menuButton: { padding: 4 },
   headerTitle: { fontSize: 18, fontWeight: 'bold', color: '#1f2937', letterSpacing: 1 },
   headerProfileIcon: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#f3f4f6', alignItems: 'center', justifyContent: 'center' },
@@ -884,12 +881,10 @@ const styles = StyleSheet.create({
   statCard: { flex: 1, backgroundColor: '#fff', paddingVertical: 16, borderRadius: 12, alignItems: 'center', borderWidth: 1, borderColor: '#f3f4f6', shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 2, elevation: 1 },
   statValue: { fontSize: 18, fontWeight: 'bold', color: '#1f2937' },
   statLabel: { fontSize: 11, color: '#6b7280', marginTop: 4 },
-
   sortContainer: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, marginTop: 10, marginBottom: 5 },
   listHeaderText: { fontSize: 15, fontWeight: 'bold', color: '#1f2937' },
   sortButton: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#f9fafb', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, borderWidth: 1, borderColor: '#e5e7eb', gap: 6 },
   sortButtonText: { fontSize: 12, fontWeight: '600', color: '#6b7280' },
-
   listContainer: { paddingHorizontal: 20, paddingTop: 10 },
   uiCard: { backgroundColor: '#fff', borderRadius: 16, padding: 16, marginBottom: 16, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 2, borderWidth: 1, borderColor: '#f3f4f6' },
   uiCardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 15 },
@@ -938,24 +933,18 @@ const styles = StyleSheet.create({
   phoneButtonGroup: { flexDirection: 'row', gap: 12, width: '100%', marginBottom: 16 },
   phoneBtnAction: { flex: 1, paddingVertical: 12, borderRadius: 12, backgroundColor: '#f3f4f6', alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 8 },
   phoneBtnActionText: { fontSize: 14, fontWeight: 'bold', color: '#4b5563' },
-  phoneCallBadge: {
-    marginLeft: 'auto',
-    backgroundColor: '#10b981',
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 3,
-  },
+  phoneCallBadge: { marginLeft: 'auto', backgroundColor: '#10b981', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 3 },
   phoneCallBadgeText: { fontSize: 11, fontWeight: '700', color: '#fff' },
   phoneBtnClose: { width: '100%', paddingVertical: 12, borderRadius: 12, alignItems: 'center' },
   phoneBtnCloseText: { fontSize: 15, fontWeight: 'bold', color: '#9ca3af' },
-  bottomNav: { position: 'absolute', bottom: 0, left: 0, right: 0, flexDirection: 'row', backgroundColor: '#fff', borderTopWidth: 1, borderTopColor: '#f3f4f6', paddingVertical: 12, paddingHorizontal: 20 },
+  bottomNav: { position: 'absolute', bottom: 0, left: 0, right: 0, flexDirection: 'row', backgroundColor: '#fff', borderTopWidth: 1, borderTopColor: '#f3f4f6', paddingTop: 12, paddingHorizontal: 20 },
   navItem: { flex: 1, alignItems: 'center', gap: 4 },
   navItemActive: { borderBottomWidth: 2, borderBottomColor: '#1f2937' },
   navLabel: { fontSize: 11, color: '#9ca3af' },
   navLabelActive: { color: '#1f2937', fontWeight: '600' },
   drawerOverlay: { flex: 1, flexDirection: 'row' },
   drawerContainer: { position: 'absolute', left: 0, top: 0, bottom: 0, width: width * 0.85, backgroundColor: '#fff', shadowColor: "#000", shadowOffset: { width: 2, height: 0 }, shadowOpacity: 0.25, shadowRadius: 3.84, elevation: 5 },
-  drawerScrollContent: { flexGrow: 1, paddingTop: Platform.OS === 'ios' ? 50 : 30, paddingBottom: 40 },
+  drawerScrollContent: { flexGrow: 1 },
   drawerContentPadding: { paddingHorizontal: 20 },
   drawerTopHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
   logoContainer: { flexDirection: 'row', alignItems: 'center', gap: 10 },

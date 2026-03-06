@@ -3,13 +3,14 @@ import {
   View, Text, StyleSheet, TouchableOpacity, Platform, StatusBar, ScrollView,
   ActivityIndicator, Alert, Linking, Image
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { db, auth } from '../../firebase.config';
 import { doc, getDoc } from 'firebase/firestore';
 import * as Clipboard from 'expo-clipboard';
 
 export default function StoreNotificationDetailScreen({ navigation, route }) {
+  const insets = useSafeAreaInsets();
   const { notification } = route.params || {};
   const [orderData, setOrderData] = useState(null);
   const [storeData, setStoreData] = useState(null);
@@ -104,7 +105,6 @@ export default function StoreNotificationDetailScreen({ navigation, route }) {
     return `#${shortId}`;
   };
 
-  // 🟢 ฟังก์ชันนี้แหละที่หายไปรอบก่อน (สำหรับการโทรออก)
   const handlePhoneAction = (phone) => {
     if (!phone) return;
     Alert.alert(
@@ -117,7 +117,6 @@ export default function StoreNotificationDetailScreen({ navigation, route }) {
     );
   };
 
-  // 🟢 และฟังก์ชันนี้ (สำหรับเปิดแผนที่)
   const openMap = () => {
     const lat = orderData?.customerLat || orderData?.deliveryLocation?.latitude;
     const lng = orderData?.customerLng || orderData?.deliveryLocation?.longitude;
@@ -280,7 +279,6 @@ export default function StoreNotificationDetailScreen({ navigation, route }) {
   } else if (notification.type === 'store_edit_approved') {
     buttonText = '✅ กลับสู่หน้าหลักร้านค้า'; buttonColor = '#10b981'; actionTarget = 'myshop';
   }
-  // 🟢 เพิ่มบล็อกนี้ สำหรับแจ้งเตือนรีวิว
   else if (notification.type === 'new_review') {
     buttonText = '⭐ ไปดูหน้ารีวิวของร้าน'; buttonColor = '#f59e0b'; actionTarget = 'store_reviews';
   }
@@ -288,7 +286,6 @@ export default function StoreNotificationDetailScreen({ navigation, route }) {
   const handleActionButton = () => {
     if (actionTarget === 'store_orders') navigation.navigate('StoreOrders');
     else if (actionTarget === 'store_settings') navigation.navigate('StoreSettings');
-    // 🟢 เพิ่มเงื่อนไขนำทางไปหน้า Dashboard พร้อมส่ง Param "tab"
     else if (actionTarget === 'store_reviews') navigation.navigate('StoreDashboard', { tab: 'reviews' });
     else navigation.navigate('MyShop');
   };
@@ -302,9 +299,9 @@ export default function StoreNotificationDetailScreen({ navigation, route }) {
   const customerName = orderData?.customerName || '-';
 
   return (
-    <SafeAreaView style={styles.container}>
+    <View style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: insets.top + 15 }]}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
           <Ionicons name="chevron-back" size={28} color="#1f2937" />
         </TouchableOpacity>
@@ -324,8 +321,7 @@ export default function StoreNotificationDetailScreen({ navigation, route }) {
           <ActivityIndicator size="small" color="#10b981" style={{ marginTop: 20 }} />
         ) : (
           <>
-            {/* 🔴 สาเหตุที่ปฏิเสธ หรือ สาเหตุการยกเลิกออเดอร์ (แสดงเสมอถ้ามี) */}
-            {notification.cancelReason && (
+            {!!notification.cancelReason && (
               <View style={styles.detailSection}>
                 <Text style={styles.sectionLabel}>
                   {notification.type === 'order_cancelled_by_customer' ? 'สาเหตุการยกเลิกออเดอร์' : 'สาเหตุที่ไม่อนุมัติ'}
@@ -346,7 +342,6 @@ export default function StoreNotificationDetailScreen({ navigation, route }) {
               </View>
             )}
 
-            {/* 🟢 ข้อมูลที่ขอแก้ไขร้านค้า (Store Update) */}
             {(notification.type === 'store_edit_approved' || notification.type === 'store_edit_rejected') && (
                <View style={styles.detailSection}>
                  <Text style={styles.sectionLabel}>ข้อมูลที่คุณส่งคำขอแก้ไข</Text>
@@ -453,7 +448,6 @@ export default function StoreNotificationDetailScreen({ navigation, route }) {
                </View>
             )}
 
-            {/* 🌟 แสดงข้อมูลรีวิว (ถ้าเป็นการแจ้งเตือนรีวิว) */}
             {notification.type === 'new_review' && (
               <View style={styles.detailSection}>
                 <Text style={styles.sectionLabel}>รายละเอียดรีวิวจากลูกค้า</Text>
@@ -477,7 +471,6 @@ export default function StoreNotificationDetailScreen({ navigation, route }) {
                      </>
                    ) : null}
 
-                   {/* 🟢 แสดงเลขออเดอร์อ้างอิงภายในตารางรีวิวเลย */}
                    <View style={styles.divider} />
                    <View style={styles.infoRow}>
                      <Text style={styles.infoLabel}>อ้างอิงจากออเดอร์</Text>
@@ -489,8 +482,7 @@ export default function StoreNotificationDetailScreen({ navigation, route }) {
               </View>
             )}
 
-            {/* 📋 ส่วนแสดงข้อมูลออเดอร์และลูกค้า (จะถูกซ่อนถ้าเป็นการแจ้งเตือนรีวิว) */}
-            {notification.orderId && notification.type !== 'new_review' && (
+            {!!notification.orderId && notification.type !== 'new_review' && (
               <>
                 <View style={styles.detailSection}>
                   <Text style={styles.sectionLabel}>ข้อมูลคำสั่งซื้อเบื้องต้น</Text>
@@ -500,7 +492,6 @@ export default function StoreNotificationDetailScreen({ navigation, route }) {
                       <Text style={[styles.infoValueDark, { fontSize: 16, fontWeight: '700' }]}>{formatOrderId(notification.orderId, orderData?.orderType)}</Text>
                     </View>
 
-                    {/* ถ้าดึงข้อมูลออเดอร์เจอ ค่อยแสดงรายละเอียด */}
                     {orderData ? (
                         <>
                             <View style={styles.divider} />
@@ -529,7 +520,7 @@ export default function StoreNotificationDetailScreen({ navigation, route }) {
                               </>
                             )}
 
-                            {orderData.note && (
+                            {!!orderData.note && (
                               <>
                                 <View style={styles.divider} />
                                 <View style={styles.infoRowColumn}>
@@ -540,7 +531,6 @@ export default function StoreNotificationDetailScreen({ navigation, route }) {
                             )}
                         </>
                     ) : (
-                        /* ถ้าดึงข้อมูลออเดอร์ไม่เจอ (ถูกลบไปแล้ว) */
                         <>
                             <View style={styles.divider} />
                             <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 5, marginBottom: 5}}>
@@ -554,7 +544,6 @@ export default function StoreNotificationDetailScreen({ navigation, route }) {
                   </View>
                 </View>
 
-                {/* ข้อมูลลูกค้า แสดงเฉพาะเมื่อมี orderData */}
                 {orderData && (
                     <View style={styles.detailSection}>
                       <Text style={styles.sectionLabel}>ข้อมูลลูกค้า</Text>
@@ -604,19 +593,19 @@ export default function StoreNotificationDetailScreen({ navigation, route }) {
         )}
       </ScrollView>
 
-      <View style={styles.footer}>
+      <View style={[styles.footer, { paddingBottom: insets.bottom > 0 ? insets.bottom : 20 }]}>
         <TouchableOpacity style={[styles.actionButton, { backgroundColor: buttonColor }]} onPress={handleActionButton}>
           <Text style={styles.actionButtonText}>{buttonText}</Text>
         </TouchableOpacity>
       </View>
-    </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#ffffff' },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: Platform.OS === 'ios' ? 10 : 20, paddingBottom: 15, backgroundColor: '#ffffff' },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingBottom: 15, backgroundColor: '#ffffff' },
   backButton: { width: 40, height: 40, justifyContent: 'center' },
   headerTitle: { fontSize: 16, fontWeight: '600', color: '#1f2937', letterSpacing: 0.5 },
   content: { flex: 1 },
@@ -626,34 +615,29 @@ const styles = StyleSheet.create({
   dateText: { fontSize: 12, color: '#9ca3af', marginBottom: 12 },
   titleText: { fontSize: 20, fontWeight: '700', color: '#1f2937', textAlign: 'center', marginBottom: 8, letterSpacing: 0.2 },
   messageText: { fontSize: 15, color: '#6b7280', lineHeight: 24, textAlign: 'center' },
-  footer: { paddingHorizontal: 24, paddingBottom: Platform.OS === 'ios' ? 30 : 20, paddingTop: 10, backgroundColor: '#ffffff' },
+  footer: { paddingHorizontal: 24, paddingTop: 10, backgroundColor: '#ffffff' },
   actionButton: { paddingVertical: 16, borderRadius: 12, alignItems: 'center' },
   actionButtonText: { color: '#ffffff', fontSize: 15, fontWeight: '600', letterSpacing: 0.5 },
   emptyText: { color: '#6b7280', fontSize: 16 },
   detailSection: { width: '100%', marginBottom: 20 },
   sectionLabel: { fontSize: 13, color: '#9ca3af', fontWeight: '600', marginBottom: 12, textTransform: 'uppercase', letterSpacing: 1 },
   detailCard: { backgroundColor: '#f9fafb', borderRadius: 16, padding: 20, borderWidth: 1, borderColor: '#f3f4f6' },
-
   imageContainer: { width: '100%', height: 150, borderRadius: 10, overflow: 'hidden', borderWidth: 1, borderColor: '#e5e7eb' },
   storeImagePreview: { width: '100%', height: '100%' },
   imagePreviewBox: { width: '100%', height: 100, borderRadius: 8, overflow: 'hidden', borderWidth: 1, borderColor: '#e5e7eb', backgroundColor: '#f3f4f6' },
   centerIcon: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-
   longTextContainer: { backgroundColor: '#ffffff', borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 8, padding: 12, marginLeft: 22 },
   longTextContent: { fontSize: 13, color: '#374151', lineHeight: 22 },
-
   changedBox: { backgroundColor: '#ffffff', borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 12, padding: 12, marginLeft: 22 },
   oldRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
   diffOldContent: { opacity: 0.6 },
   arrowRow: { paddingLeft: 24, marginVertical: 6 },
   newRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
   diffNewContent: { },
-
   infoRowColumn: { flexDirection: 'column', alignItems: 'flex-start', gap: 2, width: '100%' },
   infoLabel: { fontSize: 13, color: '#6b7280' },
   infoValueTextBox: { fontSize: 14, color: '#4b5563', backgroundColor: '#e5e7eb', padding: 12, borderRadius: 8, width: '100%', lineHeight: 22, marginTop: 6 },
   divider: { height: 1, backgroundColor: '#e5e7eb', marginVertical: 14 },
-
   infoRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginVertical: 4 },
   infoValueDark: { fontSize: 14, color: '#1f2937', fontWeight: '500', marginTop: 4 },
   itemRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginVertical: 4, paddingLeft: 10 },

@@ -6,7 +6,6 @@ import {
   TextInput,
   TouchableOpacity,
   ScrollView,
-  SafeAreaView,
   StatusBar,
   Alert,
   Modal,
@@ -22,6 +21,7 @@ import MapView, { Marker } from 'react-native-maps';
 import * as Location from 'expo-location';
 import { db, auth } from '../../firebase.config';
 import { doc, getDoc, collection, addDoc, query, where, getDocs } from 'firebase/firestore';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const { width } = Dimensions.get('window');
 
@@ -36,12 +36,12 @@ const daysOfWeek = [
 ];
 
 export default function StoreSettingsScreen({ navigation }) {
+  const insets = useSafeAreaInsets();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [requestStatus, setRequestStatus] = useState(null); // null | 'pending' | 'rejected'
+  const [requestStatus, setRequestStatus] = useState(null);
   const [rejectReason, setRejectReason] = useState('');
 
-  // ข้อมูลทั่วไป
   const [storeName, setStoreName] = useState('');
   const [storeOwner, setStoreOwner] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
@@ -49,7 +49,6 @@ export default function StoreSettingsScreen({ navigation }) {
   const [selectedDelivery, setSelectedDelivery] = useState('pickup');
   const [storeImage, setStoreImage] = useState(null);
 
-  // ข้อมูลเวลาทำการ
   const [businessHours, setBusinessHours] = useState({
     mon: { isOpen: true, openTime: '08:00', closeTime: '20:00' },
     tue: { isOpen: true, openTime: '08:00', closeTime: '20:00' },
@@ -61,7 +60,6 @@ export default function StoreSettingsScreen({ navigation }) {
   });
   const [showBusinessHoursModal, setShowBusinessHoursModal] = useState(false);
 
-  // ข้อมูลตำแหน่ง
   const [location, setLocation] = useState('');
   const [address, setAddress] = useState('');
   const [coordinates, setCoordinates] = useState(null);
@@ -92,7 +90,6 @@ export default function StoreSettingsScreen({ navigation }) {
       const snapshot = await getDocs(q);
 
       if (!snapshot.empty) {
-        // ใช้ getTime() เพื่อความชัวร์ในการเปรียบเทียบ Date ฝั่ง JS
         const sorted = snapshot.docs
           .map(d => d.data())
           .sort((a, b) => new Date(b.requestDate).getTime() - new Date(a.requestDate).getTime());
@@ -105,7 +102,6 @@ export default function StoreSettingsScreen({ navigation }) {
           setRequestStatus('rejected');
           setRejectReason(sorted[0].rejectReason || '');
         } else {
-          // ถ้าเป็น approved หรืออื่นๆ ให้กลับสู่โหมดปกติ (ล้างค่าสถานะทิ้ง) สามารถแก้ข้อมูลใหม่ได้เลย
           setRequestStatus(null);
         }
       }
@@ -329,15 +325,13 @@ export default function StoreSettingsScreen({ navigation }) {
     );
   }
 
-  // ตัวแปรเช็คสำหรับล็อคฟอร์ม
   const isPending = requestStatus === 'pending';
 
   return (
-    <SafeAreaView style={styles.container}>
+    <View style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#fff" />
 
-      {/* Header */}
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: insets.top + 15 }]}>
         <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
           <Ionicons name="chevron-back" size={24} color="#1f2937" />
         </TouchableOpacity>
@@ -345,7 +339,6 @@ export default function StoreSettingsScreen({ navigation }) {
         <View style={{ width: 40 }} />
       </View>
 
-      {/* 🔔 Status Banner */}
       {isPending && (
         <View style={styles.bannerPending}>
           <Ionicons name="time-outline" size={20} color="#92400e" />
@@ -373,11 +366,8 @@ export default function StoreSettingsScreen({ navigation }) {
 
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
         <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-
-          {/* ล็อคการโต้ตอบทั้งหมดถ้าเป็น pending */}
           <View pointerEvents={isPending ? 'none' : 'auto'} style={{ opacity: isPending ? 0.6 : 1 }}>
 
-            {/* 🖼️ รูปร้านค้า */}
             <TouchableOpacity style={styles.imagePickerContainer} onPress={handleSelectImage}>
               {storeImage ? (
                 <Image source={{ uri: storeImage }} style={styles.imagePreview} />
@@ -392,7 +382,6 @@ export default function StoreSettingsScreen({ navigation }) {
               </View>
             </TouchableOpacity>
 
-            {/* 📝 ข้อมูลพื้นฐาน */}
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>ข้อมูลพื้นฐาน</Text>
 
@@ -409,7 +398,6 @@ export default function StoreSettingsScreen({ navigation }) {
               <TextInput style={[styles.input, styles.textArea]} value={storeDetails} onChangeText={setStoreDetails} placeholder="บอกเล่าเกี่ยวกับร้านค้าของคุณ..." multiline numberOfLines={3} textAlignVertical="top" />
             </View>
 
-            {/* 🛵 การจัดส่งและเวลา */}
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>การตั้งค่าบริการ</Text>
 
@@ -430,7 +418,6 @@ export default function StoreSettingsScreen({ navigation }) {
               </TouchableOpacity>
             </View>
 
-            {/* 📍 ตำแหน่งที่ตั้ง */}
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>ตำแหน่งที่ตั้ง</Text>
 
@@ -445,7 +432,6 @@ export default function StoreSettingsScreen({ navigation }) {
               </TouchableOpacity>
             </View>
 
-            {/* ℹ️ คำเตือน */}
             {!isPending && (
                <Text style={styles.warningText}>
                  * การแก้ไขจะใช้เวลาตรวจสอบข้อมูล 1-2 วันทำการ
@@ -457,8 +443,7 @@ export default function StoreSettingsScreen({ navigation }) {
         </ScrollView>
       </KeyboardAvoidingView>
 
-      {/* 💾 ปุ่มบันทึก */}
-      <View style={styles.footer}>
+      <View style={[styles.footer, { paddingBottom: insets.bottom > 0 ? insets.bottom + 15 : 20 }]}>
         {isPending ? (
           <View style={styles.saveButtonDisabled}>
             <Ionicons name="time-outline" size={18} color="#92400e" />
@@ -475,7 +460,6 @@ export default function StoreSettingsScreen({ navigation }) {
         )}
       </View>
 
-      {/* 🕒 Modal เวลาทำการ */}
       <Modal visible={showBusinessHoursModal} animationType="slide" transparent={true}>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
@@ -512,17 +496,16 @@ export default function StoreSettingsScreen({ navigation }) {
                 </View>
               ))}
             </ScrollView>
-            <View style={styles.modalFooter}>
+            <View style={[styles.modalFooter, { paddingBottom: insets.bottom > 0 ? insets.bottom + 10 : 20 }]}>
               <TouchableOpacity style={styles.modalDoneButton} onPress={() => setShowBusinessHoursModal(false)}><Text style={styles.modalDoneButtonText}>เสร็จสิ้น</Text></TouchableOpacity>
             </View>
           </View>
         </View>
       </Modal>
 
-      {/* 📍 Modal แผนที่ */}
       <Modal animationType="slide" transparent={false} visible={mapModalVisible} onRequestClose={() => setMapModalVisible(false)}>
-        <SafeAreaView style={styles.modalContainer}>
-          <View style={styles.modalHeader}>
+        <View style={styles.modalContainer}>
+          <View style={[styles.modalHeader, { paddingTop: insets.top + 15 }]}>
             <TouchableOpacity style={styles.modalBackButton} onPress={() => setMapModalVisible(false)}>
               <Ionicons name="close" size={28} color="#333" />
             </TouchableOpacity>
@@ -543,62 +526,51 @@ export default function StoreSettingsScreen({ navigation }) {
               <Text style={styles.instructionText}>แตะบนแผนที่เพื่อปักหมุดตำแหน่งร้าน</Text>
             </View>
           </View>
-        </SafeAreaView>
+        </View>
       </Modal>
 
-    </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f9fafb' },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: Platform.OS === 'ios' ? 10 : 20, paddingBottom: 15, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#f3f4f6' },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingBottom: 15, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#f3f4f6' },
   backButton: { padding: 5 },
   headerTitle: { fontSize: 18, fontWeight: 'bold', color: '#1f2937' },
   content: { flex: 1 },
-
   imagePickerContainer: { width: '100%', height: 200, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#f3f4f6', position: 'relative' },
   imagePreview: { width: '100%', height: '100%', resizeMode: 'cover' },
   imagePlaceholder: { flex: 1, backgroundColor: '#f3f4f6', alignItems: 'center', justifyContent: 'center' },
   imagePlaceholderText: { color: '#9ca3af', marginTop: 10, fontSize: 14, fontWeight: '500' },
   cameraBadge: { position: 'absolute', bottom: 15, right: 15, backgroundColor: '#10b981', padding: 10, borderRadius: 25, elevation: 5, shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 3, shadowOffset: {width: 0, height: 2} },
-
   section: { backgroundColor: '#fff', padding: 20, marginBottom: 10, borderBottomWidth: 1, borderBottomColor: '#f3f4f6' },
   sectionTitle: { fontSize: 16, fontWeight: 'bold', color: '#1f2937', marginBottom: 15 },
   label: { fontSize: 13, fontWeight: '600', color: '#4b5563', marginBottom: 8, marginTop: 10 },
   input: { backgroundColor: '#f9fafb', borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 10, paddingHorizontal: 15, paddingVertical: 12, fontSize: 15, color: '#1f2937' },
   textArea: { height: 80, paddingTop: 12 },
-
   deliveryRow: { flexDirection: 'row', gap: 10 },
   deliveryOption: { flex: 1, alignItems: 'center', backgroundColor: '#f9fafb', paddingVertical: 12, borderRadius: 10, borderWidth: 1, borderColor: '#e5e7eb', gap: 5 },
   deliveryOptionSelected: { backgroundColor: '#ecfdf5', borderColor: '#10b981' },
   deliveryTitle: { fontSize: 12, color: '#6b7280', fontWeight: '500' },
   deliveryTitleSelected: { color: '#10b981', fontWeight: 'bold' },
-
   businessHoursButton: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f9fafb', borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 10, padding: 15 },
   businessHoursInfo: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   businessHoursText: { fontSize: 14, color: '#1f2937', fontWeight: '500' },
-
   mapButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: '#f9fafb', borderWidth: 1, borderColor: '#e5e7eb', borderStyle: 'dashed', borderRadius: 10, padding: 15, gap: 8, marginTop: 10 },
   mapButtonText: { fontSize: 14, color: '#6b7280', fontWeight: '500' },
-
   warningText: { fontSize: 12, color: '#f59e0b', textAlign: 'center', marginTop: 10, paddingHorizontal: 20 },
-
   bannerPending: { flexDirection: 'row', alignItems: 'flex-start', backgroundColor: '#fef3c7', borderLeftWidth: 4, borderLeftColor: '#f59e0b', paddingHorizontal: 16, paddingVertical: 12, marginHorizontal: 0 },
   bannerTitle: { fontSize: 14, fontWeight: '700', color: '#92400e', marginBottom: 2 },
   bannerSubtitle: { fontSize: 12, color: '#92400e', lineHeight: 18 },
-
   bannerRejected: { flexDirection: 'row', alignItems: 'flex-start', backgroundColor: '#fee2e2', borderLeftWidth: 4, borderLeftColor: '#ef4444', paddingHorizontal: 16, paddingVertical: 12, marginHorizontal: 0 },
   bannerRejectedTitle: { fontSize: 14, fontWeight: '700', color: '#991b1b', marginBottom: 2 },
   bannerRejectedSubtitle: { fontSize: 12, color: '#991b1b', lineHeight: 18 },
-
-  footer: { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: '#fff', padding: 20, paddingBottom: Platform.OS === 'ios' ? 35 : 20, borderTopWidth: 1, borderTopColor: '#f3f4f6' },
+  footer: { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: '#fff', padding: 20, borderTopWidth: 1, borderTopColor: '#f3f4f6' },
   saveButton: { backgroundColor: '#10b981', paddingVertical: 15, borderRadius: 12, alignItems: 'center' },
   saveButtonText: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
   saveButtonDisabled: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: '#fef3c7', paddingVertical: 15, borderRadius: 12, borderWidth: 1.5, borderColor: '#f59e0b' },
   saveButtonDisabledText: { color: '#92400e', fontSize: 16, fontWeight: '600' },
-
-  // Styles สำหรับ Modal ต่างๆ
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
   modalContent: { backgroundColor: '#FFFFFF', borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: '85%' },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 20, borderBottomWidth: 1, borderBottomColor: '#EEE' },
@@ -617,10 +589,9 @@ const styles = StyleSheet.create({
   dash: { marginHorizontal: 10, color: '#999' },
   closedContainer: { backgroundColor: '#F5F5F5', padding: 10, borderRadius: 8, alignItems: 'center' },
   closedText: { color: '#999', fontSize: 14, fontStyle: 'italic' },
-  modalFooter: { padding: 20, borderTopWidth: 1, borderTopColor: '#EEE', paddingBottom: Platform.OS === 'ios' ? 40 : 20 },
+  modalFooter: { padding: 20, borderTopWidth: 1, borderTopColor: '#EEE' },
   modalDoneButton: { backgroundColor: '#10b981', borderRadius: 12, paddingVertical: 15, alignItems: 'center' },
   modalDoneButtonText: { color: '#FFF', fontWeight: 'bold', fontSize: 16 },
-
   modalContainer: { flex: 1, backgroundColor: '#FFFFFF' },
   modalBackButton: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#F5F5F5', justifyContent: 'center', alignItems: 'center' },
   modalConfirmButton: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#ecfdf5', justifyContent: 'center', alignItems: 'center' },
