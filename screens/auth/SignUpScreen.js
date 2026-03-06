@@ -14,7 +14,7 @@ import {
   StatusBar,
 } from 'react-native';
 import { createUserWithEmailAndPassword } from 'firebase/auth';
-import { doc, setDoc } from 'firebase/firestore';
+import { doc, setDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import { auth, db } from '../../firebase.config';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
@@ -47,7 +47,7 @@ export default function SignUpScreen({ navigation }) {
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,
         aspect: [1, 1],
-        quality: 0.3,
+        quality: 0.1,
         base64: true,
       });
 
@@ -78,7 +78,6 @@ export default function SignUpScreen({ navigation }) {
       return;
     }
 
-    // 🟢 เพิ่มการตรวจสอบเบอร์โทรศัพท์ (ขึ้นต้นด้วย 0 และมี 10 หลัก)
     const phoneRegex = /^0\d{9}$/;
     if (!phoneRegex.test(phoneNumber)) {
       Alert.alert('รูปแบบไม่ถูกต้อง', 'เบอร์โทรศัพท์ต้องขึ้นต้นด้วย 0 และมี 10 หลัก (เช่น 0812345678)');
@@ -102,6 +101,29 @@ export default function SignUpScreen({ navigation }) {
     setLoading(true);
 
     try {
+      const usersRef = collection(db, 'users');
+
+      // ✅ 1. เช็คก่อนว่า Username นี้มีคนใช้ไปแล้วหรือยัง
+      const usernameQuery = query(usersRef, where('username', '==', username));
+      const usernameSnapshot = await getDocs(usernameQuery);
+
+      if (!usernameSnapshot.empty) {
+        Alert.alert('ชื่อผู้ใช้ซ้ำ', 'ชื่อผู้ใช้นี้ถูกใช้งานแล้ว กรุณาตั้งชื่อผู้ใช้ใหม่ครับ');
+        setLoading(false);
+        return;
+      }
+
+      // ✅ 2. เช็คก่อนว่า เบอร์โทรศัพท์ นี้เคยถูกใช้สมัครไปแล้วหรือยัง (ป้องกันคนโดนแบนมาสมัครใหม่)
+      const phoneQuery = query(usersRef, where('phoneNumber', '==', phoneNumber));
+      const phoneSnapshot = await getDocs(phoneQuery);
+
+      if (!phoneSnapshot.empty) {
+        Alert.alert('เบอร์โทรศัพท์ซ้ำ', 'เบอร์โทรศัพท์นี้ถูกใช้สมัครบัญชีไปแล้ว ไม่สามารถใช้ซ้ำได้ครับ');
+        setLoading(false);
+        return;
+      }
+
+      // ถ้า Username และเบอร์โทรไม่ซ้ำ ให้สร้างบัญชีต่อ
       const userCredential = await createUserWithEmailAndPassword(auth, email.trim(), password);
       const user = userCredential.user;
 
@@ -205,6 +227,7 @@ export default function SignUpScreen({ navigation }) {
               style={styles.removeImageButton}
               onPress={() => {
                 setProfileImage(null);
+                setPickedImageBase64(null);
                 Alert.alert('สำเร็จ', 'ลบรูปภาพแล้ว');
               }}
             >
@@ -242,7 +265,6 @@ export default function SignUpScreen({ navigation }) {
             />
           </View>
 
-          {/* 🟢 ช่องกรอกเบอร์โทรศัพท์ เพิ่ม maxLength เป็น 10 */}
           <View style={[styles.inputContainer, { marginBottom: 6 }]}>
             <View style={styles.iconContainer}>
               <Ionicons name="call" size={20} color="#10b981" />
@@ -252,12 +274,11 @@ export default function SignUpScreen({ navigation }) {
               placeholder="เบอร์โทรศัพท์ (10 หลัก เริ่มด้วย 0)"
               value={phoneNumber}
               onChangeText={(text) => {
-                // กรองให้พิมพ์ได้เฉพาะตัวเลขเท่านั้น
                 const numericValue = text.replace(/[^0-9]/g, '');
                 setPhoneNumber(numericValue);
               }}
               keyboardType="phone-pad"
-              maxLength={10} // กำหนดไม่ให้พิมพ์เกิน 10 หลัก
+              maxLength={10}
               placeholderTextColor="#9ca3af"
             />
           </View>

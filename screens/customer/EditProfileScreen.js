@@ -3,7 +3,6 @@ import {
   View, Text, StyleSheet, TextInput, TouchableOpacity, Image, Alert,
   ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView, StatusBar,
 } from 'react-native';
-// ✅ 1. Import
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { auth, db } from '../../firebase.config';
@@ -11,7 +10,6 @@ import { doc, updateDoc, onSnapshot } from 'firebase/firestore';
 import * as ImagePicker from 'expo-image-picker';
 
 export default function EditProfileScreen({ navigation }) {
-  // ✅ 2. ดึงค่า Insets
   const insets = useSafeAreaInsets();
 
   const [userData, setUserData] = useState(null);
@@ -40,8 +38,20 @@ export default function EditProfileScreen({ navigation }) {
   const pickImage = async () => {
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (status !== 'granted') { Alert.alert('ขออนุญาต', 'แอปต้องการสิทธิ์เข้าถึงคลังรูปภาพ'); return; }
-      const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsEditing: true, aspect: [1, 1], quality: 0.3, base64: true });
-      if (!result.canceled) { setProfileImage(result.assets[0].uri); setPickedImageBase64(result.assets[0].base64); }
+
+      // ✅ ลด quality เหลือ 0.1 ป้องกัน Base64 ใหญ่เกินโควต้า 1MB ของ Firestore
+      const result = await ImagePicker.launchImageLibraryAsync({
+          mediaTypes: ImagePicker.MediaTypeOptions.Images,
+          allowsEditing: true,
+          aspect: [1, 1],
+          quality: 0.1,
+          base64: true
+      });
+
+      if (!result.canceled) {
+          setProfileImage(result.assets[0].uri);
+          setPickedImageBase64(result.assets[0].base64);
+      }
   };
 
   const handleSave = async () => {
@@ -57,11 +67,29 @@ export default function EditProfileScreen({ navigation }) {
     finally { setLoading(false); }
   };
 
+  // ✅ เพิ่มฟังก์ชันลบบัญชี
+  const handleDeleteAccount = () => {
+    Alert.alert(
+      'ลบบัญชี',
+      'คุณแน่ใจหรือไม่ว่าต้องการลบบัญชี?',
+      [
+        { text: 'ยกเลิก', style: 'cancel' },
+        {
+          text: 'ลบ',
+          style: 'destructive',
+          onPress: () => {
+            console.log('Call delete account function');
+            Alert.alert('แจ้งเตือน', 'ฟังก์ชันนี้อยู่ระหว่างการพัฒนาครับ');
+          }
+        }
+      ]
+    );
+  };
+
   return (
     <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#fff" />
 
-      {/* ✅ 3. ดัน Header ลงมา */}
       <View style={[styles.header, { paddingTop: Math.max(insets.top, 15) }]}>
         <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
           <Ionicons name="arrow-back" size={24} color="#1f2937" />
@@ -119,8 +147,8 @@ export default function EditProfileScreen({ navigation }) {
           </View>
         </View>
 
-        {/* ✅ 4. ดันปุ่มลบบัญชีให้พ้นขอบล่างเวลาเลื่อนสุด */}
-        <TouchableOpacity style={styles.deleteButton}>
+        {/* ✅ เรียกใช้ฟังก์ชัน handleDeleteAccount ที่นี่ */}
+        <TouchableOpacity style={styles.deleteButton} onPress={handleDeleteAccount}>
           <Ionicons name="trash-outline" size={20} color="#ef4444" />
           <Text style={styles.deleteText}>ลบบัญชี</Text>
         </TouchableOpacity>
@@ -131,7 +159,6 @@ export default function EditProfileScreen({ navigation }) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f9fafb' },
-  // 🟢 ลบ paddingTop ออก
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingBottom: 15, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#f3f4f6' },
   backButton: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#f3f4f6', alignItems: 'center', justifyContent: 'center' },
   headerTitle: { fontSize: 18, fontWeight: '600', color: '#1f2937' },

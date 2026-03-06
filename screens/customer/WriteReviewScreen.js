@@ -3,7 +3,6 @@ import {
   View, Text, StyleSheet, TextInput, TouchableOpacity, ActivityIndicator,
   KeyboardAvoidingView, Platform, ScrollView, StatusBar, Modal, Alert, Image
 } from 'react-native';
-// ✅ 1. Import
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { auth, db } from '../../firebase.config';
@@ -12,8 +11,6 @@ import * as ImagePicker from 'expo-image-picker';
 
 export default function WriteReviewScreen({ navigation, route }) {
   const { order } = route.params || {};
-
-  // ✅ 2. ดึงค่า Insets
   const insets = useSafeAreaInsets();
 
   const targetStoreId = order?.storeId;
@@ -26,6 +23,9 @@ export default function WriteReviewScreen({ navigation, route }) {
   const [loading, setLoading] = useState(false);
   const [imageUri, setImageUri] = useState(null);
 
+  // ✅ เพิ่ม State เก็บ Base64
+  const [imageBase64, setImageBase64] = useState(null);
+
   const [alertVisible, setAlertVisible] = useState(false);
   const [alertConfig, setAlertConfig] = useState({ title: '', message: '', type: 'error', onConfirm: null });
 
@@ -37,8 +37,18 @@ export default function WriteReviewScreen({ navigation, route }) {
   };
 
   const pickImage = async () => {
-    let result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsEditing: true, aspect: [4, 3], quality: 0.5 });
-    if (!result.canceled) setImageUri(result.assets[0].uri);
+    // ✅ เปิดการใช้งาน Base64 และลด Quality ลงเหลือ 0.1
+    let result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [4, 3],
+        quality: 0.1,
+        base64: true
+    });
+    if (!result.canceled) {
+        setImageUri(result.assets[0].uri);
+        setImageBase64(`data:image/jpeg;base64,${result.assets[0].base64}`); // ✅ เก็บ String ไว้เซฟลง DB
+    }
   };
 
   const showCustomAlert = (title, message, type = 'error', onConfirm = null) => {
@@ -82,7 +92,9 @@ export default function WriteReviewScreen({ navigation, route }) {
       await addDoc(collection(db, 'reviews'), {
         storeId: targetStoreId, storeName: targetStoreName, userId: user.uid, userName: realUserName,
         userProfileImage: realUserProfileImage, isAnonymous: isAnonymous, rating: rating, tags: selectedTags,
-        comment: comment.trim(), reviewImage: imageUri, reviewType: 'order', orderId: order.id,
+        comment: comment.trim(),
+        reviewImage: imageBase64, // ✅ เซฟ Base64 ลง Firestore เท่านั้น
+        reviewType: 'order', orderId: order.id,
         orderItems: order.items || null, orderType: order.orderType || null, orderTotalPrice: order.totalPrice || null,
         orderFoodName: order.foodName || 'รายการอาหาร', createdAt: serverTimestamp()
       });
@@ -110,7 +122,6 @@ export default function WriteReviewScreen({ navigation, route }) {
     <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#fff" />
 
-      {/* ✅ 3. ดัน Header ลงมา */}
       <View style={[styles.header, { paddingTop: Math.max(insets.top, 15) }]}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
           <Ionicons name="close" size={26} color="#1f2937" />
@@ -159,7 +170,7 @@ export default function WriteReviewScreen({ navigation, route }) {
         {imageUri ? (
            <View style={styles.imagePreviewContainer}>
               <Image source={{ uri: imageUri }} style={styles.imagePreview} />
-              <TouchableOpacity style={styles.removeImageBtn} onPress={() => setImageUri(null)}><Ionicons name="close-circle" size={28} color="#ef4444" /></TouchableOpacity>
+              <TouchableOpacity style={styles.removeImageBtn} onPress={() => {setImageUri(null); setImageBase64(null);}}><Ionicons name="close-circle" size={28} color="#ef4444" /></TouchableOpacity>
            </View>
         ) : (
            <TouchableOpacity style={styles.uploadImageBtn} onPress={pickImage}><Ionicons name="camera-outline" size={30} color="#9ca3af" /><Text style={styles.uploadImageText}>เพิ่มรูปภาพอาหาร</Text></TouchableOpacity>
@@ -186,7 +197,6 @@ export default function WriteReviewScreen({ navigation, route }) {
         </View>
       </Modal>
 
-      {/* ✅ 4. ดันปุ่มล่างขึ้นมา */}
       <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 20) }]}>
         <TouchableOpacity style={[styles.submitButton, loading && {opacity: 0.7}]} onPress={confirmSubmit} disabled={loading}>
           {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.submitButtonText}>ส่งรีวิวสินค้า</Text>}

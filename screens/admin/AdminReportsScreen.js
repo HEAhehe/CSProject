@@ -69,8 +69,11 @@ export default function AdminReportsScreen({ navigation }) {
 
         // กำหนดช่วงเวลา
         const now = new Date();
-        const startOfDay = new Date(now.setHours(0,0,0,0));
-        const startOfWeek = new Date(now.setDate(now.getDate() - 7));
+        const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+        const startOfWeek = new Date(startOfDay);
+        startOfWeek.setDate(startOfWeek.getDate() - 7);
+
         const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
 
         ordersSnapshot.forEach(doc => {

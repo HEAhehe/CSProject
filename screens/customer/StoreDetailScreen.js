@@ -200,7 +200,8 @@ export default function StoreDetailScreen({ navigation, route }) {
                 return (
                   <TouchableOpacity
                       style={[styles.foodCard, !isStoreOpen && { opacity: 0.6 }]}
-                      onPress={() => { if (isStoreOpen) navigation.push('FoodDetail', { food: { ...item, storeName: store.storeName, storeId: store.id } }); else Alert.alert('ร้านปิดให้บริการ', 'ไม่สามารถสั่งอาหารได้ในขณะนี้ กรุณาทำรายการในเวลาทำการครับ'); }}
+                      // ✅ ปล่อยให้ลูกค้ากดเข้าไปดูหน้าอาหารได้เลย หน้า FoodDetail จะเป็นตัวบล็อกปุ่มสั่งซื้อเอง
+                      onPress={() => navigation.push('FoodDetail', { food: { ...item, storeName: store.storeName, storeId: store.id } })}
                   >
                       <View style={styles.imageWrapper}>
                           <Image source={{ uri: item.imageUrl }} style={styles.foodImage} />

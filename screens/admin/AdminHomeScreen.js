@@ -121,8 +121,11 @@ export default function AdminHomeScreen({ navigation }) {
       if (actionType === 'reject') updateData.rejectReason = reason;
       await updateDoc(doc(db, 'approval_requests', request.id), updateData);
 
-      if (request.userId) {
-        const storeDocRef = doc(db, 'stores', request.userId);
+      // ✅ แก้ไข: ดักจับ ID ผู้ใช้ให้ครอบคลุมทุกกรณี เพื่อป้องกันบั๊คอัปเดตข้อมูลร้านไม่สำเร็จ
+      const targetUserId = request.userId || request.uid || request.storeId;
+
+      if (targetUserId) {
+        const storeDocRef = doc(db, 'stores', targetUserId);
         const notifRef = collection(db, 'store_notifications');
         const userNotifRef = collection(db, 'notifications');
 
@@ -133,12 +136,12 @@ export default function AdminHomeScreen({ navigation }) {
                 approvedBy: auth.currentUser?.email || 'Admin',
                 approvedDate: new Date().toISOString(), updatedAt: new Date().toISOString()
               });
-              await updateDoc(doc(db, 'users', request.userId), {
+              await updateDoc(doc(db, 'users', targetUserId), {
                 currentRole: 'store', hasStorePending: false, updatedAt: new Date().toISOString()
               });
 
               await addDoc(userNotifRef, {
-                 userId: request.userId,
+                 userId: targetUserId,
                  title: 'ยินดีด้วย! ร้านค้าอนุมัติแล้ว 🎉',
                  message: 'คุณสามารถเริ่มโพสต์ขายอาหารเพื่อช่วยลด Food Waste ได้เลย',
                  type: 'store_approved',
@@ -147,11 +150,11 @@ export default function AdminHomeScreen({ navigation }) {
               });
 
             } else {
-              await updateDoc(doc(db, 'users', request.userId), { hasStorePending: false, updatedAt: new Date().toISOString() });
+              await updateDoc(doc(db, 'users', targetUserId), { hasStorePending: false, updatedAt: new Date().toISOString() });
               await updateDoc(storeDocRef, { status: 'rejected', isActive: false, rejectReason: reason, updatedAt: new Date().toISOString() });
 
               await addDoc(userNotifRef, {
-                 userId: request.userId,
+                 userId: targetUserId,
                  title: 'คำขอเปิดร้านถูกปฏิเสธ ❌',
                  message: `(เหตุผล: ${reason}) กรุณาตรวจสอบข้อมูลและส่งคำขอใหม่อีกครั้ง`,
                  type: 'store_rejected',
@@ -171,14 +174,9 @@ export default function AdminHomeScreen({ navigation }) {
             let mappedDetails = request.details ? { ...request.details } : {};
             if (request.newData) {
               const keyMap = {
-                storeName: 'ชื่อร้านค้า',
-                storeOwner: 'เจ้าของร้าน',
-                phoneNumber: 'เบอร์โทรศัพท์',
-                location: 'ที่อยู่ร้าน',
-                storeDetails: 'รายละเอียดร้าน',
-                deliveryMethod: 'การจัดส่ง',
-                storeImage: 'รูปร้านค้า',
-                businessHours: 'เวลาทำการ'
+                storeName: 'ชื่อร้านค้า', storeOwner: 'เจ้าของร้าน', phoneNumber: 'เบอร์โทรศัพท์',
+                location: 'ที่อยู่ร้าน', storeDetails: 'รายละเอียดร้าน', deliveryMethod: 'การจัดส่ง',
+                storeImage: 'รูปร้านค้า', businessHours: 'เวลาทำการ'
               };
 
               const getBHoursText = (bh) => {
@@ -215,7 +213,7 @@ export default function AdminHomeScreen({ navigation }) {
 
             if (actionType === 'approve') {
                 await addDoc(notifRef, {
-                    storeId: request.userId,
+                    storeId: targetUserId,
                     title: 'แก้ไขข้อมูลร้านได้รับการอนุมัติ ✅',
                     message: `แอดมินอนุมัติการแก้ไขข้อมูลร้าน "${storeName}" เรียบร้อยแล้ว ข้อมูลได้รับการอัปเดตแล้ว`,
                     type: 'store_edit_approved',
@@ -225,7 +223,7 @@ export default function AdminHomeScreen({ navigation }) {
                 });
             } else {
                 await addDoc(notifRef, {
-                    storeId: request.userId,
+                    storeId: targetUserId,
                     title: 'แก้ไขข้อมูลร้านถูกปฏิเสธ ❌',
                     message: `แอดมินไม่อนุมัติการแก้ไขข้อมูลร้าน "${storeName}"`,
                     cancelReason: reason,

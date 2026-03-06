@@ -3,7 +3,6 @@ import {
   View, Text, StyleSheet, Platform, FlatList, TouchableOpacity, Image,
   StatusBar, ActivityIndicator, Pressable, Modal
 } from 'react-native';
-// ✅ 1. Import (มีอยู่แล้ว)
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { db, auth } from '../../firebase.config';
@@ -14,7 +13,6 @@ export default function CartScreen({ navigation }) {
   const [selectedItems, setSelectedItems] = useState(new Set());
   const [totalPrice, setTotalPrice] = useState(0);
 
-  // ✅ 2. ดึงค่า Insets (มีอยู่แล้ว)
   const insets = useSafeAreaInsets();
 
   const [totalOriginalPrice, setTotalOriginalPrice] = useState(0);
@@ -171,6 +169,16 @@ export default function CartScreen({ navigation }) {
             acc[sId].push(item);
             return acc;
           }, {});
+
+          // ✅ ตรวจสอบป้องกันร้านค้าซื้อของตัวเอง
+          for (const storeId in groupedByStore) {
+            if (storeId === user.uid) {
+               showCustomAlert('ไม่สามารถสั่งซื้อได้', 'คุณไม่สามารถสั่งซื้อสินค้าจากร้านของตัวเองได้ครับ', 'error');
+               setLoading(false);
+               isProcessing.current = false;
+               return;
+            }
+          }
 
           for (const storeId in groupedByStore) {
             const itemsInOrder = groupedByStore[storeId];
@@ -341,7 +349,6 @@ export default function CartScreen({ navigation }) {
     <View style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#fff" />
 
-      {/* ✅ 3. ดัน Header ลงมาไม่ให้ทับรอยบาก */}
       <View style={[styles.header, { paddingTop: Math.max(insets.top, 15) }]}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
             <Ionicons name="arrow-back" size={24} color="#1f2937" />
@@ -380,7 +387,6 @@ export default function CartScreen({ navigation }) {
       />
 
       {cartItems.length > 0 && (
-          // ✅ 4. ดัน Footer ขึ้นมาไม่ให้ทับแถบ Home ด้านล่าง
           <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 20) }]}>
               <View style={styles.totalRow}>
                   <View>

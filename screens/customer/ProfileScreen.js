@@ -149,7 +149,7 @@ export default function ProfileScreen({ navigation }) {
           <Ionicons name="log-out-outline" size={22} color="#ef4444" />
           <Text style={styles.logoutText}>ออกจากระบบ</Text>
         </TouchableOpacity>
-        <Text style={[styles.versionText, { paddingBottom: Math.max(insets.bottom, 10) }]}>เวอร์ชัน 0.0.1</Text>
+        <Text style={[styles.versionText, { paddingBottom: Math.max(insets.bottom, 10) }]}>เวอร์ชัน 1.0.0</Text>
       </ScrollView>
     </View>
   );

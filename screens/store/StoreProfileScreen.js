@@ -175,7 +175,7 @@ export default function StoreProfileScreen({ navigation }) {
           <Ionicons name="log-out-outline" size={22} color="#ef4444" />
           <Text style={styles.logoutText}>ออกจากระบบ</Text>
         </TouchableOpacity>
-        <Text style={styles.versionText}>เวอร์ชัน 0.0.1</Text>
+        <Text style={styles.versionText}>เวอร์ชัน 1.0.0</Text>
 
       </ScrollView>
     </View>

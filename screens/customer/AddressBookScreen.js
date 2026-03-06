@@ -107,23 +107,29 @@ export default function AddressBookScreen({ navigation }) {
 
   const openMapPicker = async () => {
     setMapModalVisible(true);
-    // ถ้าแก้ไขที่อยู่และมีพิกัดเดิมอยู่แล้ว ให้ข้ามการดึง GPS ใหม่
     if (tempLocation && editingId) return;
 
     setIsFetchingGPS(true);
     try {
       let { status } = await Location.requestForegroundPermissionsAsync();
-      if (status === 'granted') {
-        let location = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-        setMapRegion({
-          latitude: location.coords.latitude,
-          longitude: location.coords.longitude,
-          latitudeDelta: 0.005,
-          longitudeDelta: 0.005,
-        });
+
+      // ✅ แก้ไข: ดักกรณีไม่อนุญาตสิทธิ์การเข้าถึงตำแหน่ง
+      if (status !== 'granted') {
+        Alert.alert('แจ้งเตือน', 'กรุณาอนุญาตสิทธิ์การเข้าถึงตำแหน่งเพื่อใช้งานแผนที่ครับ');
+        setIsFetchingGPS(false);
+        return;
       }
+
+      let location = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      setMapRegion({
+        latitude: location.coords.latitude,
+        longitude: location.coords.longitude,
+        latitudeDelta: 0.005,
+        longitudeDelta: 0.005,
+      });
     } catch (error) {
       console.log('Cannot fetch current location', error);
+      Alert.alert('ข้อผิดพลาด', 'ไม่สามารถค้นหาตำแหน่งปัจจุบันได้');
     }
     setIsFetchingGPS(false);
   };
@@ -410,6 +416,13 @@ export default function AddressBookScreen({ navigation }) {
             region={mapRegion}
             onRegionChangeComplete={(region) => setMapRegion(region)}
             showsUserLocation={true}
+            // ✅ เพิ่ม mapPadding เพื่อดัน UI ของแผนที่ (เช่นปุ่ม GPS, โลโก้ Google) ให้หลบแถบของเรา
+            mapPadding={{
+              top: Math.max(insets.top, 15) + 60,     // ดันลงมาจากด้านบนให้พ้นแถบค้นหา
+              bottom: Math.max(insets.bottom, 20) + 100, // ดันขึ้นจากด้านล่างให้พ้นแถบปุ่มยืนยันพิกัด
+              left: 0,
+              right: 0
+            }}
           />
 
           <View pointerEvents="none" style={styles.markerFixed}>
