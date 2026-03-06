@@ -492,11 +492,11 @@ export default function StoreDashboardScreen({ navigation, route }) {
           <View style={styles.storeStatRow}>
             <View style={styles.storeStatBox}>
               <Text style={styles.storeStatBoxTitle}>ออเดอร์ทั้งหมด</Text>
-              <Text style={styles.storeStatBoxValue}>{stats.totalOrders} รายการ</Text>
+              <Text style={styles.storeStatBoxValue}>{`${stats.totalOrders} รายการ`}</Text>
             </View>
             <View style={styles.storeStatBox}>
               <Text style={styles.storeStatBoxTitle}>สำเร็จ</Text>
-              <Text style={styles.storeStatBoxValue}>{stats.completedOrders} รายการ</Text>
+              <Text style={styles.storeStatBoxValue}>{`${stats.completedOrders} รายการ`}</Text>
             </View>
           </View>
         </View>
@@ -536,7 +536,7 @@ export default function StoreDashboardScreen({ navigation, route }) {
           <View>
             <Text style={styles.headerTitle}>{storeData?.storeName || 'ร้านค้าของฉัน'}</Text>
             <Text style={styles.headerSubtitle}>
-              {storeData?.category ? `${storeData.category} · ` : ''}Dashboard ร้านค้า
+              {storeData?.category ? `${storeData.category} · Dashboard ร้านค้า` : 'Dashboard ร้านค้า'}
             </Text>
           </View>
         </View>
@@ -607,7 +607,7 @@ export default function StoreDashboardScreen({ navigation, route }) {
               </TouchableOpacity>
 
               <View style={[styles.filterButton, { backgroundColor: '#f0fdf4', borderColor: '#10b981', borderWidth: 1 }]}>
-                <Text style={[styles.filterLabel, { color: '#10b981' }]}>รายได้ {getPeriodLabel()}</Text>
+                <Text style={[styles.filterLabel, { color: '#10b981' }]}>{`รายได้ ${getPeriodLabel()}`}</Text>
                 <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#10b981' }}>
                   ฿{stats.totalRevenue.toLocaleString()}
                 </Text>
@@ -692,7 +692,7 @@ export default function StoreDashboardScreen({ navigation, route }) {
 
             <View style={styles.productsContainer}>
               {topProducts.map((product, index) => (
-                <View key={product.name} style={styles.productRow}> {/* แก้ไขตรงนี้ */}
+                <View key={product.name} style={styles.productRow}>
                   <View style={styles.productRank}>
                     <Text style={styles.productRankText}>#{index + 1}</Text>
                   </View>
@@ -701,7 +701,7 @@ export default function StoreDashboardScreen({ navigation, route }) {
                       {product.name}
                     </Text>
                     <Text style={styles.productSales}>
-                      ขายได้ {product.soldCount} ชุด
+                      {`ขายได้ ${product.soldCount} ชุด`}
                     </Text>
                   </View>
                 </View>
@@ -757,11 +757,11 @@ export default function StoreDashboardScreen({ navigation, route }) {
 
             <View style={rStyles.monthRevenueRow}>
               <View style={rStyles.monthRevLeft}>
-                <Text style={rStyles.monthRevLabel}>รายได้ {monthNames[reportMonth]} {reportYear}</Text>
+                <Text style={rStyles.monthRevLabel}>{`รายได้ ${monthNames[reportMonth]} ${reportYear}`}</Text>
                 <Text style={rStyles.monthRevValue}>฿{tableRevenue.toLocaleString()}</Text>
               </View>
               <View style={rStyles.monthRevRight}>
-                <Text style={rStyles.monthRevCount}>{completedTableOrders.length} ออเดอร์</Text>
+                <Text style={rStyles.monthRevCount}>{`${completedTableOrders.length} ออเดอร์`}</Text>
               </View>
             </View>
 
@@ -827,7 +827,7 @@ export default function StoreDashboardScreen({ navigation, route }) {
                     <Ionicons name="receipt-outline" size={32} color="#10b981" />
                   </View>
                   <Text style={rStyles.emptyTitle}>ยังไม่มีออเดอร์</Text>
-                  <Text style={rStyles.emptySubtitle}>ไม่พบข้อมูลใน{monthNames[reportMonth]} {reportYear}</Text>
+                  <Text style={rStyles.emptySubtitle}>{`ไม่พบข้อมูลใน${monthNames[reportMonth]} ${reportYear}`}</Text>
                 </View>
               ) : (
                 tableMenuRows.map((row, index) => (
@@ -868,7 +868,7 @@ export default function StoreDashboardScreen({ navigation, route }) {
                     <Ionicons key={s} name={s <= Math.round(stats.averageRating) ? 'star' : 'star-outline'} size={16} color="#f59e0b" />
                   ))}
                 </View>
-                <Text style={rvStyles.summaryCount}>{reviews.length} รีวิว</Text>
+                <Text style={rvStyles.summaryCount}>{`${reviews.length} รีวิว`}</Text>
               </View>
               <View style={rvStyles.summaryBars}>
                 {[5,4,3,2,1].map(star => {
