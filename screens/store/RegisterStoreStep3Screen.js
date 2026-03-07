@@ -90,10 +90,13 @@ export default function RegisterStoreStep3Screen({ navigation, route }) {
 
       const bh = step1Data?.businessHours || {};
       const formattedHoursSummary = Object.keys(bh)
-        .filter(day => bh[day].isOpen)
+        // เอา .filter() ออก เพื่อให้ดึงมาทุกวัน
         .map(day => {
           const dayLabel = daysOfWeek.find(d => d.id === day)?.label || day;
-          return `${dayLabel}: ${bh[day].openTime}-${bh[day].closeTime}`;
+          // เช็คว่าถ้าเปิดให้แสดงเวลา ถ้าปิดให้แสดงคำว่า "ปิดทำการ"
+          return bh[day].isOpen
+            ? `${dayLabel}: ${bh[day].openTime}-${bh[day].closeTime}`
+            : `${dayLabel}: ปิดทำการ`;
         })
         .join('\n');
 
@@ -127,6 +130,7 @@ export default function RegisterStoreStep3Screen({ navigation, route }) {
         storeName: step1Data?.storeName || '',
         requestDate: new Date().toISOString(),
         status: 'pending',
+        storeImage: selectedImage, // 🟢 ส่งรูปภาพมาเก็บไว้ใน Document ด้วย
         details: {
           'ชื่อร้าน': step1Data?.storeName || '',
           'เจ้าของร้าน': step1Data?.storeOwner || '',
@@ -137,6 +141,7 @@ export default function RegisterStoreStep3Screen({ navigation, route }) {
           'ที่อยู่': step2Data?.location || '',
           'พิกัด': step2Data?.coordinates ?
                   `${step2Data.coordinates.latitude}, ${step2Data.coordinates.longitude}` : 'ไม่ระบุ',
+          'รายละเอียดร้าน': step1Data?.storeDetails || 'ไม่ระบุ', // 🟢 เพิ่มรายละเอียดร้านเข้ามา
         }
       };
 

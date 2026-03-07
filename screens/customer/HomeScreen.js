@@ -361,7 +361,10 @@ export default function HomeScreen({ navigation }) {
         <View style={[styles.header, { paddingTop: Math.max(insets.top, 20) + 10 }]}>
         <View style={styles.headerLeft}>
             <TouchableOpacity style={styles.menuButton} onPress={toggleDrawer}><Ionicons name="menu" size={30} color="#1f2937" /></TouchableOpacity>
-            <TouchableOpacity style={styles.profileTextButton} onPress={() => navigation.navigate('Profile')} activeOpacity={0.6}><Text style={styles.greeting}>สวัสดี, {userData?.username || 'User'}</Text></TouchableOpacity>
+            {/* เพิ่ม flex: 1 และ marginRight ให้ปุ่ม และใส่ numberOfLines ให้ Text */}
+            <TouchableOpacity style={[styles.profileTextButton, { flex: 1, marginRight: 10 }]} onPress={() => navigation.navigate('Profile')} activeOpacity={0.6}>
+                <Text style={styles.greeting} numberOfLines={1} ellipsizeMode="tail">สวัสดี, {userData?.username || 'User'}</Text>
+            </TouchableOpacity>
         </View>
         <View style={styles.headerRight}>
             <TouchableOpacity style={styles.cartHeaderButton} onPress={() => navigation.navigate('Cart')}>

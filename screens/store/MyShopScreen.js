@@ -529,7 +529,10 @@ export default function MyShopScreen({ navigation }) {
         <View style={styles.storeBanner}>
           <Text style={styles.greeting}>สวัสดี, 👋</Text>
           <View style={styles.storeNameRow}>
-            <Text style={styles.storeName}>{storeData?.storeName || 'ร้านค้าของคุณ'}</Text>
+            {/* เพิ่ม flex: 1 และ marginRight ให้ Text เพื่อไม่ให้ดัน Badge ตกขอบ */}
+            <Text style={[styles.storeName, { flex: 1, marginRight: 10 }]} numberOfLines={1} ellipsizeMode="tail">
+              {storeData?.storeName || 'ร้านค้าของคุณ'}
+            </Text>
             <View style={[styles.statusBadge, isStoreOpen ? styles.statusOpen : styles.statusClosed]}>
               <View style={[styles.statusDot, { backgroundColor: isStoreOpen ? '#10b981' : '#ef4444' }]} />
               <Text style={[styles.statusText, { color: isStoreOpen ? '#065f46' : '#991b1b' }]}>{isStoreOpen ? 'เปิด' : 'ปิด'}</Text>

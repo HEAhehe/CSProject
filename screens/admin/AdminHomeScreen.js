@@ -410,7 +410,7 @@ export default function AdminHomeScreen({ navigation }) {
                 label="รายละเอียดร้าน"
                 icon="document-text-outline"
                 oldVal={oldStoreData?.storeDetails}
-                newVal={item.newData?.storeDetails}
+                newVal={isUpdate ? item.newData?.storeDetails : (item.details?.['รายละเอียดร้าน'] || item.storeDetails)}
             />
 
             <CompareField
