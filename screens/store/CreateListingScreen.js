@@ -6,6 +6,8 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { auth, db } from '../../firebase.config';
 import { collection, addDoc, doc, updateDoc, serverTimestamp, getDoc, getDocs, writeBatch } from 'firebase/firestore';
+// ✅ นำเข้าฟังก์ชัน Storage เพื่อใช้อัปโหลดรูปภาพ
+import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import * as ImagePicker from 'expo-image-picker';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -111,13 +113,18 @@ export default function CreateListingScreen({ navigation, route }) {
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
+      // เปลี่ยนจาก Images เป็น All หรือคงไว้แต่เตรียมรับข้อความเตือน (Expo แนะนำให้ใช้วิธีอื่นในอนาคต แต่ตอนนี้ยังใช้ได้)
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsEditing: true,
       aspect: [4, 3],
-      quality: 0.7,
+      quality: 0.2, // ✅ สำคัญมาก! ต้องปรับลดลงเหลือ 0.1 - 0.2 เพื่อไม่ให้ไฟล์เกิน 1MB
+      base64: true, // ✅ สั่งให้ Expo คืนค่ารูปภาพมาเป็น Base64
     });
+
     if (!result.canceled) {
-      setImageUri(result.assets[0].uri);
+      // เอาข้อมูล Base64 มาต่อ String ให้พร้อมใช้งาน
+      const base64Image = `data:image/jpeg;base64,${result.assets[0].base64}`;
+      setImageUri(base64Image);
     }
   };
 
@@ -139,6 +146,28 @@ export default function CreateListingScreen({ navigation, route }) {
       const user = auth.currentUser;
       if (!user) throw new Error('Not authenticated');
 
+      // ✅ 1. เตรียมตัวแปรเก็บ URL รูปล่าสุด
+      let finalImageUrl = imageUri;
+
+      // ✅ 2. ตรวจสอบว่ารูปนี้เป็นไฟล์ในเครื่อง (file://) ที่เพิ่งเลือกใหม่หรือไม่
+      if (imageUri && imageUri.startsWith('file://')) {
+        const storage = getStorage();
+        // สร้างชื่อไฟล์ไม่ให้ซ้ำกันด้วย Timestamp
+        const filename = `food_images/${user.uid}_${Date.now()}.jpg`;
+        const storageRef = ref(storage, filename);
+
+        // แปลงไฟล์รูปภาพเป็น Blob สำหรับส่งขึ้น Firebase
+        const response = await fetch(imageUri);
+        const blob = await response.blob();
+
+        // อัปโหลดขึ้น Firebase Storage
+        await uploadBytes(storageRef, blob);
+
+        // ขอลิงก์ออนไลน์ (Download URL) ที่สามารถเปิดได้จากทุกเครื่อง
+        finalImageUrl = await getDownloadURL(storageRef);
+      }
+
+      // ✅ 3. เอาลิงก์ออนไลน์ที่ได้ ไปใส่ใน payload แทน imageUri เดิม
       const payload = {
         name: name.trim(),
         description: description.trim(),
@@ -149,7 +178,7 @@ export default function CreateListingScreen({ navigation, route }) {
         unit,
         sellingUnit: unit,
         category,
-        imageUrl: imageUri || null,
+        imageUrl: finalImageUrl || null, // <--- ใช้ finalImageUrl ตรงนี้
         userId: user.uid,
         storeId: user.uid,
         storeName: storeData?.storeName || '',
@@ -173,7 +202,7 @@ export default function CreateListingScreen({ navigation, route }) {
           user.uid,
           storeData?.storeName || '',
           name.trim(),
-          imageUri || null,
+          finalImageUrl || null, // <--- ใช้ finalImageUrl ตรงนี้
           docRef.id,
           Number(discountPrice),
           Number(originalPrice)

@@ -106,17 +106,22 @@ export default function AddressBookScreen({ navigation }) {
   };
 
   const openMapPicker = async () => {
+    // ✅ ซ่อน Modal ฟอร์มก่อนเปิด Modal แผนที่ (แก้บัคเปิด Modal ซ้อนกันบน iOS)
+    setIsModalVisible(false);
     setMapModalVisible(true);
+
     if (tempLocation && editingId) return;
 
     setIsFetchingGPS(true);
     try {
       let { status } = await Location.requestForegroundPermissionsAsync();
 
-      // ✅ แก้ไข: ดักกรณีไม่อนุญาตสิทธิ์การเข้าถึงตำแหน่ง
       if (status !== 'granted') {
         Alert.alert('แจ้งเตือน', 'กรุณาอนุญาตสิทธิ์การเข้าถึงตำแหน่งเพื่อใช้งานแผนที่ครับ');
         setIsFetchingGPS(false);
+        // ถ้าไม่อนุญาต ให้ปิดแผนที่แล้วกลับไปหน้าฟอร์ม
+        setMapModalVisible(false);
+        setIsModalVisible(true);
         return;
       }
 
@@ -166,6 +171,8 @@ export default function AddressBookScreen({ navigation }) {
       longitude: mapRegion.longitude
     });
     setMapModalVisible(false);
+    // ✅ เปิด Modal ฟอร์มกลับมาทำงานต่อ
+    setIsModalVisible(true);
   };
 
   // ✅ ฟังก์ชันบันทึกข้อมูล (รองรับทั้งการ เพิ่มใหม่ และ แก้ไข)
@@ -432,7 +439,14 @@ export default function AddressBookScreen({ navigation }) {
           <View style={[styles.mapBottomBar, { paddingBottom: Math.max(insets.bottom, 20) }]}>
             <Text style={styles.mapGuideText}>เลื่อนแผนที่ให้หมุดตรงกับตำแหน่งที่ต้องการ</Text>
             <View style={styles.mapButtonGroup}>
-              <TouchableOpacity style={styles.mapCancelBtn} onPress={() => setMapModalVisible(false)}>
+              <TouchableOpacity
+                style={styles.mapCancelBtn}
+                onPress={() => {
+                  setMapModalVisible(false);
+                  // ✅ เปิด Modal ฟอร์มกลับมาเหมือนเดิมถ้ายกเลิกการปักหมุด
+                  setIsModalVisible(true);
+                }}
+              >
                 <Text style={styles.mapCancelBtnText}>ยกเลิก</Text>
               </TouchableOpacity>
               <TouchableOpacity style={styles.mapConfirmBtn} onPress={confirmMapLocation}>
