@@ -113,8 +113,9 @@ export default function CreateListingScreen({ navigation, route }) {
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsEditing: true,
-      aspect: [4, 3],
-      quality: 0.7,
+      aspect: [16, 9],
+      quality: 0.2,
+      base64: true,
     });
     if (!result.canceled) {
       setImageUri(result.assets[0].uri);
