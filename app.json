@@ -14,7 +14,10 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.foodwaste.app"
+      "bundleIdentifier": "com.foodwaste.app",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "แอปพลิเคชันต้องการเข้าถึงตำแหน่งของคุณเพื่อปักหมุดที่อยู่จัดส่งอาหาร"
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -26,7 +29,9 @@
       "permissions": [
         "READ_EXTERNAL_STORAGE",
         "WRITE_EXTERNAL_STORAGE",
-        "CAMERA"
+        "CAMERA",
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION"
       ]
     },
     "web": {
@@ -37,6 +42,12 @@
         "expo-image-picker",
         {
           "photosPermission": "The app accesses your photos to let you select a profile picture."
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Allow FoodWaste to use your location to pin delivery addresses."
         }
       ],
       "expo-asset",
