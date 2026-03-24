@@ -1,55 +1,45 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  StatusBar,
-  ScrollView,
-  TextInput,
-  RefreshControl,
-  Modal,
-  Image,
-  Alert
+  View, Text, StyleSheet, TouchableOpacity, StatusBar, ScrollView,
+  TextInput, RefreshControl, Modal, Image, Alert
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { db, auth } from '../../firebase.config';
-import { collection, getDocs, doc, updateDoc, query } from 'firebase/firestore';
+import { collection, getDocs, doc, updateDoc, getDoc, query, addDoc } from 'firebase/firestore';
+// ✅ 1. Import SafeArea
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function AdminHomeScreen({ navigation }) {
+  // ✅ 2. ดึง insets
+  const insets = useSafeAreaInsets();
+
   const [requests, setRequests] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedStatus, setSelectedStatus] = useState('pending'); // pending, approved, rejected, all
+  const [selectedStatus, setSelectedStatus] = useState('pending');
   const [refreshing, setRefreshing] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  // Stats Counters
-  const [counts, setCounts] = useState({
-    pending: 0,
-    approved: 0,
-    rejected: 0,
-    all: 0
-  });
+  const [counts, setCounts] = useState({ pending: 0, approved: 0, rejected: 0, all: 0 });
 
-  // Action States
   const [modalVisible, setModalVisible] = useState(false);
   const [selectedRequest, setSelectedRequest] = useState(null);
   const [rejectReason, setRejectReason] = useState('');
+  const [expandedId, setExpandedId] = useState(null);
 
-  // 1. ดึงข้อมูลเมื่อเข้าหน้าจอ
+  const [fullImageVisible, setFullImageVisible] = useState(false);
+  const [selectedImageUrl, setSelectedImageUrl] = useState('');
+
+  const toggleExpand = (id) => setExpandedId(expandedId === id ? null : id);
+
   useFocusEffect(
-    useCallback(() => {
-      fetchData();
-    }, [])
+    useCallback(() => { fetchData(); }, [])
   );
 
   const fetchData = async () => {
     try {
-      // ดึงข้อมูลคำขอทั้งหมด
       const q = query(collection(db, 'approval_requests'));
       const snapshot = await getDocs(q);
-
       const loadedRequests = [];
       let p = 0, a = 0, r = 0;
 
@@ -57,29 +47,20 @@ export default function AdminHomeScreen({ navigation }) {
         const data = doc.data();
         const item = { id: doc.id, ...data };
         loadedRequests.push(item);
-
-        // นับจำนวน
         const status = data.status || 'pending';
         if (status === 'pending') p++;
         else if (status === 'approved') a++;
         else if (status === 'rejected') r++;
       });
 
-      // เรียงลำดับวันที่ล่าสุดขึ้นก่อน
       loadedRequests.sort((a, b) => {
-        const dateA = a.requestDate ? new Date(a.requestDate) : new Date(0);
-        const dateB = b.requestDate ? new Date(b.requestDate) : new Date(0);
-        return dateB - dateA;
+        const timeA = a.requestDate ? new Date(a.requestDate).getTime() : 0;
+        const timeB = b.requestDate ? new Date(b.requestDate).getTime() : 0;
+        return timeB - timeA;
       });
 
       setRequests(loadedRequests);
-      setCounts({
-        pending: p,
-        approved: a,
-        rejected: r,
-        all: loadedRequests.length
-      });
-
+      setCounts({ pending: p, approved: a, rejected: r, all: loadedRequests.length });
     } catch (error) {
       console.error('Error fetching data:', error);
     } finally {
@@ -93,52 +74,39 @@ export default function AdminHomeScreen({ navigation }) {
     fetchData();
   };
 
-  // 2. ฟังก์ชันกรองข้อมูล (Search + Tabs)
   const getFilteredRequests = () => {
     let filtered = requests;
-
-    // กรองตาม Tab (ถ้าไม่ใช่ 'all')
     if (selectedStatus !== 'all') {
       filtered = filtered.filter(req => (req.status || 'pending') === selectedStatus);
     }
-
-    // กรองตาม Search
     if (searchQuery) {
       const lowerQuery = searchQuery.toLowerCase();
       filtered = filtered.filter(req =>
         (req.userName || '').toLowerCase().includes(lowerQuery) ||
         (req.storeName || '').toLowerCase().includes(lowerQuery) ||
-        (req.details?.storeName || '').toLowerCase().includes(lowerQuery)
+        (req.details?.['ชื่อร้าน'] || '').toLowerCase().includes(lowerQuery)
       );
     }
-
     return filtered;
   };
 
-  // 3. ฟังก์ชันจัดการคำขอ (เหมือนเดิมแต่ย้ายมาที่นี่)
   const handleAction = (request, action) => {
     setSelectedRequest(request);
     if (action === 'approve') {
-        confirmAction('approve', request);
+      confirmAction('approve', request);
     } else {
-        setModalVisible(true); // เปิด Modal เพื่อกรอกเหตุผลปฏิเสธ
+      setModalVisible(true);
     }
   };
 
   const confirmAction = (actionType, request, reason = '') => {
-    Alert.alert(
-      actionType === 'approve' ? 'ยืนยันการอนุมัติ' : 'ยืนยันการปฏิเสธ',
-      `คุณต้องการ${actionType === 'approve' ? 'อนุมัติ' : 'ปฏิเสธ'}ร้านค้านี้ใช่หรือไม่?`,
-      [
-        { text: 'ยกเลิก', style: 'cancel' },
-        {
-          text: 'ยืนยัน',
-          onPress: async () => {
-            await processUpdate(actionType, request, reason);
-          },
-        },
-      ]
-    );
+    let titleMsg = actionType === 'approve' ? 'ยืนยันการอนุมัติ' : 'ยืนยันการปฏิเสธ';
+    let bodyMsg = `คุณต้องการ${actionType === 'approve' ? 'อนุมัติ' : 'ปฏิเสธ'}${request.type === 'store_update' ? 'คำขอแก้ไขข้อมูลร้าน' : 'คำขอเปิดร้านใหม่'} ใช่หรือไม่?`;
+
+    Alert.alert(titleMsg, bodyMsg, [
+      { text: 'ยกเลิก', style: 'cancel' },
+      { text: 'ยืนยัน', onPress: async () => await processUpdate(actionType, request, reason) },
+    ]);
   };
 
   const processUpdate = async (actionType, request, reason) => {
@@ -150,38 +118,138 @@ export default function AdminHomeScreen({ navigation }) {
         updatedAt: new Date().toISOString(),
       };
 
-      if (actionType === 'reject') {
-        updateData.rejectReason = reason;
-      }
-
-      // อัปเดตสถานะคำขอ
+      if (actionType === 'reject') updateData.rejectReason = reason;
       await updateDoc(doc(db, 'approval_requests', request.id), updateData);
 
-      // ถ้าอนุมัติ -> อัปเกรด User เป็น Store
-      if (actionType === 'approve' && request.userId) {
-        await updateDoc(doc(db, 'users', request.userId), {
-          currentRole: 'store'
-        });
+      // ✅ แก้ไข: ดักจับ ID ผู้ใช้ให้ครอบคลุมทุกกรณี เพื่อป้องกันบั๊คอัปเดตข้อมูลร้านไม่สำเร็จ
+      const targetUserId = request.userId || request.uid || request.storeId;
+
+      if (targetUserId) {
+        const storeDocRef = doc(db, 'stores', targetUserId);
+        const notifRef = collection(db, 'store_notifications');
+        const userNotifRef = collection(db, 'notifications');
+
+        if (request.type === 'store_registration') {
+            if (actionType === 'approve') {
+              await updateDoc(storeDocRef, {
+                status: 'approved', isActive: true,
+                approvedBy: auth.currentUser?.email || 'Admin',
+                approvedDate: new Date().toISOString(), updatedAt: new Date().toISOString()
+              });
+              await updateDoc(doc(db, 'users', targetUserId), {
+                currentRole: 'store', hasStorePending: false, updatedAt: new Date().toISOString()
+              });
+
+              await addDoc(userNotifRef, {
+                 userId: targetUserId,
+                 title: 'ยินดีด้วย! ร้านค้าอนุมัติแล้ว 🎉',
+                 message: 'คุณสามารถเริ่มโพสต์ขายอาหารเพื่อช่วยลด Food Waste ได้เลย',
+                 type: 'store_approved',
+                 isRead: false,
+                 createdAt: new Date().toISOString()
+              });
+
+            } else {
+              await updateDoc(doc(db, 'users', targetUserId), { hasStorePending: false, updatedAt: new Date().toISOString() });
+              await updateDoc(storeDocRef, { status: 'rejected', isActive: false, rejectReason: reason, updatedAt: new Date().toISOString() });
+
+              await addDoc(userNotifRef, {
+                 userId: targetUserId,
+                 title: 'คำขอเปิดร้านถูกปฏิเสธ ❌',
+                 message: `(เหตุผล: ${reason}) กรุณาตรวจสอบข้อมูลและส่งคำขอใหม่อีกครั้ง`,
+                 type: 'store_rejected',
+                 isRead: false,
+                 createdAt: new Date().toISOString()
+              });
+            }
+        }
+        else if (request.type === 'store_update') {
+            const storeSnap = await getDoc(storeDocRef);
+            const currentStoreData = storeSnap.exists() ? storeSnap.data() : {};
+
+            if (actionType === 'approve' && request.newData) {
+                await updateDoc(storeDocRef, { ...request.newData, updatedAt: new Date().toISOString() });
+            }
+
+            let mappedDetails = request.details ? { ...request.details } : {};
+            if (request.newData) {
+              const keyMap = {
+                storeName: 'ชื่อร้านค้า', storeOwner: 'เจ้าของร้าน', phoneNumber: 'เบอร์โทรศัพท์',
+                location: 'ที่อยู่ร้าน', storeDetails: 'รายละเอียดร้าน', deliveryMethod: 'การจัดส่ง',
+                storeImage: 'รูปร้านค้า', businessHours: 'เวลาทำการ'
+              };
+
+              const getBHoursText = (bh) => {
+                  if (!bh) return 'ไม่ระบุ';
+                  if (typeof bh === 'string') return bh;
+                  const daysOfWeek = [
+                      { id: 'mon', label: 'จันทร์' }, { id: 'tue', label: 'อังคาร' }, { id: 'wed', label: 'พุธ' },
+                      { id: 'thu', label: 'พฤหัส' }, { id: 'fri', label: 'ศุกร์' }, { id: 'sat', label: 'เสาร์' }, { id: 'sun', label: 'อาทิตย์' }
+                  ];
+                  return daysOfWeek.map(d => {
+                      return bh[d.id]?.isOpen ? `${d.label}: ${bh[d.id].openTime}-${bh[d.id].closeTime}` : `${d.label}: ปิดทำการ`;
+                  }).join('\n');
+              };
+
+              Object.entries(request.newData).forEach(([key, val]) => {
+                if (keyMap[key] && val !== undefined && val !== null && val !== '') {
+                  let displayVal = val;
+                  if (key === 'deliveryMethod') {
+                    displayVal = val === 'pickup' ? 'รับที่ร้าน' : val === 'delivery' ? 'เดลิเวอรี่' : val === 'both' ? 'ทั้งสองแบบ' : val;
+                  } else if (key === 'businessHours') {
+                    displayVal = getBHoursText(val);
+                  }
+                  mappedDetails[keyMap[key]] = (key === 'storeImage') ? val : String(displayVal);
+                }
+              });
+            }
+
+            const finalImage = request.newData?.storeImage || request.storeImage || currentStoreData.storeImage;
+            if (finalImage) {
+                mappedDetails['รูปร้านค้า'] = finalImage;
+            }
+
+            const storeName = request.storeName || mappedDetails['ชื่อร้านค้า'] || request.newData?.storeName || 'ร้านค้าของคุณ';
+
+            if (actionType === 'approve') {
+                await addDoc(notifRef, {
+                    storeId: targetUserId,
+                    title: 'แก้ไขข้อมูลร้านได้รับการอนุมัติ ✅',
+                    message: `แอดมินอนุมัติการแก้ไขข้อมูลร้าน "${storeName}" เรียบร้อยแล้ว ข้อมูลได้รับการอัปเดตแล้ว`,
+                    type: 'store_edit_approved',
+                    details: mappedDetails,
+                    isRead: false,
+                    createdAt: new Date().toISOString()
+                });
+            } else {
+                await addDoc(notifRef, {
+                    storeId: targetUserId,
+                    title: 'แก้ไขข้อมูลร้านถูกปฏิเสธ ❌',
+                    message: `แอดมินไม่อนุมัติการแก้ไขข้อมูลร้าน "${storeName}"`,
+                    cancelReason: reason,
+                    type: 'store_edit_rejected',
+                    details: mappedDetails,
+                    isRead: false,
+                    createdAt: new Date().toISOString()
+                });
+            }
+        }
       }
 
       Alert.alert('สำเร็จ', 'บันทึกสถานะเรียบร้อยแล้ว');
       setModalVisible(false);
       setRejectReason('');
-      fetchData(); // โหลดข้อมูลใหม่
-
+      fetchData();
     } catch (error) {
-      console.error('Update error:', error);
-      Alert.alert('ข้อผิดพลาด', 'ไม่สามารถอัปเดตข้อมูลได้');
+      Alert.alert('ข้อผิดพลาด', `ไม่สามารถอัปเดตข้อมูลได้: ${error.message}`);
     }
   };
 
-  // UI Components
+  const openImage = (url) => { setSelectedImageUrl(url); setFullImageVisible(true); };
+
   const StatusCard = ({ icon, label, count, color, filterKey }) => (
     <TouchableOpacity
-      style={[
-        styles.statusCard,
-        selectedStatus === filterKey && { borderColor: color, borderWidth: 1.5, backgroundColor: `${color}05` }
-      ]}
+      style={[styles.statusCard, selectedStatus === filterKey && { borderColor: color, borderWidth: 1.5, backgroundColor: `${color}05` }]}
       onPress={() => setSelectedStatus(filterKey)}
     >
       <View style={styles.cardHeader}>
@@ -193,58 +261,223 @@ export default function AdminHomeScreen({ navigation }) {
   );
 
   const RequestItem = ({ item }) => {
-    const isPending = (item.status || 'pending') === 'pending';
-    const details = item.details || {};
+    const isExpanded = expandedId === item.id;
+    const currentStatus = item.status || 'pending';
+    const statusColor = currentStatus === 'approved' ? '#10b981' : currentStatus === 'rejected' ? '#ef4444' : '#f59e0b';
+    const isUpdate = item.type === 'store_update';
+
+    const [oldStoreData, setOldStoreData] = useState(null);
+
+    useEffect(() => {
+      if (isUpdate && item.userId) {
+        const fetchOldData = async () => {
+          try {
+            const snap = await getDoc(doc(db, 'stores', item.userId));
+            if (snap.exists()) setOldStoreData(snap.data());
+          } catch(e) {
+            console.log("Error fetching old data:", e);
+          }
+        };
+        fetchOldData();
+      }
+    }, [item.userId]);
+
+    const getDeliveryText = (val) => val === 'pickup' ? 'รับที่ร้าน' : val === 'delivery' ? 'เดลิเวอรี่' : val === 'both' ? 'ทั้งสองแบบ' : 'ไม่ระบุ';
+
+    const getBHoursText = (bh) => {
+        if (!bh) return 'ไม่ระบุ';
+        const daysOfWeek = [
+            { id: 'mon', label: 'จันทร์' }, { id: 'tue', label: 'อังคาร' }, { id: 'wed', label: 'พุธ' },
+            { id: 'thu', label: 'พฤหัส' }, { id: 'fri', label: 'ศุกร์' }, { id: 'sat', label: 'เสาร์' }, { id: 'sun', label: 'อาทิตย์' }
+        ];
+        return daysOfWeek.filter(d => bh[d.id]?.isOpen)
+                         .map(d => `${d.label}: ${bh[d.id].openTime}-${bh[d.id].closeTime}`)
+                         .join(', ') || 'ปิดทำการทุกวัน';
+    };
+
+    const CompareField = ({ label, oldVal, newVal, icon }) => {
+        const isChanged = isUpdate && String(oldVal || '') !== String(newVal || '');
+
+        return (
+            <View style={styles.detailSection}>
+                <Text style={styles.detailTitle}>{label} {isChanged && <Text style={{color:'#f59e0b', fontSize: 11}}>(มีการแก้ไข)</Text>}</Text>
+                {isChanged ? (
+                    <View style={styles.changedBox}>
+                        <View style={styles.oldRow}>
+                            <Ionicons name={icon} size={16} color="#ef4444" />
+                            <Text style={styles.oldText}>{oldVal || 'ไม่ระบุข้อมูลเดิม'}</Text>
+                        </View>
+                        <View style={styles.arrowRow}>
+                            <Ionicons name="arrow-down" size={14} color="#9ca3af" />
+                        </View>
+                        <View style={styles.newRow}>
+                            <Ionicons name={icon} size={16} color="#10b981" />
+                            <Text style={styles.newText}>{newVal || 'ไม่ระบุ'}</Text>
+                        </View>
+                    </View>
+                ) : (
+                    <View style={styles.detailBox}>
+                        <Ionicons name={icon} size={18} color="#6b7280" style={styles.detailIcon} />
+                        <Text style={styles.detailValue}>{newVal || 'ไม่ระบุ'}</Text>
+                    </View>
+                )}
+            </View>
+        );
+    };
+
+    const displayImage = isUpdate ? (item.newData?.storeImage || oldStoreData?.storeImage) : (item.details?.['รูปภาพ'] || item.storeImage);
+    const hasImageChanged = isUpdate && (oldStoreData?.storeImage !== item.newData?.storeImage) && !!item.newData?.storeImage;
 
     return (
       <View style={styles.requestCard}>
-        <View style={styles.requestHeader}>
+        <View style={styles.cardMainHeader}>
           <View style={styles.requestIcon}>
-            <Ionicons name="storefront" size={24} color="#6b7280" />
+            {displayImage ? (
+              <Image source={{ uri: displayImage }} style={styles.storeMiniImage} />
+            ) : (
+              <Ionicons name="storefront-outline" size={24} color="#9ca3af" />
+            )}
           </View>
-          <View style={styles.requestInfo}>
-            <Text style={styles.storeName}>{item.userName || details.storeName || 'ไม่ระบุชื่อร้าน'}</Text>
-            <Text style={styles.ownerName}>ผู้ขอ: {item.userEmail}</Text>
-            <Text style={styles.requestDate}>
-                {item.requestDate ? new Date(item.requestDate).toLocaleDateString('th-TH') : '-'}
-            </Text>
+
+          <View style={styles.headerInfo}>
+            <View style={styles.badgeRow}>
+              <Text style={[styles.statusBadgeText, { color: statusColor, backgroundColor: `${statusColor}15` }]}>
+                {currentStatus === 'approved' ? 'อนุมัติแล้ว' : currentStatus === 'rejected' ? 'ปฏิเสธ' : 'รอดำเนินการ'}
+              </Text>
+
+              <View style={[styles.typeBadge, isUpdate ? styles.typeUpdateBg : styles.typeRegisterBg]}>
+                <Text style={[styles.typeBadgeText, isUpdate ? styles.typeUpdateText : styles.typeRegisterText]}>
+                  {isUpdate ? '📝 ขอแก้ไขข้อมูล' : '🆕 สมัครร้านใหม่'}
+                </Text>
+              </View>
+            </View>
+
+            <Text style={styles.storeNameText}>{item.newData?.storeName || item.details?.['ชื่อร้าน'] || item.storeName || 'ไม่ระบุชื่อร้าน'}</Text>
+            <Text style={styles.ownerLabel}>โดย: {item.newData?.storeOwner || item.userName || 'ไม่ระบุ'}</Text>
+            <Text style={styles.dateLabel}>ส่งเมื่อ: {new Date(item.requestDate).toLocaleDateString('th-TH', {year:'numeric', month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'})}</Text>
           </View>
-          {/* Badge สถานะ */}
-          <View style={[
-            styles.statusBadge,
-            { backgroundColor: item.status === 'approved' ? '#dcfce7' : item.status === 'rejected' ? '#fee2e2' : '#fef3c7' }
-          ]}>
-            <Text style={[
-                styles.statusText,
-                { color: item.status === 'approved' ? '#16a34a' : item.status === 'rejected' ? '#ef4444' : '#d97706' }
-            ]}>
-                {item.status === 'approved' ? 'อนุมัติ' : item.status === 'rejected' ? 'ปฏิเสธ' : 'รอตรวจสอบ'}
-            </Text>
-          </View>
+
+          <TouchableOpacity onPress={() => toggleExpand(item.id)} style={styles.expandBtn}>
+             <Ionicons name={isExpanded ? "chevron-up" : "chevron-down"} size={22} color="#6b7280" />
+          </TouchableOpacity>
         </View>
 
-        {/* รายละเอียดเพิ่มเติม (Expandable style) */}
-        <View style={styles.detailsContainer}>
-            <Text style={styles.detailText}>📍 ที่อยู่: {details.address || '-'}</Text>
-            <Text style={styles.detailText}>📞 โทร: {details.phoneNumber || '-'}</Text>
-            <Text style={styles.detailText}>📝 รายละเอียด: {details.description || '-'}</Text>
-        </View>
+        {currentStatus === 'pending' && (
+           <View style={styles.quickActionRow}>
+              <TouchableOpacity style={styles.miniBtnApprove} onPress={() => handleAction(item, 'approve')}>
+                <Ionicons name="checkmark-circle" size={16} color="#fff" />
+                <Text style={styles.miniBtnTextApprove}>อนุมัติ</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.miniBtnReject} onPress={() => handleAction(item, 'reject')}>
+                <Ionicons name="close-circle" size={16} color="#ef4444" />
+                <Text style={styles.miniBtnTextReject}>ปฏิเสธ</Text>
+              </TouchableOpacity>
+           </View>
+        )}
 
-        {/* ปุ่มจัดการ (แสดงเฉพาะ Pending) */}
-        {isPending && (
-          <View style={styles.actionButtons}>
-            <TouchableOpacity
-              style={[styles.btn, styles.btnReject]}
-              onPress={() => handleAction(item, 'reject')}
-            >
-              <Text style={styles.btnTextReject}>ปฏิเสธ</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.btn, styles.btnApprove]}
-              onPress={() => handleAction(item, 'approve')}
-            >
-              <Text style={styles.btnTextApprove}>อนุมัติ</Text>
-            </TouchableOpacity>
+        {isExpanded && (
+          <View style={styles.expandedContent}>
+
+            <CompareField
+                label="ชื่อร้านค้า"
+                icon="storefront-outline"
+                oldVal={oldStoreData?.storeName}
+                newVal={item.newData?.storeName || item.details?.['ชื่อร้าน']}
+            />
+
+            <CompareField
+                label="เจ้าของร้าน"
+                icon="person-outline"
+                oldVal={oldStoreData?.storeOwner}
+                newVal={item.newData?.storeOwner || item.details?.['เจ้าของร้าน']}
+            />
+
+            <CompareField
+                label="ข้อมูลติดต่อ (เบอร์โทร)"
+                icon="call-outline"
+                oldVal={oldStoreData?.phoneNumber}
+                newVal={item.newData?.phoneNumber || item.details?.['เบอร์โทร']}
+            />
+
+            <CompareField
+                label="ที่อยู่ร้าน"
+                icon="location-outline"
+                oldVal={oldStoreData?.location}
+                newVal={item.newData?.location || item.details?.['ที่อยู่ใหม่'] || item.details?.['ที่อยู่']}
+            />
+
+            <CompareField
+                label="รายละเอียดร้าน"
+                icon="document-text-outline"
+                oldVal={oldStoreData?.storeDetails}
+                newVal={isUpdate ? item.newData?.storeDetails : (item.details?.['รายละเอียดร้าน'] || item.storeDetails)}
+            />
+
+            <CompareField
+                label="การจัดส่ง"
+                icon="bicycle-outline"
+                oldVal={getDeliveryText(oldStoreData?.deliveryMethod)}
+                newVal={isUpdate ? getDeliveryText(item.newData?.deliveryMethod) : item.details?.['การจัดส่ง']}
+            />
+
+            <CompareField
+                label="เวลาทำการ"
+                icon="time-outline"
+                oldVal={getBHoursText(oldStoreData?.businessHours)}
+                newVal={isUpdate ? getBHoursText(item.newData?.businessHours) : item.details?.['เวลาทำการ']}
+            />
+
+            <View style={styles.detailSection}>
+              <Text style={styles.detailTitle}>รูปประกอบร้านค้า {hasImageChanged && <Text style={{color:'#f59e0b', fontSize: 11}}>(เปลี่ยนรูปใหม่)</Text>}</Text>
+
+              {hasImageChanged ? (
+                 <View style={{flexDirection: 'row', gap: 10}}>
+                    <View style={{flex: 1}}>
+                        <Text style={{fontSize: 12, color: '#ef4444', marginBottom: 4, textAlign: 'center'}}>รูปเดิม</Text>
+                        <View style={[styles.imagePreviewBox, {height: 100}]}>
+                            {oldStoreData?.storeImage ? (
+                                <Image source={{ uri: oldStoreData.storeImage }} style={styles.previewImage} />
+                            ) : (
+                                <View style={{flex: 1, backgroundColor: '#f3f4f6', alignItems:'center', justifyContent:'center'}}>
+                                    <Ionicons name="image-outline" size={24} color="#9ca3af" />
+                                </View>
+                            )}
+                        </View>
+                    </View>
+                    <View style={{flex: 1}}>
+                        <Text style={{fontSize: 12, color: '#10b981', marginBottom: 4, textAlign: 'center', fontWeight: 'bold'}}>รูปใหม่</Text>
+                        <View style={[styles.imagePreviewBox, {height: 100, borderColor: '#10b981', borderWidth: 2}]}>
+                            {item.newData?.storeImage && (
+                                <>
+                                    <Image source={{ uri: item.newData.storeImage }} style={styles.previewImage} />
+                                    <TouchableOpacity style={styles.imageOverlay} onPress={() => openImage(item.newData.storeImage)}>
+                                        <Ionicons name="expand-outline" size={18} color="#fff" />
+                                    </TouchableOpacity>
+                                </>
+                            )}
+                        </View>
+                    </View>
+                 </View>
+              ) : (
+                displayImage ? (
+                    <View style={styles.imagePreviewBox}>
+                        <Image source={{ uri: displayImage }} style={styles.previewImage} />
+                        <View style={styles.imageOverlay}>
+                            <TouchableOpacity style={styles.viewFullBtn} onPress={() => openImage(displayImage)}>
+                                <Ionicons name="expand-outline" size={16} color="#fff" />
+                                <Text style={styles.viewFullText}>ดูรูปเต็ม</Text>
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+                ) : (
+                    <View style={styles.noImageBox}>
+                        <Ionicons name="image-outline" size={30} color="#9ca3af" />
+                        <Text style={styles.noImageText}>ไม่มีรูปภาพประกอบ</Text>
+                    </View>
+                )
+              )}
+            </View>
+
           </View>
         )}
       </View>
@@ -254,53 +487,40 @@ export default function AdminHomeScreen({ navigation }) {
   return (
     <View style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#f9fafb" />
-
-      {/* Header & Go to Stats */}
-      <View style={styles.header}>
+      {/* ✅ 3. ดัน Header ลงให้พ้นรอยบาก */}
+      <View style={[styles.header, { paddingTop: Math.max(insets.top, 20) }]}>
         <View>
-            <Text style={styles.headerTitle}>Admin Panel</Text>
-            <Text style={styles.headerSubtitle}>จัดการคำขอสมัครเป็นร้านค้า</Text>
+          <Text style={styles.headerTitle}>Admin Panel</Text>
+          <Text style={styles.headerSubtitle}>จัดการคำขออนุมัติ</Text>
         </View>
-        <TouchableOpacity
-            style={styles.statsButton}
-            onPress={() => navigation.navigate('AdminReports')}
-        >
-            <Ionicons name="stats-chart" size={16} color="#1f2937" />
-            <Text style={styles.statsButtonText}>ไปยังสถิติ</Text>
+        <TouchableOpacity style={styles.statsButton} onPress={() => navigation.navigate('AdminReports')}>
+          <Ionicons name="bar-chart-outline" size={18} color="#1f2937" />
+          <Text style={styles.statsButtonText}>ไปยังสถิติ</Text>
         </TouchableOpacity>
       </View>
 
+      {/* ✅ 4. เพิ่ม contentContainerStyle ดันเนื้อหาล่างสุดให้พ้นเมนู */}
       <ScrollView
         style={styles.content}
+        contentContainerStyle={{ paddingBottom: insets.bottom + 90 }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+        showsVerticalScrollIndicator={false}
       >
-        {/* Status Cards Grid */}
         <View style={styles.cardsGrid}>
-            <StatusCard icon="time-outline" label="รอดำเนินการ" count={counts.pending} color="#f59e0b" filterKey="pending" />
-            <StatusCard icon="checkmark-circle-outline" label="อนุมัติแล้ว" count={counts.approved} color="#10b981" filterKey="approved" />
-            <StatusCard icon="close-circle-outline" label="ปฏิเสธ" count={counts.rejected} color="#ef4444" filterKey="rejected" />
-            <StatusCard icon="list-outline" label="ทั้งหมด" count={counts.all} color="#6366f1" filterKey="all" />
+          <StatusCard icon="time-outline" label="รอดำเนินการ" count={counts.pending} color="#f59e0b" filterKey="pending" />
+          <StatusCard icon="checkmark-circle" label="อนุมัติแล้ว" count={counts.approved} color="#10b981" filterKey="approved" />
+          <StatusCard icon="close-circle" label="ปฏิเสธ" count={counts.rejected} color="#ef4444" filterKey="rejected" />
+          <StatusCard icon="list-outline" label="ทั้งหมด" count={counts.all} color="#3b82f6" filterKey="all" />
         </View>
 
-        {/* Search Bar */}
         <View style={styles.searchContainer}>
-            <Ionicons name="search" size={20} color="#9ca3af" />
-            <TextInput
-                style={styles.searchInput}
-                placeholder="Search..."
-                value={searchQuery}
-                onChangeText={setSearchQuery}
-            />
+          <Ionicons name="search" size={20} color="#6b7280" />
+          <TextInput style={styles.searchInput} placeholder="ค้นหาชื่อร้าน หรือเจ้าของร้าน..." value={searchQuery} onChangeText={setSearchQuery} />
         </View>
 
-        {/* Tabs */}
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabsContainer}>
             {['pending', 'approved', 'rejected'].map(status => (
-                <TouchableOpacity
-                    key={status}
-                    style={[styles.tab, selectedStatus === status && styles.tabActive]}
-                    onPress={() => setSelectedStatus(status)}
-                >
+                <TouchableOpacity key={status} style={[styles.tab, selectedStatus === status && styles.tabActive]} onPress={() => setSelectedStatus(status)}>
                     <Text style={[styles.tabText, selectedStatus === status && styles.tabTextActive]}>
                         {status === 'pending' ? 'รอดำเนินการ' : status === 'approved' ? 'อนุมัติแล้ว' : 'ปฏิเสธ'}
                     </Text>
@@ -308,93 +528,50 @@ export default function AdminHomeScreen({ navigation }) {
             ))}
         </ScrollView>
 
-        {/* Requests List */}
         <View style={styles.listContainer}>
-            {getFilteredRequests().map(item => (
-                <RequestItem key={item.id} item={item} />
-            ))}
-            {getFilteredRequests().length === 0 && (
-                <View style={styles.emptyState}>
-                    <Text style={styles.emptyText}>ไม่พบข้อมูล</Text>
-                </View>
-            )}
+          {getFilteredRequests().map(item => <RequestItem key={item.id} item={item} />)}
+          {getFilteredRequests().length === 0 && <View style={styles.emptyState}><Text style={styles.emptyText}>ไม่พบข้อมูล</Text></View>}
         </View>
-
-        <View style={{height: 100}} />
       </ScrollView>
 
-      {/* Reject Reason Modal */}
-      <Modal
-        animationType="slide"
-        transparent={true}
-        visible={modalVisible}
-        onRequestClose={() => setModalVisible(false)}
-      >
+      <Modal animationType="fade" transparent={true} visible={modalVisible}>
         <View style={styles.modalOverlay}>
-            <View style={styles.modalContent}>
-                <View style={styles.modalHeader}>
-                    <Text style={styles.modalTitle}>ปฏิเสธคำขอ</Text>
-                    <TouchableOpacity onPress={() => setModalVisible(false)}>
-                        <Ionicons name="close" size={24} color="#1f2937" />
-                    </TouchableOpacity>
-                </View>
-                <Text style={styles.modalSubtitle}>เหตุผลในการปฏิเสธ</Text>
-                <TextInput
-                    style={styles.rejectInput}
-                    placeholder="กรุณาระบุเหตุผล..."
-                    multiline
-                    numberOfLines={4}
-                    value={rejectReason}
-                    onChangeText={setRejectReason}
-                />
-                <View style={styles.modalActions}>
-                    <TouchableOpacity
-                        style={styles.modalBtnCancel}
-                        onPress={() => setModalVisible(false)}
-                    >
-                        <Text style={styles.modalBtnTextCancel}>ยกเลิก</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                        style={styles.modalBtnConfirm}
-                        onPress={() => confirmAction('reject', selectedRequest, rejectReason)}
-                    >
-                        <Text style={styles.modalBtnTextConfirm}>ยืนยัน</Text>
-                    </TouchableOpacity>
-                </View>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>เหตุผลในการปฏิเสธ</Text>
+            <TextInput style={styles.rejectInput} placeholder="ระบุเหตุผลที่นี่..." multiline value={rejectReason} onChangeText={setRejectReason} />
+            <View style={styles.modalActions}>
+              <TouchableOpacity style={styles.modalBtnCancel} onPress={() => setModalVisible(false)}><Text style={{fontWeight:'600', color:'#4b5563'}}>ยกเลิก</Text></TouchableOpacity>
+
+              <TouchableOpacity style={styles.modalBtnConfirm} onPress={() => {
+                if(!rejectReason.trim()){
+                  Alert.alert('แจ้งเตือน', 'กรุณาระบุเหตุผลในการปฏิเสธคำขอ');
+                  return;
+                }
+                processUpdate('reject', selectedRequest, rejectReason);
+              }}>
+                <Text style={{ color: '#fff', fontWeight:'600' }}>ยืนยัน</Text>
+              </TouchableOpacity>
+
             </View>
+          </View>
         </View>
       </Modal>
 
-      {/* Bottom Nav */}
-      <View style={styles.bottomNav}>
-        <TouchableOpacity style={styles.navItem}>
-          <Ionicons name="home" size={24} color="#1f2937" />
-          <Text style={styles.navLabelActive}>หน้าหลัก</Text>
-        </TouchableOpacity>
+      <Modal animationType="fade" transparent={true} visible={fullImageVisible}>
+        <View style={styles.imageModalOverlay}>
+          <TouchableOpacity style={styles.closeImageBtn} onPress={() => setFullImageVisible(false)}>
+            <Ionicons name="close" size={30} color="#fff" />
+          </TouchableOpacity>
+          {selectedImageUrl ? <Image source={{ uri: selectedImageUrl }} style={styles.fullScreenImage} resizeMode="contain" /> : null}
+        </View>
+      </Modal>
 
-        <TouchableOpacity
-          style={styles.navItem}
-          onPress={() => navigation.navigate('AdminUsers')}
-        >
-          <Ionicons name="people-outline" size={24} color="#9ca3af" />
-          <Text style={styles.navLabel}>บัญชี</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.navItem}
-          onPress={() => navigation.navigate('AdminReports')}
-        >
-          <Ionicons name="stats-chart-outline" size={24} color="#9ca3af" />
-          <Text style={styles.navLabel}>รายงาน</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.navItem}
-          onPress={() => navigation.navigate('AdminProfile')}
-        >
-          <Ionicons name="person-outline" size={24} color="#9ca3af" />
-          <Text style={styles.navLabel}>โปรไฟล์</Text>
-        </TouchableOpacity>
+      {/* ✅ 5. ดัน Bottom Nav ขึ้น */}
+      <View style={[styles.bottomNav, { paddingBottom: Math.max(insets.bottom, 10) }]}>
+        <TouchableOpacity style={styles.navItem}><Ionicons name="home" size={24} color="#1f2937" /><Text style={styles.navLabelActive}>หน้าหลัก</Text></TouchableOpacity>
+        <TouchableOpacity style={styles.navItem} onPress={() => navigation.navigate('AdminUsers')}><Ionicons name="people-outline" size={24} color="#9ca3af" /><Text style={styles.navLabel}>บัญชี</Text></TouchableOpacity>
+        <TouchableOpacity style={styles.navItem} onPress={() => navigation.navigate('AdminReports')}><Ionicons name="stats-chart-outline" size={24} color="#9ca3af" /><Text style={styles.navLabel}>รายงาน</Text></TouchableOpacity>
+        <TouchableOpacity style={styles.navItem} onPress={() => navigation.navigate('AdminProfile')}><Ionicons name="person-outline" size={24} color="#9ca3af" /><Text style={styles.navLabel}>โปรไฟล์</Text></TouchableOpacity>
       </View>
     </View>
   );
@@ -402,105 +579,94 @@ export default function AdminHomeScreen({ navigation }) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f9fafb' },
-  header: {
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    paddingHorizontal: 20, paddingTop: 60, paddingBottom: 20, backgroundColor: '#fff',
-  },
+  // 🟢 เอา paddingTop: 60 ออกจาก CSS เพราะเราทำ inline style ด้านบนแล้ว
+  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingBottom: 20, backgroundColor: '#fff' },
   headerTitle: { fontSize: 20, fontWeight: 'bold', color: '#1f2937' },
   headerSubtitle: { fontSize: 12, color: '#6b7280' },
-  statsButton: {
-    flexDirection: 'row', alignItems: 'center', backgroundColor: '#f3f4f6',
-    paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20, gap: 6
-  },
+  statsButton: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#f3f4f6', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20, gap: 6 },
   statsButtonText: { fontSize: 13, fontWeight: '600', color: '#1f2937' },
-
   content: { flex: 1, paddingHorizontal: 20 },
-
-  // Cards Grid
-  cardsGrid: {
-    flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 15,
-  },
-  statusCard: {
-    width: '48%', backgroundColor: '#fff', padding: 15, borderRadius: 12,
-    borderWidth: 1, borderColor: '#e5e7eb', marginBottom: 5
-  },
-  cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
+  cardsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 15 },
+  statusCard: { width: '48%', backgroundColor: '#fff', padding: 15, borderRadius: 12, borderWidth: 1, borderColor: '#e5e7eb' },
+  cardHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 },
   cardCount: { fontSize: 18, fontWeight: 'bold' },
   cardLabel: { fontSize: 13, color: '#6b7280' },
-
-  // Search
-  searchContainer: {
-    flexDirection: 'row', alignItems: 'center', backgroundColor: '#e5e7eb',
-    borderRadius: 10, paddingHorizontal: 15, height: 45, marginTop: 20, marginBottom: 15
-  },
-  searchInput: { flex: 1, marginLeft: 10, fontSize: 15 },
-
-  // Tabs
-  tabsContainer: { flexDirection: 'row', marginBottom: 15 },
-  tab: {
-    paddingVertical: 8, paddingHorizontal: 16, borderRadius: 20,
-    backgroundColor: '#fff', marginRight: 10, borderWidth: 1, borderColor: '#e5e7eb'
-  },
+  searchContainer: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 10, paddingHorizontal: 15, height: 45, marginTop: 20, marginBottom: 15 },
+  searchInput: { flex: 1, marginLeft: 10, fontSize: 14 },
+  tabsContainer: { flexDirection: 'row', marginBottom: 15, height: 40 },
+  tab: { paddingVertical: 8, paddingHorizontal: 16, borderRadius: 20, backgroundColor: '#fff', marginRight: 10, borderWidth: 1, borderColor: '#e5e7eb', justifyContent: 'center' },
   tabActive: { backgroundColor: '#1f2937', borderColor: '#1f2937' },
   tabText: { fontSize: 13, color: '#6b7280', fontWeight: '500' },
   tabTextActive: { color: '#fff' },
+  listContainer: { gap: 12 },
 
-  // List
-  listContainer: { gap: 15 },
-  requestCard: {
-    backgroundColor: '#fff', borderRadius: 12, padding: 15, borderWidth: 1, borderColor: '#e5e7eb'
-  },
-  requestHeader: { flexDirection: 'row', gap: 12 },
-  requestIcon: {
-    width: 50, height: 50, borderRadius: 8, backgroundColor: '#f3f4f6',
-    alignItems: 'center', justifyContent: 'center'
-  },
-  requestInfo: { flex: 1 },
-  storeName: { fontSize: 16, fontWeight: 'bold', color: '#1f2937' },
-  ownerName: { fontSize: 13, color: '#6b7280', marginTop: 2 },
-  requestDate: { fontSize: 12, color: '#9ca3af', marginTop: 2 },
+  requestCard: { backgroundColor: '#fff', borderRadius: 16, padding: 16, borderWidth: 1, borderColor: '#e5e7eb', shadowColor: "#000", shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 2, elevation: 2 },
+  cardMainHeader: { flexDirection: 'row', alignItems: 'flex-start' },
+  requestIcon: { width: 50, height: 50, borderRadius: 10, backgroundColor: '#f3f4f6', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  storeMiniImage: { width: '100%', height: '100%' },
+  headerInfo: { flex: 1, marginLeft: 12 },
 
-  statusBadge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, height: 24 },
-  statusText: { fontSize: 11, fontWeight: 'bold' },
+  badgeRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6, marginBottom: 6 },
+  statusBadgeText: { fontSize: 11, fontWeight: '600', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
+  typeBadge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
+  typeUpdateBg: { backgroundColor: '#ede9fe' },
+  typeRegisterBg: { backgroundColor: '#dbeafe' },
+  typeBadgeText: { fontSize: 10, fontWeight: 'bold' },
+  typeUpdateText: { color: '#8b5cf6' },
+  typeRegisterText: { color: '#3b82f6' },
 
-  detailsContainer: {
-    marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#f3f4f6', gap: 4
-  },
-  detailText: { fontSize: 13, color: '#4b5563' },
+  storeNameText: { fontSize: 16, fontWeight: 'bold', color: '#111827' },
+  ownerLabel: { fontSize: 12, color: '#6b7280', marginTop: 2 },
+  dateLabel: { fontSize: 11, color: '#9ca3af', marginTop: 2 },
 
-  actionButtons: { flexDirection: 'row', gap: 10, marginTop: 15 },
-  btn: { flex: 1, paddingVertical: 10, borderRadius: 8, alignItems: 'center' },
-  btnReject: { backgroundColor: '#fff', borderWidth: 1, borderColor: '#d1d5db' },
-  btnApprove: { backgroundColor: '#10b981' },
-  btnTextReject: { color: '#374151', fontWeight: '600' },
-  btnTextApprove: { color: '#fff', fontWeight: '600' },
+  expandBtn: { padding: 4, backgroundColor: '#f9fafb', borderRadius: 20, marginLeft: 10 },
 
-  emptyState: { alignItems: 'center', marginTop: 30 },
+  quickActionRow: { flexDirection: 'row', marginTop: 12, gap: 10, borderTopWidth: 1, borderTopColor: '#f3f4f6', paddingTop: 12 },
+  miniBtnApprove: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: '#10b981', paddingVertical: 10, borderRadius: 8 },
+  miniBtnReject: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: '#fee2e2', paddingVertical: 10, borderRadius: 8 },
+  miniBtnTextApprove: { fontSize: 13, fontWeight: '700', color: '#fff' },
+  miniBtnTextReject: { fontSize: 13, fontWeight: '700', color: '#ef4444' },
+
+  expandedContent: { marginTop: 12, borderTopWidth: 1, borderTopColor: '#f3f4f6', paddingTop: 16 },
+  detailSection: { marginBottom: 14 },
+  detailTitle: { fontSize: 13, fontWeight: '600', color: '#6b7280', marginBottom: 6, marginLeft: 2 },
+  detailBox: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#f9fafb', borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 10, padding: 12 },
+  detailIcon: { marginRight: 8 },
+  detailValue: { fontSize: 14, color: '#111827', flex: 1, lineHeight: 20 },
+
+  changedBox: { backgroundColor: '#f0fdf4', borderWidth: 1, borderColor: '#bbf7d0', borderRadius: 10, padding: 12, flexDirection: 'column' },
+  oldRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  oldText: { fontSize: 13, color: '#ef4444', textDecorationLine: 'line-through', flex: 1, lineHeight: 18 },
+  arrowRow: { paddingLeft: 24, marginVertical: 4 },
+  newRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  newText: { fontSize: 14, color: '#065f46', fontWeight: 'bold', flex: 1, lineHeight: 20 },
+
+  imagePreviewBox: { width: '100%', height: 160, borderRadius: 10, overflow: 'hidden', borderWidth: 1, borderColor: '#e5e7eb' },
+  previewImage: { width: '100%', height: '100%' },
+  imageOverlay: { position: 'absolute', bottom: 10, right: 10, backgroundColor: 'rgba(0,0,0,0.6)', padding: 6, borderRadius: 20 },
+  viewFullBtn: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.6)', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, gap: 4 },
+  viewFullText: { color: '#fff', fontSize: 12, fontWeight: '500' },
+  noImageBox: { backgroundColor: '#f9fafb', borderWidth: 1, borderColor: '#e5e7eb', borderStyle: 'dashed', borderRadius: 10, height: 100, alignItems: 'center', justifyContent: 'center' },
+  noImageText: { color: '#9ca3af', fontSize: 13, marginTop: 8 },
+
+  emptyState: { alignItems: 'center', marginTop: 40 },
   emptyText: { color: '#9ca3af' },
 
-  // Modal
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: 20 },
-  modalContent: { backgroundColor: '#fff', borderRadius: 16, padding: 20 },
-  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15 },
-  modalTitle: { fontSize: 18, fontWeight: 'bold' },
-  modalSubtitle: { fontSize: 14, color: '#6b7280', marginBottom: 10 },
-  rejectInput: {
-    backgroundColor: '#f9fafb', borderWidth: 1, borderColor: '#e5e7eb',
-    borderRadius: 8, padding: 12, height: 100, textAlignVertical: 'top', marginBottom: 20
-  },
-  modalActions: { flexDirection: 'row', gap: 10 },
-  modalBtnCancel: { flex: 1, padding: 12, borderRadius: 8, backgroundColor: '#f3f4f6', alignItems: 'center' },
-  modalBtnConfirm: { flex: 1, padding: 12, borderRadius: 8, backgroundColor: '#1f2937', alignItems: 'center' },
-  modalBtnTextCancel: { color: '#374151', fontWeight: '600' },
-  modalBtnTextConfirm: { color: '#fff', fontWeight: '600' },
+  modalContent: { backgroundColor: '#fff', borderRadius: 16, padding: 24 },
+  modalTitle: { fontSize: 18, fontWeight: 'bold', marginBottom: 16, color: '#111827' },
+  rejectInput: { backgroundColor: '#f9fafb', borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 10, padding: 14, height: 100, textAlignVertical: 'top', marginBottom: 20, fontSize: 15 },
+  modalActions: { flexDirection: 'row', gap: 12 },
+  modalBtnCancel: { flex: 1, padding: 14, borderRadius: 10, backgroundColor: '#f3f4f6', alignItems: 'center' },
+  modalBtnConfirm: { flex: 1, padding: 14, borderRadius: 10, backgroundColor: '#ef4444', alignItems: 'center' },
 
-  // Bottom Nav
-  bottomNav: {
-    flexDirection: 'row', backgroundColor: '#fff', paddingVertical: 8,
-    paddingHorizontal: 16, borderTopWidth: 1, borderTopColor: '#f3f4f6',
-    position: 'absolute', bottom: 0, left: 0, right: 0
-  },
-  navItem: { flex: 1, alignItems: 'center', paddingVertical: 8 },
-  navLabel: { fontSize: 11, color: '#9ca3af', marginTop: 4 },
-  navLabelActive: { fontSize: 11, color: '#1f2937', fontWeight: '600', marginTop: 4 },
+  imageModalOverlay: { flex: 1, backgroundColor: '#000', justifyContent: 'center', alignItems: 'center' },
+  closeImageBtn: { position: 'absolute', top: 50, right: 20, zIndex: 10, padding: 10 },
+  fullScreenImage: { width: '100%', height: '80%' },
+
+  // 🟢 เปลี่ยน paddingVertical เป็น paddingTop เพื่อรับกับ insets
+  bottomNav: { flexDirection: 'row', backgroundColor: '#fff', paddingTop: 10, borderTopWidth: 1, borderTopColor: '#f3f4f6', position: 'absolute', bottom: 0, width: '100%' },
+  navItem: { flex: 1, alignItems: 'center' },
+  navLabel: { fontSize: 10, color: '#9ca3af', marginTop: 4 },
+  navLabelActive: { fontSize: 10, color: '#1f2937', fontWeight: 'bold', marginTop: 4 },
 });

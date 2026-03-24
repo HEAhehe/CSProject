@@ -1,11 +1,9 @@
-const {getDefaultConfig, mergeConfig} = require('@react-native/metro-config');
+// เปลี่ยนจาก 'expo/metro-config' เป็น '@expo/metro-config'
+const { getDefaultConfig } = require('@expo/metro-config');
 
-/**
- * Metro configuration
- * https://reactnative.dev/docs/metro
- *
- * @type {import('metro-config').MetroConfig}
- */
-const config = {};
+const config = getDefaultConfig(__dirname);
 
-module.exports = mergeConfig(getDefaultConfig(__dirname), config);
+// ✅ ปิดตัวที่ทำให้เกิด Error: require doesn't exist
+config.resolver.unstable_enablePackageExports = false;
+
+module.exports = config;

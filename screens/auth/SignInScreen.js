@@ -13,42 +13,99 @@ import {
   StatusBar,
 } from 'react-native';
 import { signInWithEmailAndPassword } from 'firebase/auth';
+import { collection, query, where, getDocs, doc, getDoc } from 'firebase/firestore';
 import { auth, db } from '../../firebase.config';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function SignInScreen({ navigation }) {
-  const [username, setUsername] = useState('');
+  const insets = useSafeAreaInsets();
+
+  const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
   const handleSignIn = async () => {
-    if (!username || !password) {
+    if (!identifier || !password) {
       Alert.alert('ข้อผิดพลาด', 'กรุณากรอกข้อมูลให้ครบถ้วน');
       return;
     }
 
     setLoading(true);
     try {
-      const email = username.includes('@') ? username : `${username}@foodwaste.app`;
-      await signInWithEmailAndPassword(auth, email, password);
-      
-      // Navigate to Home after successful login
+      let loginEmail = identifier.trim();
+      let foundUserData = null; // ตัวแปรเก็บข้อมูลผู้ใช้ที่ค้นเจอ
+
+      const usersRef = collection(db, 'users');
+
+      // 🟢 1. ค้นหาข้อมูลผู้ใช้ในระบบก่อน (เพื่อเช็คสถานะแบนก่อนยอมให้ Firebase ล็อกอิน)
+      if (!loginEmail.includes('@')) {
+        // กรณีพิมพ์ Username
+        const q = query(usersRef, where('username', '==', loginEmail));
+        const querySnapshot = await getDocs(q);
+
+        if (!querySnapshot.empty) {
+          foundUserData = querySnapshot.docs[0].data();
+          loginEmail = foundUserData.email; // แปลง Username เป็น Email เพื่อใช้ล็อกอิน
+        } else {
+          Alert.alert('เข้าสู่ระบบล้มเหลว', 'ไม่พบชื่อผู้ใช้นี้ในระบบ');
+          setLoading(false);
+          return;
+        }
+      } else {
+        // กรณีพิมพ์ Email
+        const q = query(usersRef, where('email', '==', loginEmail));
+        const querySnapshot = await getDocs(q);
+
+        if (!querySnapshot.empty) {
+          foundUserData = querySnapshot.docs[0].data();
+        }
+      }
+
+      // 🔴 2. ด่านสกัดกั้น: เช็คสถานะการโดนแบนตรงนี้ก่อนเลย!
+      if (foundUserData && foundUserData.currentRole === 'banned') {
+        Alert.alert(
+          'บัญชีถูกระงับ',
+          'บัญชีของคุณถูกระงับการใช้งานเนื่องจากผิดเงื่อนไขบางประการ'
+        );
+        setLoading(false);
+        return; // 🛑 หยุดการทำงาน ไม่ส่งคำสั่ง Login ไปให้ Firebase (ป้องกันการแว๊บไปหน้า Home)
+      }
+
+      // 🟢 3. ถ้าผ่านด่านแบนมาได้ ค่อยเข้าสู่ระบบของจริง
+      const userCredential = await signInWithEmailAndPassword(auth, loginEmail, password);
+      const user = userCredential.user;
+
+      // ดึงข้อมูลอีกรอบเพื่อความชัวร์ หรือใช้ foundUserData ก็ได้
+      const userDocRef = doc(db, 'users', user.uid);
+      const userDocSnap = await getDoc(userDocRef);
+
+      if (userDocSnap.exists()) {
+        const userData = userDocSnap.data();
+        Alert.alert('สำเร็จ! 🎉', 'เข้าสู่ระบบเรียบร้อยแล้ว');
+
+        // พาไปหน้าถัดไปตาม Role
+        if (userData.currentRole === 'admin') {
+          navigation.replace('AdminHome');
+        } else {
+          navigation.replace('MainTabs');
+        }
+      } else {
+        Alert.alert('ข้อผิดพลาด', 'ไม่พบข้อมูลผู้ใช้ในระบบ');
+      }
+
     } catch (error) {
-      console.error(error);
+      console.error('Sign in error:', error);
       let errorMessage = 'เกิดข้อผิดพลาดในการเข้าสู่ระบบ';
-      
-      if (error.code === 'auth/invalid-email') {
-        errorMessage = 'รูปแบบอีเมลไม่ถูกต้อง';
-      } else if (error.code === 'auth/user-not-found') {
-        errorMessage = 'ไม่พบผู้ใช้งานนี้';
+      if (error.code === 'auth/user-not-found' || error.code === 'auth/invalid-credential') {
+        errorMessage = 'อีเมลหรือรหัสผ่านไม่ถูกต้อง';
       } else if (error.code === 'auth/wrong-password') {
         errorMessage = 'รหัสผ่านไม่ถูกต้อง';
-      } else if (error.code === 'auth/invalid-credential') {
-        errorMessage = 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง';
+      } else if (error.code === 'auth/too-many-requests') {
+        errorMessage = 'เข้าสู่ระบบผิดพลาดหลายครั้ง กรุณาลองใหม่ในภายหลัง';
       }
-      
-      Alert.alert('ข้อผิดพลาด', errorMessage);
+      Alert.alert('เข้าสู่ระบบล้มเหลว', errorMessage);
     } finally {
       setLoading(false);
     }
@@ -65,32 +122,33 @@ export default function SignInScreen({ navigation }) {
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
-        <View style={styles.header}>
+        <View style={[styles.header, { paddingTop: Math.max(insets.top, 20) }]}>
           <TouchableOpacity
             style={styles.backButton}
             onPress={() => navigation.goBack()}
           >
             <Ionicons name="arrow-back" size={24} color="#1f2937" />
           </TouchableOpacity>
-        </View>
-
-        <View style={styles.logoContainer}>
-          <View style={styles.logoCircle}>
-            <Ionicons name="leaf" size={60} color="#10b981" />
-          </View>
-          <Text style={styles.welcomeText}>ยินดีต้อนรับ!</Text>
+          <View style={styles.placeholder} />
         </View>
 
         <View style={styles.formContainer}>
+          <View style={styles.welcomeContainer}>
+            <Text style={styles.welcomeTitle}>ยินดีต้อนรับกลับมา!</Text>
+            <Text style={styles.welcomeSubtitle}>
+              เข้าสู่ระบบเพื่อลด Food Waste ไปด้วยกัน
+            </Text>
+          </View>
+
           <View style={styles.inputContainer}>
             <View style={styles.iconContainer}>
               <Ionicons name="person" size={20} color="#10b981" />
             </View>
             <TextInput
               style={styles.input}
-              placeholder="ชื่อผู้ใช้"
-              value={username}
-              onChangeText={setUsername}
+              placeholder="อีเมล หรือ ชื่อผู้ใช้"
+              value={identifier}
+              onChangeText={setIdentifier}
               autoCapitalize="none"
               placeholderTextColor="#9ca3af"
             />
@@ -121,11 +179,11 @@ export default function SignInScreen({ navigation }) {
             </TouchableOpacity>
           </View>
 
-          <TouchableOpacity 
-            onPress={() => navigation.navigate('ForgotPassword')}
+          <TouchableOpacity
             style={styles.forgotPasswordContainer}
+            onPress={() => navigation.navigate('ForgotPassword')}
           >
-            <Text style={styles.forgotPassword}>ลืมรหัสผ่าน?</Text>
+            <Text style={styles.forgotPassword}>ลืมรหัสผ่านใช่ไหม?</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -141,19 +199,12 @@ export default function SignInScreen({ navigation }) {
             )}
           </TouchableOpacity>
 
-          <View style={styles.divider}>
-            <View style={styles.dividerLine} />
-            <Text style={styles.dividerText}>หรือ</Text>
-            <View style={styles.dividerLine} />
+          <View style={styles.signUpContainer}>
+            <Text style={styles.signUpText}>ยังไม่มีบัญชีใช่ไหม? </Text>
+            <TouchableOpacity onPress={() => navigation.navigate('SignUp')}>
+              <Text style={styles.signUpLink}>สร้างบัญชีเลย</Text>
+            </TouchableOpacity>
           </View>
-
-          <TouchableOpacity
-            style={styles.signUpButton}
-            onPress={() => navigation.navigate('SignUp')}
-            activeOpacity={0.8}
-          >
-            <Text style={styles.signUpButtonText}>สร้างบัญชีใหม่</Text>
-          </TouchableOpacity>
         </View>
       </ScrollView>
     </KeyboardAvoidingView>
@@ -161,139 +212,38 @@ export default function SignInScreen({ navigation }) {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#fff',
-  },
-  scrollContent: {
-    flexGrow: 1,
-    paddingVertical: 20,
-  },
+  container: { flex: 1, backgroundColor: '#fff' },
+  scrollContent: { flexGrow: 1 },
   header: {
-    paddingHorizontal: 20,
-    paddingTop: 40,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: 20, marginBottom: 30, paddingBottom: 10,
   },
   backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#f3f4f6',
-    alignItems: 'center',
-    justifyContent: 'center',
+    width: 40, height: 40, borderRadius: 20, backgroundColor: '#f3f4f6',
+    alignItems: 'center', justifyContent: 'center',
   },
-  logoContainer: {
-    alignItems: 'center',
-    marginTop: 20,
-    marginBottom: 40,
-  },
-  logoCircle: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    backgroundColor: '#f0fdf4',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 20,
-    shadowColor: '#10b981',
-    shadowOffset: {
-      width: 0,
-      height: 4,
-    },
-    shadowOpacity: 0.15,
-    shadowRadius: 8,
-    elevation: 5,
-  },
-  welcomeText: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#1f2937',
-    marginBottom: 8,
-  },
-  subtitle: {
-    fontSize: 14,
-    color: '#6b7280',
-  },
-  formContainer: {
-    paddingHorizontal: 30,
-  },
+  placeholder: { width: 40 },
+  formContainer: { paddingHorizontal: 30, flex: 1, justifyContent: 'center' },
+  welcomeContainer: { alignItems: 'center', marginBottom: 40 },
+  welcomeTitle: { fontSize: 24, fontWeight: 'bold', color: '#1f2937', marginBottom: 8 },
+  welcomeSubtitle: { fontSize: 14, color: '#6b7280' },
   inputContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#f9fafb',
-    borderRadius: 15,
-    marginBottom: 15,
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
+    flexDirection: 'row', alignItems: 'center', backgroundColor: '#f9fafb',
+    borderRadius: 15, marginBottom: 15, borderWidth: 1, borderColor: '#e5e7eb', width: '100%',
   },
-  iconContainer: {
-    width: 50,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  input: {
-    flex: 1,
-    paddingVertical: 16,
-    fontSize: 15,
-    color: '#1f2937',
-  },
-  eyeIcon: {
-    padding: 15,
-  },
-  forgotPasswordContainer: {
-    alignSelf: 'flex-end',
-    marginBottom: 25,
-  },
-  forgotPassword: {
-    fontSize: 13,
-    color: '#10b981',
-    fontWeight: '500',
-  },
+  iconContainer: { width: 50, alignItems: 'center', justifyContent: 'center' },
+  input: { flex: 1, paddingVertical: 16, fontSize: 15, color: '#1f2937' },
+  eyeIcon: { padding: 15 },
+  forgotPasswordContainer: { alignSelf: 'flex-end', marginBottom: 25 },
+  forgotPassword: { fontSize: 13, color: '#10b981', fontWeight: '600' },
   signInButton: {
-    backgroundColor: '#10b981',
-    paddingVertical: 16,
-    borderRadius: 15,
-    alignItems: 'center',
-    marginBottom: 20,
-    shadowColor: '#10b981',
-    shadowOffset: {
-      width: 0,
-      height: 4,
-    },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 8,
+    backgroundColor: '#10b981', paddingVertical: 16, borderRadius: 15,
+    alignItems: 'center', marginBottom: 30, width: '100%',
+    shadowColor: '#10b981', shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3, shadowRadius: 8, elevation: 8,
   },
-  signInButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#fff',
-  },
-  divider: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginVertical: 20,
-  },
-  dividerLine: {
-    flex: 1,
-    height: 1,
-    backgroundColor: '#e5e7eb',
-  },
-  dividerText: {
-    marginHorizontal: 15,
-    fontSize: 13,
-    color: '#9ca3af',
-  },
-  signUpButton: {
-    backgroundColor: '#fff',
-    paddingVertical: 16,
-    borderRadius: 15,
-    alignItems: 'center',
-    borderWidth: 2,
-    borderColor: '#10b981',
-  },
-  signUpButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#10b981',
-  },
+  signInButtonText: { fontSize: 16, fontWeight: '600', color: '#fff' },
+  signUpContainer: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center' },
+  signUpText: { fontSize: 14, color: '#6b7280' },
+  signUpLink: { fontSize: 14, color: '#10b981', fontWeight: '600' },
 });

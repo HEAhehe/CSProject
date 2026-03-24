@@ -1,60 +1,45 @@
 import React, { useState, useCallback } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  FlatList,
-  TouchableOpacity,
-  StatusBar,
-  Modal,
-  TextInput,
-  Alert,
-  Image,
-  RefreshControl,
-  ActivityIndicator
+  View, Text, StyleSheet, FlatList, TouchableOpacity, StatusBar, Modal,
+  TextInput, Alert, RefreshControl, ActivityIndicator, ScrollView
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
-import { db, auth } from '../../firebase.config'; // ✅ เช็ค Path ให้ถูก
-import { collection, getDocs, doc, updateDoc, query, orderBy } from 'firebase/firestore';
+import { db, auth } from '../../firebase.config';
+// 🟢 เพิ่ม getDoc ตรงนี้
+import { collection, getDocs, doc, updateDoc, query, addDoc, getDoc } from 'firebase/firestore';
+// ✅ 1. Import SafeArea
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function AdminApprovalsScreen({ navigation }) {
-  const [selectedTab, setSelectedTab] = useState('pending'); // pending, approved, rejected
+  // ✅ 2. ดึงค่า Insets
+  const insets = useSafeAreaInsets();
+
+  const [selectedTab, setSelectedTab] = useState('pending');
   const [modalVisible, setModalVisible] = useState(false);
   const [selectedRequest, setSelectedRequest] = useState(null);
   const [rejectReason, setRejectReason] = useState('');
-  const [actionType, setActionType] = useState(''); // 'approve' or 'reject'
+  const [actionType, setActionType] = useState('');
 
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
-  // ดึงข้อมูลเมื่อเข้าหน้าจอ
   useFocusEffect(
-    useCallback(() => {
-      fetchRequests();
-    }, [])
+    useCallback(() => { fetchRequests(); }, [])
   );
 
   const fetchRequests = async () => {
     try {
-      // ดึงข้อมูลจาก collection 'approval_requests'
-      // ถ้ายังไม่ได้สร้าง collection นี้ใน Firebase มันจะคืนค่าว่าง (ไม่ Error)
       const q = query(collection(db, 'approval_requests'));
       const snapshot = await getDocs(q);
-
       const loadedRequests = [];
-      snapshot.forEach(doc => {
-        loadedRequests.push({ id: doc.id, ...doc.data() });
-      });
-
-      // เรียงลำดับตามวันที่ (ใหม่ไปเก่า) - ถ้ามี field requestDate
+      snapshot.forEach(doc => { loadedRequests.push({ id: doc.id, ...doc.data() }); });
       loadedRequests.sort((a, b) => {
         const dateA = a.requestDate ? new Date(a.requestDate) : new Date(0);
         const dateB = b.requestDate ? new Date(b.requestDate) : new Date(0);
         return dateB - dateA;
       });
-
       setRequests(loadedRequests);
     } catch (error) {
       console.error('Error fetching requests:', error);
@@ -69,154 +54,206 @@ export default function AdminApprovalsScreen({ navigation }) {
     fetchRequests();
   };
 
-  const filteredRequests = requests.filter(req => {
-    // กรองตาม Tab (ถ้าไม่มี field status ให้ถือว่าเป็น pending ไปก่อน)
-    const status = req.status || 'pending';
-    return status === selectedTab;
-  });
-
-  const getRequestTypeLabel = (type) => {
-    const types = {
-      store_registration: 'ลงทะเบียนร้านค้า',
-      food_listing: 'ลงขายอาหาร',
-      promotion: 'โปรโมชั่น',
-    };
-    return types[type] || type || 'ทั่วไป';
-  };
+  const filteredRequests = requests.filter(req => (req.status || 'pending') === selectedTab);
 
   const getRequestTypeColor = (type) => {
-    const colors = {
-      store_registration: '#3b82f6', // สีฟ้า
-      food_listing: '#10b981',       // สีเขียว
-      promotion: '#f59e0b',          // สีส้ม
-    };
-    return colors[type] || '#6b7280';
+    if (type === 'store_update') return '#8b5cf6';
+    return '#3b82f6';
   };
 
   const handleRequestPress = (request) => {
-    // กดดูรายละเอียดได้ทุกสถานะ แต่จะทำรายการได้เฉพาะ pending
     setSelectedRequest(request);
     setModalVisible(true);
   };
 
-  const handleApprove = () => {
-    setActionType('approve');
-    confirmAction();
-  };
+  const processAction = async (action, request, reason) => {
+    if (!request) return;
+    try {
+      const updateData = {
+        status: action === 'approve' ? 'approved' : 'rejected',
+        approvedBy: auth.currentUser?.email || 'Admin',
+        approvedDate: new Date().toISOString(),
+      };
 
-  const handleReject = () => {
-    if (!rejectReason.trim()) {
-      Alert.alert('ข้อผิดพลาด', 'กรุณาระบุเหตุผลในการปฏิเสธ');
-      return;
+      if (action === 'reject') updateData.rejectReason = reason;
+      await updateDoc(doc(db, 'approval_requests', request.id), updateData);
+
+      const storeUserId = request.userId || request.uid || request.storeId;
+      if (!storeUserId) {
+        setModalVisible(false); setRejectReason(''); setSelectedRequest(null);
+        fetchRequests();
+        Alert.alert('สำเร็จ', `${action === 'approve' ? 'อนุมัติ' : 'ปฏิเสธ'}คำขอแล้ว`);
+        return;
+      }
+
+      const storeRef = doc(db, 'stores', storeUserId);
+      const notifRef = collection(db, 'notifications');
+
+      if (request.type === 'store_registration') {
+        if (action === 'approve') {
+          await updateDoc(storeRef, { status: 'approved', isActive: true, approvedBy: auth.currentUser?.email, approvedDate: new Date().toISOString() });
+          await updateDoc(doc(db, 'users', storeUserId), { currentRole: 'store', hasStorePending: false });
+          await addDoc(notifRef, {
+            userId: storeUserId,
+            title: 'ยินดีด้วย! ร้านค้าอนุมัติแล้ว 🎉',
+            message: 'คุณสามารถเริ่มโพสต์ขายอาหารเพื่อช่วยลด Food Waste ได้เลย',
+            type: 'store_approved',
+            isRead: false,
+            createdAt: new Date().toISOString()
+          });
+        } else {
+          await updateDoc(storeRef, { status: 'rejected', isActive: false, rejectReason: reason, rejectedBy: auth.currentUser?.email, rejectedDate: new Date().toISOString() });
+          await updateDoc(doc(db, 'users', storeUserId), { hasStorePending: false });
+          await addDoc(notifRef, {
+            userId: storeUserId,
+            title: 'คำขอเปิดร้านถูกปฏิเสธ ❌',
+            message: `เหตุผล: ${reason}`,
+            type: 'store_rejected',
+            isRead: false,
+            createdAt: new Date().toISOString()
+          });
+        }
+      } else if (request.type === 'store_update') {
+
+        // 🟢 ดึงข้อมูลร้านค้าปัจจุบันเผื่อไว้กรณีไม่ได้แก้รูปภาพ
+        const storeSnap = await getDoc(storeRef);
+        const currentStoreData = storeSnap.exists() ? storeSnap.data() : {};
+
+        if (action === 'approve' && request.newData) {
+          await updateDoc(storeRef, { ...request.newData, updatedAt: new Date().toISOString() });
+        }
+
+        let mappedDetails = request.details ? { ...request.details } : {};
+        if (request.newData) {
+          const keyMap = {
+            storeName: 'ชื่อร้านค้า',
+            storeOwner: 'เจ้าของร้าน',
+            phoneNumber: 'เบอร์โทรศัพท์',
+            location: 'ที่อยู่ร้าน',
+            storeDetails: 'รายละเอียดร้าน',
+            deliveryMethod: 'การจัดส่ง',
+            storeImage: 'รูปร้านค้า',
+            businessHours: 'เวลาทำการ'
+          };
+
+          const getBHoursText = (bh) => {
+              if (!bh) return 'ไม่ระบุ';
+              if (typeof bh === 'string') return bh;
+              const daysOfWeek = [
+                  { id: 'mon', label: 'จันทร์' }, { id: 'tue', label: 'อังคาร' }, { id: 'wed', label: 'พุธ' },
+                  { id: 'thu', label: 'พฤหัส' }, { id: 'fri', label: 'ศุกร์' }, { id: 'sat', label: 'เสาร์' }, { id: 'sun', label: 'อาทิตย์' }
+              ];
+              // 🟢 ปรับให้แสดงทุกวัน ถ้าปิดให้ขึ้น ปิดทำการ
+              return daysOfWeek.map(d => {
+                  return bh[d.id]?.isOpen ? `${d.label}: ${bh[d.id].openTime}-${bh[d.id].closeTime}` : `${d.label}: ปิดทำการ`;
+              }).join('\n');
+          };
+
+          Object.entries(request.newData).forEach(([key, val]) => {
+            if (keyMap[key] && val !== undefined && val !== null && val !== '') {
+              let displayVal = val;
+              if (key === 'deliveryMethod') {
+                displayVal = val === 'pickup' ? 'รับที่ร้าน' : val === 'delivery' ? 'เดลิเวอรี่' : val === 'both' ? 'ทั้งสองแบบ' : val;
+              } else if (key === 'businessHours') {
+                displayVal = getBHoursText(val);
+              }
+              mappedDetails[keyMap[key]] = (key === 'storeImage') ? val : String(displayVal);
+            }
+          });
+        }
+
+        // 🟢 บังคับใส่รูปร้านค้าเข้าไป ถ้ามีรูปเดิมหรือรูปใหม่
+        const finalImage = request.newData?.storeImage || request.storeImage || currentStoreData.storeImage;
+        if (finalImage) {
+            mappedDetails['รูปร้านค้า'] = finalImage;
+        }
+
+        const storeName = request.storeName || mappedDetails['ชื่อร้านค้า'] || request.newData?.storeName || 'ร้านค้าของคุณ';
+        const notifPayload = action === 'approve'
+          ? {
+              storeId: storeUserId,
+              title: 'แก้ไขข้อมูลร้านได้รับการอนุมัติ ✅',
+              message: `แอดมินอนุมัติการแก้ไขข้อมูลร้าน "${storeName}" เรียบร้อยแล้ว ข้อมูลได้รับการอัปเดตแล้ว`,
+              type: 'store_edit_approved',
+              details: mappedDetails,
+              isRead: false,
+              createdAt: new Date().toISOString()
+            }
+          : {
+              storeId: storeUserId,
+              title: 'แก้ไขข้อมูลร้านถูกปฏิเสธ ❌',
+              message: `แอดมินไม่อนุมัติการแก้ไขข้อมูลร้าน "${storeName}"`,
+              cancelReason: reason,
+              type: 'store_edit_rejected',
+              details: mappedDetails,
+              isRead: false,
+              createdAt: new Date().toISOString()
+            };
+
+        await addDoc(collection(db, 'store_notifications'), notifPayload);
+      }
+
+      setModalVisible(false); setRejectReason(''); setSelectedRequest(null);
+      fetchRequests();
+      Alert.alert('สำเร็จ', `${action === 'approve' ? 'อนุมัติ' : 'ปฏิเสธ'}คำขอแล้ว`);
+    } catch (error) {
+      Alert.alert('ข้อผิดพลาด', `ไม่สามารถทำรายการได้: ${error.message}`);
     }
-    setActionType('reject');
-    confirmAction();
   };
 
-  const confirmAction = () => {
+  const confirmAction = (action) => {
+    const requestSnapshot = selectedRequest;
+    const reasonSnapshot = rejectReason;
     Alert.alert(
-      actionType === 'approve' ? 'ยืนยันการอนุมัติ' : 'ยืนยันการปฏิเสธ',
-      `คุณต้องการ${actionType === 'approve' ? 'อนุมัติ' : 'ปฏิเสธ'}คำขอนี้หรือไม่?`,
+      action === 'approve' ? 'ยืนยันการอนุมัติ' : 'ยืนยันการปฏิเสธ',
+      `คุณต้องการ${action === 'approve' ? 'อนุมัติ' : 'ปฏิเสธ'}คำขอนี้หรือไม่?`,
       [
         { text: 'ยกเลิก', style: 'cancel' },
-        {
-          text: 'ยืนยัน',
-          onPress: async () => {
-            await processAction();
-          },
-        },
+        { text: 'ยืนยัน', onPress: () => processAction(action, requestSnapshot, reasonSnapshot) },
       ]
     );
   };
 
-  const processAction = async () => {
-    if (!selectedRequest) return;
-
-    try {
-      const updateData = {
-        status: actionType === 'approve' ? 'approved' : 'rejected',
-        approvedBy: auth.currentUser?.email || 'Admin',
-        approvedDate: new Date().toISOString(), // ใช้วันที่มาตรฐาน
-      };
-
-      if (actionType === 'reject') {
-        updateData.rejectReason = rejectReason;
-      }
-
-      // 1. อัปเดตสถานะในตาราง approval_requests
-      await updateDoc(doc(db, 'approval_requests', selectedRequest.id), updateData);
-
-      // 2. ⭐ Special Logic: ถ้าเป็นการลงทะเบียนร้านค้า และกด "อนุมัติ"
-      // ให้ไปอัปเกรด User คนนั้นเป็น 'store' ทันที
-      if (actionType === 'approve' && selectedRequest.type === 'store_registration') {
-        if (selectedRequest.userId) {
-          await updateDoc(doc(db, 'users', selectedRequest.userId), {
-            currentRole: 'store'
-          });
-          Alert.alert('เสร็จสิ้น', 'อนุมัติคำขอและอัปเกรดผู้ใช้เป็นร้านค้าแล้ว');
-        }
-      } else {
-        Alert.alert(
-          'สำเร็จ',
-          `${actionType === 'approve' ? 'อนุมัติ' : 'ปฏิเสธ'}คำขอแล้ว`
-        );
-      }
-
-      setModalVisible(false);
-      setRejectReason('');
-      setSelectedRequest(null);
-      fetchRequests(); // โหลดข้อมูลใหม่
-
-    } catch (error) {
-      console.error('Action error:', error);
-      Alert.alert('ข้อผิดพลาด', 'ไม่สามารถทำรายการได้');
-    }
+  const handleApprove = () => { setActionType('approve'); confirmAction('approve'); };
+  const handleReject = () => {
+    if (!rejectReason.trim()) { Alert.alert('ข้อผิดพลาด', 'กรุณาระบุเหตุผลในการปฏิเสธ'); return; }
+    setActionType('reject'); confirmAction('reject');
   };
 
   const renderRequest = ({ item }) => {
+    const isUpdate = item.type === 'store_update';
     const typeColor = getRequestTypeColor(item.type);
-
-    // แปลงวันที่ให้สวยงาม
-    const displayDate = item.requestDate
-      ? new Date(item.requestDate).toLocaleDateString('th-TH')
-      : '-';
+    const displayDate = item.requestDate ? new Date(item.requestDate).toLocaleDateString('th-TH') : '-';
 
     return (
-      <TouchableOpacity
-        style={styles.requestCard}
-        onPress={() => handleRequestPress(item)}
-      >
+      <TouchableOpacity style={styles.requestCard} onPress={() => handleRequestPress(item)}>
         <View style={styles.requestHeader}>
-          <View style={[styles.typeIcon, { backgroundColor: `${typeColor}20` }]}>
-            <Ionicons
-              name={
-                item.type === 'store_registration' ? 'storefront' :
-                item.type === 'food_listing' ? 'restaurant' :
-                'pricetag'
-              }
-              size={20}
-              color={typeColor}
-            />
+          <View style={[styles.typeIcon, { backgroundColor: typeColor + '20' }]}>
+            <Ionicons name={isUpdate ? 'create' : 'storefront'} size={20} color={typeColor} />
           </View>
-
           <View style={styles.requestInfo}>
-            <Text style={styles.requestType}>{getRequestTypeLabel(item.type)}</Text>
-            <Text style={styles.requestUser}>{item.userName || item.storeName || 'ไม่ระบุชื่อ'}</Text>
-            <Text style={styles.requestDate}>วันที่: {displayDate}</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+              <View style={[styles.typeBadge, isUpdate ? styles.typeUpdateBg : styles.typeRegisterBg]}>
+                <Text style={[styles.typeBadgeText, isUpdate ? styles.typeUpdateText : styles.typeRegisterText]}>
+                  {isUpdate ? '📝 ขอแก้ไขข้อมูล' : '🆕 สมัครร้านใหม่'}
+                </Text>
+              </View>
+              <Text style={styles.requestDate}>{displayDate}</Text>
+            </View>
+            <Text style={styles.storeNameTitle}>{item.storeName || item.newData?.storeName || item.details?.['ชื่อร้าน'] || 'ไม่ระบุชื่อร้าน'}</Text>
+            <Text style={styles.requestUser}>โดย: {item.userName || 'ไม่ระบุชื่อ'}</Text>
           </View>
-
-          {item.status === 'pending' && <Ionicons name="time" size={24} color="#f59e0b" />}
-          {item.status === 'approved' && <Ionicons name="checkmark-circle" size={24} color="#10b981" />}
-          {item.status === 'rejected' && <Ionicons name="close-circle" size={24} color="#ef4444" />}
         </View>
 
-        {(item.status === 'approved' || item.status === 'rejected') && (
-          <View style={styles.requestFooter}>
-            <Text style={styles.footerText}>
-              {item.status === 'approved' ? 'อนุมัติโดย' : 'ปฏิเสธโดย'}: {item.approvedBy}
-            </Text>
+        {item.status === 'rejected' && item.rejectReason ? (
+          <View style={styles.rejectReasonCard}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 4 }}>
+              <Ionicons name="close-circle" size={13} color="#ef4444" />
+              <Text style={styles.rejectReasonCardTitle}>เหตุผลที่ปฏิเสธ</Text>
+            </View>
+            <Text style={styles.rejectReasonCardText}>{item.rejectReason}</Text>
           </View>
-        )}
+        ) : null}
       </TouchableOpacity>
     );
   };
@@ -224,51 +261,35 @@ export default function AdminApprovalsScreen({ navigation }) {
   return (
     <View style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#fff" />
-
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity
-          style={styles.backButton}
-          onPress={() => navigation.goBack()}
-        >
-          <Ionicons name="chevron-back" size={24} color="#1f2937" />
+      {/* ✅ 3. ดัน Header ลงมา */}
+      <View style={[styles.header, { paddingTop: Math.max(insets.top, 15) }]}>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+          <Ionicons name="arrow-back" size={24} color="#1f2937" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>อนุมัติ/ปฏิเสธ</Text>
+        <Text style={styles.headerTitle}>รายการคำขอทั้งหมด</Text>
         <View style={styles.placeholder} />
       </View>
-
-      {/* Tabs */}
       <View style={styles.tabsContainer}>
-        {['pending', 'approved', 'rejected'].map((tab) => (
-          <TouchableOpacity
-            key={tab}
-            style={[styles.tab, selectedTab === tab && styles.tabActive]}
-            onPress={() => setSelectedTab(tab)}
-          >
-            <Text style={[styles.tabText, selectedTab === tab && styles.tabTextActive]}>
-              {tab === 'pending' ? 'รออนุมัติ' : tab === 'approved' ? 'อนุมัติแล้ว' : 'ปฏิเสธแล้ว'}
-              {/* แสดงตัวเลขถ้ามีข้อมูล */}
-              {requests.length > 0 ? ` (${requests.filter(r => (r.status || 'pending') === tab).length})` : ''}
-            </Text>
-          </TouchableOpacity>
-        ))}
+        <TouchableOpacity style={[styles.tab, selectedTab === 'pending' && styles.tabActive]} onPress={() => setSelectedTab('pending')}>
+          <Text style={[styles.tabText, selectedTab === 'pending' && styles.tabTextActive]}>รอดำเนินการ</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={[styles.tab, selectedTab === 'approved' && styles.tabActive]} onPress={() => setSelectedTab('approved')}>
+          <Text style={[styles.tabText, selectedTab === 'approved' && styles.tabTextActive]}>อนุมัติแล้ว</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={[styles.tab, selectedTab === 'rejected' && styles.tabActive]} onPress={() => setSelectedTab('rejected')}>
+          <Text style={[styles.tabText, selectedTab === 'rejected' && styles.tabTextActive]}>ปฏิเสธ</Text>
+        </TouchableOpacity>
       </View>
-
-      {/* Requests List */}
       {loading ? (
-        <View style={styles.center}>
-          <ActivityIndicator size="large" color="#10b981" />
-        </View>
+        <View style={styles.center}><ActivityIndicator size="large" color="#1f2937" /></View>
       ) : filteredRequests.length > 0 ? (
         <FlatList
           data={filteredRequests}
           renderItem={renderRequest}
           keyExtractor={(item) => item.id}
-          contentContainerStyle={styles.requestsList}
-          showsVerticalScrollIndicator={false}
-          refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-          }
+          // ✅ 4. เผื่อระยะการเลื่อนด้านล่าง
+          contentContainerStyle={[styles.requestsList, { paddingBottom: insets.bottom + 40 }]}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
         />
       ) : (
         <View style={styles.emptyState}>
@@ -278,90 +299,83 @@ export default function AdminApprovalsScreen({ navigation }) {
       )}
 
       {/* Modal */}
-      <Modal
-        animationType="slide"
-        transparent={true}
-        visible={modalVisible}
-        onRequestClose={() => setModalVisible(false)}
-      >
+      <Modal animationType="slide" transparent={true} visible={modalVisible}>
         <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
+          {/* ✅ 5. ดัน Modal ด้านล่างไม่ให้ชิดขอบจอ */}
+          <View style={[styles.modalContent, { paddingBottom: Math.max(insets.bottom, 20) }]}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>รายละเอียดคำขอ</Text>
-              <TouchableOpacity onPress={() => {
-                setModalVisible(false);
-                setRejectReason('');
-              }}>
+              <TouchableOpacity onPress={() => { setModalVisible(false); setRejectReason(''); }}>
                 <Ionicons name="close" size={24} color="#1f2937" />
               </TouchableOpacity>
             </View>
 
             {selectedRequest && (
               <View style={{flex: 1}}>
-                <View style={styles.modalBody}>
-                  {/* แสดงข้อมูลพื้นฐาน */}
+                <ScrollView style={styles.modalBody} showsVerticalScrollIndicator={false}>
                   <View style={styles.infoRow}>
                     <Text style={styles.label}>ประเภท:</Text>
-                    <Text style={styles.value}>{getRequestTypeLabel(selectedRequest.type)}</Text>
+                    <Text style={styles.value}>{selectedRequest.type === 'store_update' ? 'แก้ไขข้อมูลร้าน' : 'เปิดร้านใหม่'}</Text>
                   </View>
                   <View style={styles.infoRow}>
                     <Text style={styles.label}>ผู้ขอ:</Text>
                     <Text style={styles.value}>{selectedRequest.userName}</Text>
                   </View>
-                  <View style={styles.infoRow}>
-                    <Text style={styles.label}>อีเมล:</Text>
-                    <Text style={styles.value}>{selectedRequest.userEmail}</Text>
-                  </View>
 
                   <View style={styles.divider} />
+                  <Text style={styles.sectionHeader}>{selectedRequest.type === 'store_update' ? 'ข้อมูลที่ขอแก้ไขใหม่' : 'ข้อมูลร้านค้า'}</Text>
 
-                  {/* แสดงรายละเอียด (Details) */}
-                  <Text style={styles.sectionHeader}>ข้อมูลเพิ่มเติม</Text>
-                  {selectedRequest.details && Object.entries(selectedRequest.details).map(([key, value]) => (
-                    <View key={key} style={styles.infoRow}>
-                      <Text style={styles.label}>{key}:</Text>
-                      <Text style={styles.value}>{String(value)}</Text>
-                    </View>
-                  ))}
+                  {selectedRequest.details ? (
+                    Object.entries(selectedRequest.details).map(([key, value]) => (
+                      <View key={key} style={styles.infoRow}>
+                        <Text style={styles.label}>{key}:</Text>
+                        <Text style={styles.value}>{String(value)}</Text>
+                      </View>
+                    ))
+                  ) : selectedRequest.newData ? (
+                    Object.entries(selectedRequest.newData).map(([key, value]) => {
+                      if (key === 'storeImage') return null; // ข้ามการแสดงรูปใน text
+                      let displayKey = key;
+                      const keyMap = { storeName: 'ชื่อร้านค้า', storeOwner: 'เจ้าของร้าน', phoneNumber: 'เบอร์โทรศัพท์', location: 'ที่อยู่ร้าน', storeDetails: 'รายละเอียดร้าน', deliveryMethod: 'การจัดส่ง' };
+                      if (keyMap[key]) displayKey = keyMap[key];
 
-                  {/* ช่องกรอกเหตุผล (แสดงเฉพาะตอนจะปฏิเสธ และเป็นสถานะ pending) */}
+                      let displayVal = value;
+                      if (key === 'deliveryMethod') {
+                        displayVal = value === 'pickup' ? 'รับที่ร้าน' : value === 'delivery' ? 'เดลิเวอรี่' : value === 'both' ? 'ทั้งสองแบบ' : value;
+                      }
+
+                      return (
+                        <View key={key} style={styles.infoRow}>
+                          <Text style={styles.label}>{displayKey}:</Text>
+                          <Text style={styles.value}>{String(displayVal)}</Text>
+                        </View>
+                      );
+                    })
+                  ) : null}
+
                   {selectedRequest.status === 'pending' && (
                     <View style={styles.rejectInputContainer}>
                       <Text style={styles.label}>เหตุผล (กรณีปฏิเสธ):</Text>
-                      <TextInput
-                        style={styles.reasonInput}
-                        placeholder="ระบุเหตุผลที่นี่..."
-                        value={rejectReason}
-                        onChangeText={setRejectReason}
-                        multiline
-                      />
+                      <TextInput style={styles.reasonInput} placeholder="ระบุเหตุผลที่นี่..." value={rejectReason} onChangeText={setRejectReason} multiline />
                     </View>
                   )}
 
-                  {/* แสดงเหตุผลที่เคยปฏิเสธไปแล้ว */}
                   {selectedRequest.status === 'rejected' && selectedRequest.rejectReason && (
                     <View style={styles.rejectReasonBox}>
                       <Text style={styles.rejectReasonTitle}>เหตุผลที่ปฏิเสธ:</Text>
                       <Text style={styles.rejectReasonText}>{selectedRequest.rejectReason}</Text>
                     </View>
                   )}
-                </View>
+                  <View style={{height: 40}} />
+                </ScrollView>
 
-                {/* ปุ่ม Action (แสดงเฉพาะ Pending) */}
                 {selectedRequest.status === 'pending' && (
                   <View style={styles.modalActions}>
-                    <TouchableOpacity
-                      style={styles.rejectButton}
-                      onPress={handleReject}
-                    >
+                    <TouchableOpacity style={styles.rejectButton} onPress={handleReject}>
                       <Ionicons name="close-circle" size={20} color="#fff" />
                       <Text style={styles.buttonText}>ปฏิเสธ</Text>
                     </TouchableOpacity>
-
-                    <TouchableOpacity
-                      style={styles.approveButton}
-                      onPress={handleApprove}
-                    >
+                    <TouchableOpacity style={styles.approveButton} onPress={handleApprove}>
                       <Ionicons name="checkmark-circle" size={20} color="#fff" />
                       <Text style={styles.buttonText}>อนุมัติ</Text>
                     </TouchableOpacity>
@@ -372,41 +386,6 @@ export default function AdminApprovalsScreen({ navigation }) {
           </View>
         </View>
       </Modal>
-
-      {/* Bottom Nav */}
-      <View style={styles.bottomNav}>
-        <TouchableOpacity
-          style={styles.navItem}
-          onPress={() => navigation.navigate('AdminHome')}
-        >
-          <Ionicons name="home-outline" size={24} color="#9ca3af" />
-          <Text style={styles.navLabel}>หน้าหลัก</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.navItem}
-          onPress={() => navigation.navigate('AdminUsers')}
-        >
-          <Ionicons name="people-outline" size={24} color="#9ca3af" />
-          <Text style={styles.navLabel}>บัญชี</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.navItem}
-          onPress={() => navigation.navigate('AdminReports')}
-        >
-          <Ionicons name="stats-chart-outline" size={24} color="#9ca3af" />
-          <Text style={styles.navLabel}>รายงาน</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.navItem}
-          onPress={() => navigation.navigate('AdminProfile')}
-        >
-          <Ionicons name="person-outline" size={24} color="#9ca3af" />
-          <Text style={styles.navLabel}>โปรไฟล์</Text>
-        </TouchableOpacity>
-      </View>
     </View>
   );
 }
@@ -414,10 +393,8 @@ export default function AdminApprovalsScreen({ navigation }) {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#fff' },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  header: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 16, paddingTop: 50, paddingBottom: 12,
-  },
+  // 🟢 ลบ paddingTop: 50 ออก
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingBottom: 12 },
   backButton: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
   headerTitle: { fontSize: 16, fontWeight: '600', color: '#1f2937' },
   placeholder: { width: 40 },
@@ -428,47 +405,52 @@ const styles = StyleSheet.create({
   tabText: { fontSize: 12, color: '#9ca3af', fontWeight: '500' },
   tabTextActive: { color: '#1f2937', fontWeight: '600' },
 
-  requestsList: { paddingHorizontal: 20, paddingBottom: 100 },
-  requestCard: {
-    backgroundColor: '#f9fafb', borderRadius: 12, padding: 16, marginBottom: 12,
-  },
+  // 🟢 ลบ paddingBottom: 100 ออก (ไปกำหนดใน style ของ Component แทน)
+  requestsList: { paddingHorizontal: 20 },
+  requestCard: { backgroundColor: '#f9fafb', borderRadius: 12, padding: 16, marginBottom: 12, borderWidth: 1, borderColor: '#e5e7eb' },
   requestHeader: { flexDirection: 'row', alignItems: 'center' },
-  typeIcon: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', marginRight: 12 },
+  typeIcon: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', marginRight: 12 },
   requestInfo: { flex: 1 },
-  requestType: { fontSize: 15, fontWeight: '600', color: '#1f2937', marginBottom: 2 },
-  requestUser: { fontSize: 13, color: '#6b7280', marginBottom: 2 },
-  requestDate: { fontSize: 12, color: '#9ca3af' },
-  requestFooter: { marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#e5e7eb' },
-  footerText: { fontSize: 12, color: '#6b7280' },
+
+  typeBadge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
+  typeUpdateBg: { backgroundColor: '#ede9fe' },
+  typeRegisterBg: { backgroundColor: '#dbeafe' },
+  typeBadgeText: { fontSize: 10, fontWeight: 'bold' },
+  typeUpdateText: { color: '#8b5cf6' },
+  typeRegisterText: { color: '#3b82f6' },
+
+  storeNameTitle: { fontSize: 15, fontWeight: 'bold', color: '#1f2937', marginBottom: 2 },
+  requestUser: { fontSize: 13, color: '#6b7280' },
+  requestDate: { fontSize: 11, color: '#9ca3af' },
 
   emptyState: { flex: 1, alignItems: 'center', justifyContent: 'center', marginTop: 100 },
   emptyText: { fontSize: 16, color: '#9ca3af', marginTop: 16 },
 
   // Modal
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+  // 🟢 เอา paddingBottom เดิมออก
   modalContent: { backgroundColor: '#fff', borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: '85%', minHeight: '50%' },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 20, borderBottomWidth: 1, borderBottomColor: '#f3f4f6' },
   modalTitle: { fontSize: 18, fontWeight: '700', color: '#1f2937' },
   modalBody: { padding: 20 },
-  infoRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 10 },
+  infoRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 },
   label: { fontSize: 14, color: '#6b7280' },
   value: { fontSize: 14, fontWeight: '500', color: '#1f2937', maxWidth: '60%', textAlign: 'right' },
   divider: { height: 1, backgroundColor: '#f3f4f6', marginVertical: 15 },
   sectionHeader: { fontSize: 16, fontWeight: '600', color: '#1f2937', marginBottom: 15 },
 
   rejectInputContainer: { marginTop: 20 },
-  reasonInput: { backgroundColor: '#f9fafb', borderRadius: 8, padding: 12, marginTop: 8, minHeight: 80, textAlignVertical: 'top' },
+  reasonInput: { backgroundColor: '#f9fafb', borderRadius: 8, padding: 12, marginTop: 8, minHeight: 80, textAlignVertical: 'top', borderWidth: 1, borderColor: '#e5e7eb' },
   rejectReasonBox: { backgroundColor: '#fee2e2', padding: 12, borderRadius: 8, marginTop: 15 },
   rejectReasonTitle: { color: '#ef4444', fontWeight: '600', marginBottom: 4 },
   rejectReasonText: { color: '#7f1d1d' },
+
+  rejectReasonCard: { marginTop: 10, backgroundColor: '#fff1f2', borderRadius: 8, padding: 10, borderLeftWidth: 3, borderLeftColor: '#ef4444' },
+  rejectReasonCardTitle: { fontSize: 11, fontWeight: '700', color: '#ef4444' },
+  rejectReasonCardText: { fontSize: 13, color: '#7f1d1d', marginTop: 2, lineHeight: 18 },
 
   modalActions: { flexDirection: 'row', padding: 20, gap: 12, borderTopWidth: 1, borderTopColor: '#f3f4f6' },
   rejectButton: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, padding: 14, borderRadius: 8, backgroundColor: '#ef4444' },
   approveButton: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, padding: 14, borderRadius: 8, backgroundColor: '#10b981' },
   buttonText: { color: '#fff', fontWeight: '600', fontSize: 15 },
-
-  // Bottom Nav
-  bottomNav: { flexDirection: 'row', backgroundColor: '#fff', paddingVertical: 8, paddingHorizontal: 16, borderTopWidth: 1, borderTopColor: '#f3f4f6', position: 'absolute', bottom: 0, left: 0, right: 0 },
-  navItem: { flex: 1, alignItems: 'center', paddingVertical: 8 },
-  navLabel: { fontSize: 11, color: '#9ca3af', marginTop: 4 },
 });
