@@ -45,7 +45,6 @@ import StoreImpactHistoryScreen from './screens/store/StoreImpactHistoryScreen';
 
 // --- 📂 ADMIN Screens ---
 import AdminHomeScreen from './screens/admin/AdminHomeScreen';
-import AdminApprovalsScreen from './screens/admin/AdminApprovalsScreen';
 import AdminReportsScreen from './screens/admin/AdminReportsScreen';
 import AdminUsersScreen from './screens/admin/AdminUsersScreen';
 import AdminProfileScreen from './screens/admin/AdminProfileScreen';
@@ -114,7 +113,6 @@ export default function App() {
               {/* --- Admin Flow --- */}
               <Stack.Screen name="AdminHome" component={AdminHomeScreen} />
               <Stack.Screen name="AdminUsers" component={AdminUsersScreen} />
-              <Stack.Screen name="AdminApprovals" component={AdminApprovalsScreen} />
               <Stack.Screen name="AdminReports" component={AdminReportsScreen} />
               <Stack.Screen name="AdminProfile" component={AdminProfileScreen} />
             </>
