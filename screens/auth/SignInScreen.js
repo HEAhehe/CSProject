@@ -88,8 +88,6 @@ export default function SignInScreen({ navigation }) {
         // พาไปหน้าถัดไปตาม Role
         if (userData.currentRole === 'admin') {
           navigation.replace('AdminHome');
-        } else {
-          navigation.replace('MainTabs');
         }
       } else {
         Alert.alert('ข้อผิดพลาด', 'ไม่พบข้อมูลผู้ใช้ในระบบ');
