@@ -7,9 +7,11 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { db, auth } from '../../firebase.config';
 import { collection, getDocs, doc, updateDoc, getDoc, query, addDoc } from 'firebase/firestore';
+// ✅ 1. Import SafeArea
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function AdminHomeScreen({ navigation }) {
+  // ✅ 2. ดึง insets
   const insets = useSafeAreaInsets();
 
   const [requests, setRequests] = useState([]);
@@ -82,7 +84,7 @@ export default function AdminHomeScreen({ navigation }) {
       filtered = filtered.filter(req =>
         (req.userName || '').toLowerCase().includes(lowerQuery) ||
         (req.storeName || '').toLowerCase().includes(lowerQuery) ||
-        (req.details?.storeName || '').toLowerCase().includes(lowerQuery)
+        (req.details?.['ชื่อร้าน'] || '').toLowerCase().includes(lowerQuery)
       );
     }
     return filtered;
@@ -119,6 +121,7 @@ export default function AdminHomeScreen({ navigation }) {
       if (actionType === 'reject') updateData.rejectReason = reason;
       await updateDoc(doc(db, 'approval_requests', request.id), updateData);
 
+      // ✅ แก้ไข: ดักจับ ID ผู้ใช้ให้ครอบคลุมทุกกรณี เพื่อป้องกันบั๊คอัปเดตข้อมูลร้านไม่สำเร็จ
       const targetUserId = request.userId || request.uid || request.storeId;
 
       if (targetUserId) {
@@ -168,30 +171,34 @@ export default function AdminHomeScreen({ navigation }) {
                 await updateDoc(storeDocRef, { ...request.newData, updatedAt: new Date().toISOString() });
             }
 
-            let mappedDetails = {};
+            let mappedDetails = request.details ? { ...request.details } : {};
 
-            // ✅ ดักจับและแปลงคีย์ภาษาไทยจากคำขอเก่า (ถ้ามี) ให้กลายเป็นภาษาอังกฤษ
-            const thaiToEngMap = {
-              'ชื่อร้านค้า': 'storeName', 'ชื่อร้าน (ที่แก้ไข)': 'storeName', 'ชื่อร้าน': 'storeName',
-              'เจ้าของร้าน': 'storeOwner',
-              'เบอร์โทร': 'phoneNumber', 'เบอร์โทรศัพท์': 'phoneNumber',
-              'ที่อยู่ร้าน': 'location', 'ที่อยู่ใหม่': 'location', 'ที่อยู่': 'location',
-              'รายละเอียดร้าน': 'storeDetails',
-              'การจัดส่ง': 'deliveryMethod',
-              'เวลาทำการ': 'businessHours',
-              'รูปร้านค้า': 'storeImage', 'รูปภาพ': 'storeImage'
-            };
 
-            if (request.details) {
-              Object.entries(request.details).forEach(([key, val]) => {
-                const engKey = thaiToEngMap[key] || key;
-                mappedDetails[engKey] = val;
-              });
-            }
 
-            // ✅ เซ็ตข้อมูลใหม่ด้วยคีย์ภาษาอังกฤษล้วน
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
             if (request.newData) {
-              const allowedKeys = ['storeName', 'storeOwner', 'phoneNumber', 'location', 'storeDetails', 'deliveryMethod', 'storeImage', 'businessHours'];
+              const keyMap = {
+                storeName: 'ชื่อร้านค้า', storeOwner: 'เจ้าของร้าน', phoneNumber: 'เบอร์โทรศัพท์',
+                location: 'ที่อยู่ร้าน', storeDetails: 'รายละเอียดร้าน', deliveryMethod: 'การจัดส่ง',
+                storeImage: 'รูปร้านค้า', businessHours: 'เวลาทำการ'
+              };
 
               const getBHoursText = (bh) => {
                   if (!bh) return 'ไม่ระบุ';
@@ -206,32 +213,32 @@ export default function AdminHomeScreen({ navigation }) {
               };
 
               Object.entries(request.newData).forEach(([key, val]) => {
-                if (allowedKeys.includes(key) && val !== undefined && val !== null && val !== '') {
+                if (keyMap[key] && val !== undefined && val !== null && val !== '') {
                   let displayVal = val;
                   if (key === 'deliveryMethod') {
                     displayVal = val === 'pickup' ? 'รับที่ร้าน' : val === 'delivery' ? 'เดลิเวอรี่' : val === 'both' ? 'ทั้งสองแบบ' : val;
                   } else if (key === 'businessHours') {
                     displayVal = getBHoursText(val);
                   }
-                  mappedDetails[key] = (key === 'storeImage') ? val : String(displayVal);
+                  mappedDetails[keyMap[key]] = (key === 'storeImage') ? val : String(displayVal);
                 }
               });
             }
 
-            // ✅ กรองรอบสุดท้าย เพื่อลบคีย์แปลกประหลาดหรือภาษาไทยที่หลงเหลือทิ้งไปให้หมด
-            const allowedFinalKeys = ['storeName', 'storeOwner', 'phoneNumber', 'location', 'storeDetails', 'deliveryMethod', 'storeImage', 'businessHours'];
-            Object.keys(mappedDetails).forEach(k => {
-              if (!allowedFinalKeys.includes(k)) {
-                delete mappedDetails[k];
-              }
-            });
+
+
+
+
+
+
+
 
             const finalImage = request.newData?.storeImage || request.storeImage || currentStoreData.storeImage;
             if (finalImage) {
-                mappedDetails.storeImage = finalImage;
+                mappedDetails['รูปร้านค้า'] = finalImage;
             }
 
-            const storeName = request.storeName || mappedDetails.storeName || request.newData?.storeName || 'ร้านค้าของคุณ';
+            const storeName = request.storeName || mappedDetails['ชื่อร้านค้า'] || request.newData?.storeName || 'ร้านค้าของคุณ';
 
             if (actionType === 'approve') {
                 await addDoc(notifRef, {
@@ -347,7 +354,7 @@ export default function AdminHomeScreen({ navigation }) {
         );
     };
 
-    const displayImage = isUpdate ? (item.newData?.storeImage || oldStoreData?.storeImage) : (item.details?.storeImage || item.storeImage);
+    const displayImage = isUpdate ? (item.newData?.storeImage || oldStoreData?.storeImage) : (item.details?.['รูปภาพ'] || item.storeImage);
     const hasImageChanged = isUpdate && (oldStoreData?.storeImage !== item.newData?.storeImage) && !!item.newData?.storeImage;
 
     return (
@@ -374,7 +381,7 @@ export default function AdminHomeScreen({ navigation }) {
               </View>
             </View>
 
-            <Text style={styles.storeNameText}>{item.newData?.storeName || item.details?.storeName || item.storeName || 'ไม่ระบุชื่อร้าน'}</Text>
+            <Text style={styles.storeNameText}>{item.newData?.storeName || item.details?.['ชื่อร้าน'] || item.storeName || 'ไม่ระบุชื่อร้าน'}</Text>
             <Text style={styles.ownerLabel}>โดย: {item.newData?.storeOwner || item.userName || 'ไม่ระบุ'}</Text>
             <Text style={styles.dateLabel}>ส่งเมื่อ: {new Date(item.requestDate).toLocaleDateString('th-TH', {year:'numeric', month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'})}</Text>
           </View>
@@ -404,49 +411,49 @@ export default function AdminHomeScreen({ navigation }) {
                 label="ชื่อร้านค้า"
                 icon="storefront-outline"
                 oldVal={oldStoreData?.storeName}
-                newVal={item.newData?.storeName || item.details?.storeName}
+                newVal={item.newData?.storeName || item.details?.['ชื่อร้าน']}
             />
 
             <CompareField
                 label="เจ้าของร้าน"
                 icon="person-outline"
                 oldVal={oldStoreData?.storeOwner}
-                newVal={item.newData?.storeOwner || item.details?.storeOwner}
+                newVal={item.newData?.storeOwner || item.details?.['เจ้าของร้าน']}
             />
 
             <CompareField
                 label="ข้อมูลติดต่อ (เบอร์โทร)"
                 icon="call-outline"
                 oldVal={oldStoreData?.phoneNumber}
-                newVal={item.newData?.phoneNumber || item.details?.phoneNumber}
+                newVal={item.newData?.phoneNumber || item.details?.['เบอร์โทร']}
             />
 
             <CompareField
                 label="ที่อยู่ร้าน"
                 icon="location-outline"
                 oldVal={oldStoreData?.location}
-                newVal={item.newData?.location || item.details?.location}
+                newVal={item.newData?.location || item.details?.['ที่อยู่ใหม่'] || item.details?.['ที่อยู่']}
             />
 
             <CompareField
                 label="รายละเอียดร้าน"
                 icon="document-text-outline"
                 oldVal={oldStoreData?.storeDetails}
-                newVal={isUpdate ? item.newData?.storeDetails : (item.details?.storeDetails || item.storeDetails)}
+                newVal={isUpdate ? item.newData?.storeDetails : (item.details?.['รายละเอียดร้าน'] || item.storeDetails)}
             />
 
             <CompareField
                 label="การจัดส่ง"
                 icon="bicycle-outline"
                 oldVal={getDeliveryText(oldStoreData?.deliveryMethod)}
-                newVal={isUpdate ? getDeliveryText(item.newData?.deliveryMethod) : item.details?.deliveryMethod}
+                newVal={isUpdate ? getDeliveryText(item.newData?.deliveryMethod) : item.details?.['การจัดส่ง']}
             />
 
             <CompareField
                 label="เวลาทำการ"
                 icon="time-outline"
                 oldVal={getBHoursText(oldStoreData?.businessHours)}
-                newVal={isUpdate ? getBHoursText(item.newData?.businessHours) : item.details?.businessHours}
+                newVal={isUpdate ? getBHoursText(item.newData?.businessHours) : item.details?.['เวลาทำการ']}
             />
 
             <View style={styles.detailSection}>
@@ -509,6 +516,7 @@ export default function AdminHomeScreen({ navigation }) {
   return (
     <View style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#f9fafb" />
+      {/* ✅ 3. ดัน Header ลงให้พ้นรอยบาก */}
       <View style={[styles.header, { paddingTop: Math.max(insets.top, 20) }]}>
         <View>
           <Text style={styles.headerTitle}>Admin Panel</Text>
@@ -520,6 +528,7 @@ export default function AdminHomeScreen({ navigation }) {
         </TouchableOpacity>
       </View>
 
+      {/* ✅ 4. เพิ่ม contentContainerStyle ดันเนื้อหาล่างสุดให้พ้นเมนู */}
       <ScrollView
         style={styles.content}
         contentContainerStyle={{ paddingBottom: insets.bottom + 90 }}
@@ -586,6 +595,7 @@ export default function AdminHomeScreen({ navigation }) {
         </View>
       </Modal>
 
+      {/* ✅ 5. ดัน Bottom Nav ขึ้น */}
       <View style={[styles.bottomNav, { paddingBottom: Math.max(insets.bottom, 10) }]}>
         <TouchableOpacity style={styles.navItem}><Ionicons name="home" size={24} color="#1f2937" /><Text style={styles.navLabelActive}>หน้าหลัก</Text></TouchableOpacity>
         <TouchableOpacity style={styles.navItem} onPress={() => navigation.navigate('AdminUsers')}><Ionicons name="people-outline" size={24} color="#9ca3af" /><Text style={styles.navLabel}>บัญชี</Text></TouchableOpacity>
@@ -598,6 +608,7 @@ export default function AdminHomeScreen({ navigation }) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f9fafb' },
+  // 🟢 เอา paddingTop: 60 ออกจาก CSS เพราะเราทำ inline style ด้านบนแล้ว
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingBottom: 20, backgroundColor: '#fff' },
   headerTitle: { fontSize: 20, fontWeight: 'bold', color: '#1f2937' },
   headerSubtitle: { fontSize: 12, color: '#6b7280' },
@@ -617,11 +628,13 @@ const styles = StyleSheet.create({
   tabText: { fontSize: 13, color: '#6b7280', fontWeight: '500' },
   tabTextActive: { color: '#fff' },
   listContainer: { gap: 12 },
+
   requestCard: { backgroundColor: '#fff', borderRadius: 16, padding: 16, borderWidth: 1, borderColor: '#e5e7eb', shadowColor: "#000", shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 2, elevation: 2 },
   cardMainHeader: { flexDirection: 'row', alignItems: 'flex-start' },
   requestIcon: { width: 50, height: 50, borderRadius: 10, backgroundColor: '#f3f4f6', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
   storeMiniImage: { width: '100%', height: '100%' },
   headerInfo: { flex: 1, marginLeft: 12 },
+
   badgeRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6, marginBottom: 6 },
   statusBadgeText: { fontSize: 11, fontWeight: '600', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
   typeBadge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
@@ -630,27 +643,33 @@ const styles = StyleSheet.create({
   typeBadgeText: { fontSize: 10, fontWeight: 'bold' },
   typeUpdateText: { color: '#8b5cf6' },
   typeRegisterText: { color: '#3b82f6' },
+
   storeNameText: { fontSize: 16, fontWeight: 'bold', color: '#111827' },
   ownerLabel: { fontSize: 12, color: '#6b7280', marginTop: 2 },
   dateLabel: { fontSize: 11, color: '#9ca3af', marginTop: 2 },
+
   expandBtn: { padding: 4, backgroundColor: '#f9fafb', borderRadius: 20, marginLeft: 10 },
+
   quickActionRow: { flexDirection: 'row', marginTop: 12, gap: 10, borderTopWidth: 1, borderTopColor: '#f3f4f6', paddingTop: 12 },
   miniBtnApprove: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: '#10b981', paddingVertical: 10, borderRadius: 8 },
   miniBtnReject: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: '#fee2e2', paddingVertical: 10, borderRadius: 8 },
   miniBtnTextApprove: { fontSize: 13, fontWeight: '700', color: '#fff' },
   miniBtnTextReject: { fontSize: 13, fontWeight: '700', color: '#ef4444' },
+
   expandedContent: { marginTop: 12, borderTopWidth: 1, borderTopColor: '#f3f4f6', paddingTop: 16 },
   detailSection: { marginBottom: 14 },
   detailTitle: { fontSize: 13, fontWeight: '600', color: '#6b7280', marginBottom: 6, marginLeft: 2 },
   detailBox: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#f9fafb', borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 10, padding: 12 },
   detailIcon: { marginRight: 8 },
   detailValue: { fontSize: 14, color: '#111827', flex: 1, lineHeight: 20 },
+
   changedBox: { backgroundColor: '#f0fdf4', borderWidth: 1, borderColor: '#bbf7d0', borderRadius: 10, padding: 12, flexDirection: 'column' },
   oldRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   oldText: { fontSize: 13, color: '#ef4444', textDecorationLine: 'line-through', flex: 1, lineHeight: 18 },
   arrowRow: { paddingLeft: 24, marginVertical: 4 },
   newRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   newText: { fontSize: 14, color: '#065f46', fontWeight: 'bold', flex: 1, lineHeight: 20 },
+
   imagePreviewBox: { width: '100%', height: 160, borderRadius: 10, overflow: 'hidden', borderWidth: 1, borderColor: '#e5e7eb' },
   previewImage: { width: '100%', height: '100%' },
   imageOverlay: { position: 'absolute', bottom: 10, right: 10, backgroundColor: 'rgba(0,0,0,0.6)', padding: 6, borderRadius: 20 },
@@ -658,8 +677,10 @@ const styles = StyleSheet.create({
   viewFullText: { color: '#fff', fontSize: 12, fontWeight: '500' },
   noImageBox: { backgroundColor: '#f9fafb', borderWidth: 1, borderColor: '#e5e7eb', borderStyle: 'dashed', borderRadius: 10, height: 100, alignItems: 'center', justifyContent: 'center' },
   noImageText: { color: '#9ca3af', fontSize: 13, marginTop: 8 },
+
   emptyState: { alignItems: 'center', marginTop: 40 },
   emptyText: { color: '#9ca3af' },
+
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: 20 },
   modalContent: { backgroundColor: '#fff', borderRadius: 16, padding: 24 },
   modalTitle: { fontSize: 18, fontWeight: 'bold', marginBottom: 16, color: '#111827' },
@@ -667,9 +688,12 @@ const styles = StyleSheet.create({
   modalActions: { flexDirection: 'row', gap: 12 },
   modalBtnCancel: { flex: 1, padding: 14, borderRadius: 10, backgroundColor: '#f3f4f6', alignItems: 'center' },
   modalBtnConfirm: { flex: 1, padding: 14, borderRadius: 10, backgroundColor: '#ef4444', alignItems: 'center' },
+
   imageModalOverlay: { flex: 1, backgroundColor: '#000', justifyContent: 'center', alignItems: 'center' },
   closeImageBtn: { position: 'absolute', top: 50, right: 20, zIndex: 10, padding: 10 },
   fullScreenImage: { width: '100%', height: '80%' },
+
+  // 🟢 เปลี่ยน paddingVertical เป็น paddingTop เพื่อรับกับ insets
   bottomNav: { flexDirection: 'row', backgroundColor: '#fff', paddingTop: 10, borderTopWidth: 1, borderTopColor: '#f3f4f6', position: 'absolute', bottom: 0, width: '100%' },
   navItem: { flex: 1, alignItems: 'center' },
   navLabel: { fontSize: 10, color: '#9ca3af', marginTop: 4 },
